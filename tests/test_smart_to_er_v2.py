@@ -191,3 +191,100 @@ def test_event_type_value_is_ca_scoped_and_lowercased():
     assert len(result) == 1
     assert result[0].value == "ca-with-caps_incidents_wildlife"
     assert result[0].display == "Incidents.Wildlife"
+
+
+# ── Choice/enum types ────────────────────────────────────────────
+
+
+def test_list_single_value_emits_enum_and_dropdown():
+    dm = {
+        "categories": [_category("c", attributes=[_cat_attr("color")])],
+        "attributes": [
+            _attr(
+                "color", "LIST", display="Color",
+                options=[_option("red", "Red"), _option("blue", "Blue")],
+            )
+        ],
+    }
+    schema = build_event_types_v2(
+        dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID
+    )[0].event_schema
+
+    json_prop = schema["json"]["properties"]["color"]
+    assert json_prop["type"] == "string"
+    assert json_prop["enum"] == ["red", "blue"]
+
+    ui_field = schema["ui"]["fields"]["color"]
+    assert ui_field["type"] == "CHOICE_LIST"
+    assert ui_field["inputType"] == "DROPDOWN"
+    assert ui_field["choices"] == {"red": "Red", "blue": "Blue"}
+
+
+def test_list_multi_value_emits_array_enum_and_checkbox():
+    dm = {
+        "categories": [
+            _category("c", is_multiple=True, attributes=[_cat_attr("tags")]),
+        ],
+        "attributes": [
+            _attr(
+                "tags", "LIST", display="Tags",
+                options=[_option("a"), _option("b")],
+            )
+        ],
+    }
+    schema = build_event_types_v2(
+        dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID
+    )[0].event_schema
+
+    json_prop = schema["json"]["properties"]["tags"]
+    assert json_prop["type"] == "array"
+    assert json_prop["items"] == {"type": "string", "enum": ["a", "b"]}
+
+    ui_field = schema["ui"]["fields"]["tags"]
+    assert ui_field["inputType"] == "CHECKBOX"
+
+
+def test_mlist_emits_array_enum_and_checkbox():
+    dm = {
+        "categories": [_category("c", attributes=[_cat_attr("species")])],
+        "attributes": [
+            _attr(
+                "species", "MLIST", display="Species",
+                options=[_option("lion"), _option("zebra")],
+            )
+        ],
+    }
+    schema = build_event_types_v2(
+        dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID
+    )[0].event_schema
+
+    json_prop = schema["json"]["properties"]["species"]
+    assert json_prop["type"] == "array"
+    assert json_prop["items"]["enum"] == ["lion", "zebra"]
+    assert schema["ui"]["fields"]["species"]["inputType"] == "CHECKBOX"
+
+
+def test_tree_flattens_to_leaf_options():
+    dm = {
+        "categories": [_category("c", attributes=[_cat_attr("region")])],
+        "attributes": [
+            _attr(
+                "region", "TREE", display="Region",
+                options=[
+                    _option("africa"),
+                    _option("africa.kenya"),
+                    _option("africa.kenya.nairobi"),
+                    _option("africa.tanzania"),
+                ],
+            )
+        ],
+    }
+    schema = build_event_types_v2(
+        dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID
+    )[0].event_schema
+
+    json_prop = schema["json"]["properties"]["region"]
+    assert json_prop["type"] == "string"
+    # Only leaves: africa.kenya.nairobi and africa.tanzania
+    assert set(json_prop["enum"]) == {"africa.kenya.nairobi", "africa.tanzania"}
+    assert schema["ui"]["fields"]["region"]["inputType"] == "DROPDOWN"
