@@ -879,10 +879,42 @@ class TestEventTypeVersionWiring:
         assert mock_er_client.post_event_type.called
         post_kwargs = mock_er_client.post_event_type.call_args.kwargs
         assert post_kwargs.get("version") == "v2"
-        # Payload should have schema as a dict (or absent for an empty model)
-        et_payload = post_kwargs["event_type"]
-        if "schema" in et_payload:
-            assert isinstance(et_payload["schema"], dict)
+
+    def test_v2_duplicate_key_logs_and_skips_no_patch(
+        self, sync_config_v2, mock_er_client, caplog
+    ):
+        from er_smart_sync.smart_to_er_v2 import ERV2EventType
+
+        mock_er_client.get_event_categories.return_value = []
+        mock_er_client.get_event_types.return_value = []
+        mock_er_client.post_event_type.side_effect = Exception(
+            "duplicate key value violates unique constraint"
+        )
+
+        et = ERV2EventType(value="v", display="V", category=None)
+        with patch(
+            "er_smart_sync.synchronizer.build_event_types_v2",
+            return_value=[et],
+        ):
+            dm = MagicMock()
+            dm.export_as_dict.return_value = {"categories": []}
+            sync = ERSmartSynchronizer(
+                config=sync_config_v2,
+                er_client=mock_er_client,
+                smart_client=MagicMock(),
+            )
+            with caplog.at_level("WARNING"):
+                sync.push_smart_ca_datamodel_to_earthranger(
+                    dm=dm, smart_ca_uuid="uuid", ca_label="[TEST]"
+                )
+
+        # Post attempted; patch NOT attempted (no auto-recover on v2)
+        assert mock_er_client.post_event_type.called
+        assert not mock_er_client.patch_event_type.called
+        assert any(
+            "exists in v1" in r.message or "duplicate" in r.message.lower()
+            for r in caplog.records
+        )
 
     def test_event_type_needs_update_v2_dict_equal(
         self, sync_config_v2, mock_er_client

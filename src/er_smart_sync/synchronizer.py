@@ -467,6 +467,16 @@ class ERSmartSynchronizer:
             return True
         except Exception as e:
             if "duplicate key" in str(e) or "already exists" in str(e):
+                if self._event_type_version == "v2":
+                    logger.warning(
+                        "Event type value %r already exists in this tenant "
+                        "(possibly under v1). Skipping; run ER's "
+                        "POST /api/v2.0/activity/eventtypes/migrate/ to "
+                        "convert legacy v1 records before retrying.",
+                        event_type.value,
+                        extra=dict(value=event_type.value),
+                    )
+                    return False
                 logger.warning(
                     "post_event_type hit existing record; patching instead",
                     extra=dict(value=event_type.value),
