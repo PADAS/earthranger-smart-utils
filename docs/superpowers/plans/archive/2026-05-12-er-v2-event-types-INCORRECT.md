@@ -1,5 +1,18 @@
 # EarthRanger v2 event types — Implementation Plan
 
+> **⚠ ARCHIVED — INCORRECT. Do not execute this plan.**
+>
+> This plan implemented `archive/2026-05-12-er-v2-event-types-design-INCORRECT.md`,
+> which prescribes a SMART → v2 schema mapping that ER's real v2 meta-schema
+> (`das/das/activity/schemas/eventtype_meta_schemas.py`) rejects. The plan was
+> executed and merged onto `feature/er-v2-event-types`; the resulting v2 builder
+> produces output that fails every POST against a v2 tenant with
+> `400 Invalid JSON Schema`. See the archived design doc for the per-field deltas.
+>
+> The v2 default in this repo has been reverted to v1 pending a redo. New spec is at
+> `docs/superpowers/specs/2026-05-12-er-v2-event-types-design.md`. This file is
+> preserved for archaeology only.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Teach `er-smart-sync` to create EarthRanger v2 event types (default) while keeping v1 reachable via a flag, and emit the correct v2 schema shape (JSON Schema 2020-12 + UI envelope) for every SMART attribute type.

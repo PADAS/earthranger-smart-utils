@@ -1,6 +1,35 @@
 # Design: EarthRanger v2 event types
 
-**Status:** Approved (design phase)
+> **⚠ ARCHIVED — INCORRECT. Do not implement from this document.**
+>
+> This spec was approved but never grounded in ER's actual v2 meta-schema
+> (`das/das/activity/schemas/eventtype_meta_schemas.py`). Smoke-testing
+> against a v2 tenant (line ~224, "Open questions / risks") was deferred
+> and never happened. The SMART → v2 schema mapping table at lines 107–118
+> is wrong on every row — every property shape this spec prescribes is
+> rejected by ER's `main_event_type_schema` validator with
+> `400 Invalid JSON Schema`.
+>
+> Specific deltas vs. the real meta-schema, for the record:
+> - Every field-type subschema requires `deprecated: <bool>` (this spec omits it).
+> - Single CHOICE_LIST must use `anyOf: [{"$ref": ...}, ...]`; the spec's inline `enum` is rejected.
+> - Multi CHOICE_LIST must use `items: {type:"string", anyOf:[...]}` plus `uniqueItems: true`; the spec's `items: {type:"string", enum:[...]}` is rejected.
+> - Top-level `json` envelope requires `unevaluatedProperties: false`, not `additionalProperties: false`.
+> - `ui` requires a `headers` key (even if empty); the spec omits it.
+> - Sections require `rightColumn`; the spec only emits `leftColumn`.
+> - UI field `type` enums are different: ER uses `NUMERIC` (not `NUMBER`) and `DATE_TIME` (not `TEXT`+`inputType:DATE`).
+> - All UI field schemas require `parent`; the spec omits it.
+> - v2 has no `is_active=False` concept (hard-delete via DELETE), so inactive event types should be skipped entirely, not POSTed with no schema.
+>
+> A new spec, grounded in the actual meta-schema, lives at
+> `docs/superpowers/specs/2026-05-12-er-v2-event-types-design.md` (the
+> file replacing this one — note the rename to the archive directory).
+> The choices-API follow-up that was deferred is now a hard prerequisite,
+> not optional: there is no inline-enum escape hatch in v2.
+>
+> Original status/author/date below preserved for history.
+
+**Status:** Approved (design phase) — **INVALIDATED 2026-05-12**
 **Author:** Claude (with @chrisdo)
 **Date:** 2026-05-12
 
