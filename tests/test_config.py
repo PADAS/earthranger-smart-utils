@@ -37,3 +37,35 @@ def test_er_config_defaults():
     assert cfg.login == ""
     assert cfg.token == ""
     assert cfg.client_id == "das_web_client"
+
+
+def test_er_config_event_type_version_defaults_to_v2():
+    cfg = EarthRangerConfig(id="i", endpoint="https://x/api/v1.0")
+    assert cfg.event_type_version == "v2"
+
+
+def test_er_config_event_type_version_accepts_v1():
+    cfg = EarthRangerConfig(
+        id="i", endpoint="https://x/api/v1.0", event_type_version="v1"
+    )
+    assert cfg.event_type_version == "v1"
+
+
+def test_er_config_event_type_version_accepts_dotted_aliases():
+    cfg = EarthRangerConfig(
+        id="i", endpoint="https://x/api/v1.0", event_type_version="v2.0"
+    )
+    assert cfg.event_type_version == "v2"
+
+    cfg = EarthRangerConfig(
+        id="i", endpoint="https://x/api/v1.0", event_type_version="V1"
+    )
+    assert cfg.event_type_version == "v1"
+
+
+def test_er_config_event_type_version_rejects_unknown():
+    import pytest
+    with pytest.raises(Exception):
+        EarthRangerConfig(
+            id="i", endpoint="https://x/api/v1.0", event_type_version="v3"
+        )
