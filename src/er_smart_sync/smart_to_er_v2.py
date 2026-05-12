@@ -10,6 +10,7 @@ happens in ``synchronizer.ERSmartSynchronizer`` based on
 
 from __future__ import annotations
 
+import copy
 import logging
 from typing import Any
 
@@ -194,9 +195,9 @@ def _build_field_blocks(
             # Choice and tree types arrive in a later task; skip for now.
             continue
 
-        json_prop = dict(SCALAR_JSON[smart_type])
+        json_prop = copy.deepcopy(SCALAR_JSON[smart_type])
         json_prop["title"] = attribute.display
-        ui_field = dict(SCALAR_UI[smart_type])
+        ui_field = copy.deepcopy(SCALAR_UI[smart_type])
 
         properties[key] = json_prop
         ui_fields[key] = ui_field
