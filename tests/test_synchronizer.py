@@ -47,7 +47,10 @@ class TestStaticHelpers:
             ERSmartSynchronizer.calculate_event_category_value(ca_label="")
 
     def test_get_identifier_from_ca_label(self):
-        assert ERSmartSynchronizer.get_identifier_from_ca_label("Some Name [SONM]") == "SONM"
+        assert (
+            ERSmartSynchronizer.get_identifier_from_ca_label("Some Name [SONM]")
+            == "SONM"
+        )
 
     def test_get_identifier_from_ca_label_no_brackets(self):
         assert ERSmartSynchronizer.get_identifier_from_ca_label("No Brackets") == ""
@@ -73,9 +76,7 @@ class TestDatamodelSync:
                 dm=None, smart_ca_uuid="uuid", ca_label="[TEST]"
             )
 
-    def test_creates_event_category_when_missing(
-        self, sync_config, mock_er_client
-    ):
+    def test_creates_event_category_when_missing(self, sync_config, mock_er_client):
         mock_er_client.get_event_categories.return_value = []
 
         dm = MagicMock()
@@ -247,7 +248,7 @@ class TestDatamodelSync:
             [existing_in_er],
         ]
         mock_er_client.post_event_type.side_effect = Exception(
-            'duplicate key value violates unique constraint '
+            "duplicate key value violates unique constraint "
             '"activity_eventtype_unique_value_across_tenants"'
         )
 
@@ -275,9 +276,7 @@ class TestDatamodelSync:
         assert sync.datamodel_stats["event_types_created"] == 0
         assert sync.datamodel_stats["event_types_updated"] == 1
 
-    def test_each_event_type_logged_at_debug(
-        self, sync_config, mock_er_client, caplog
-    ):
+    def test_each_event_type_logged_at_debug(self, sync_config, mock_er_client, caplog):
         # With -v on the CLI we route our logger to DEBUG, and each event
         # type should produce a log line — including unchanged ones — so
         # users can see exactly what's being checked.
@@ -528,19 +527,11 @@ class TestPatrolSkip:
         mock_publisher.publish.assert_not_called()
 
     def test_patrol_skip_reason_helper(self):
-        seg_no_start = MagicMock(
-            start_location=None, leader=MagicMock(id="x")
-        )
-        seg_no_leader = MagicMock(
-            start_location=MagicMock(), leader=None
-        )
-        seg_valid = MagicMock(
-            start_location=MagicMock(), leader=MagicMock(id="x")
-        )
+        seg_no_start = MagicMock(start_location=None, leader=MagicMock(id="x"))
+        seg_no_leader = MagicMock(start_location=MagicMock(), leader=None)
+        seg_valid = MagicMock(start_location=MagicMock(), leader=MagicMock(id="x"))
 
-        patrol_missing_start = MagicMock(
-            patrol_segments=[seg_valid, seg_no_start]
-        )
+        patrol_missing_start = MagicMock(patrol_segments=[seg_valid, seg_no_start])
         patrol_missing_leader = MagicMock(patrol_segments=[seg_no_leader])
         patrol_valid = MagicMock(patrol_segments=[seg_valid])
 
@@ -610,8 +601,7 @@ class TestBatchedEventFetch:
         ]
         # get_events returns full event details for all IDs in one call.
         mock_er_client.get_events.return_value = [
-            _event_dict(datetime.fromisoformat(now), serial_number=i)
-            for i in range(3)
+            _event_dict(datetime.fromisoformat(now), serial_number=i) for i in range(3)
         ]
         # Override the IDs so the matching keys line up.
         for i, eid in enumerate(event_ids):
@@ -658,15 +648,11 @@ class TestRetry:
 
         assert mock_er_client.post_event_category.call_count == 2
 
-    def test_retry_does_not_retry_on_bad_credentials(
-        self, sync_config, mock_er_client
-    ):
+    def test_retry_does_not_retry_on_bad_credentials(self, sync_config, mock_er_client):
         from erclient.er_errors import ERClientBadCredentials
 
         mock_er_client.get_event_categories.return_value = []
-        mock_er_client.post_event_category.side_effect = ERClientBadCredentials(
-            "nope"
-        )
+        mock_er_client.post_event_category.side_effect = ERClientBadCredentials("nope")
 
         dm = MagicMock()
         dm.export_as_dict.return_value = {"categories": []}
@@ -729,9 +715,7 @@ class TestJsonFileStateStore:
         from er_smart_sync.defaults import JsonFileStateStore
 
         store = JsonFileStateStore(path=str(tmp_path / "state.json"))
-        state = SyncState(
-            event_last_poll_at=datetime.now(tz=timezone.utc)
-        )
+        state = SyncState(event_last_poll_at=datetime.now(tz=timezone.utc))
         store.set_last_poll("int-1", state)
 
         # Re-read in a fresh store and confirm the saved value comes back.
@@ -745,9 +729,7 @@ class TestJsonFileStateStore:
         store = JsonFileStateStore(path=str(tmp_path / "state.json"))
         store.set_last_poll("int-1", SyncState())
 
-        leftovers = [
-            f for f in tmp_path.iterdir() if f.name.startswith(".")
-        ]
+        leftovers = [f for f in tmp_path.iterdir() if f.name.startswith(".")]
         assert leftovers == []
 
 
@@ -770,9 +752,7 @@ class TestEventTypeVersionWiring:
         )
         assert sync._event_type_version == "v1"
 
-    def test_synchronizer_v2_from_config(
-        self, sync_config_v2, mock_er_client
-    ):
+    def test_synchronizer_v2_from_config(self, sync_config_v2, mock_er_client):
         sync = ERSmartSynchronizer(
             config=sync_config_v2, er_client=mock_er_client, smart_client=MagicMock()
         )
@@ -787,13 +767,16 @@ class TestEventTypeVersionWiring:
         dm = MagicMock()
         dm.export_as_dict.return_value = {"categories": []}
 
-        with patch(
-            "er_smart_sync.synchronizer.build_event_types_v2",
-            return_value=[],
-        ) as v2_builder, patch(
-            "er_smart_sync.synchronizer.build_event_types",
-            return_value=[],
-        ) as v1_builder:
+        with (
+            patch(
+                "er_smart_sync.synchronizer.build_event_types_v2",
+                return_value=[],
+            ) as v2_builder,
+            patch(
+                "er_smart_sync.synchronizer.build_event_types",
+                return_value=[],
+            ) as v1_builder,
+        ):
             sync = ERSmartSynchronizer(
                 config=sync_config_v2,
                 er_client=mock_er_client,
@@ -815,13 +798,16 @@ class TestEventTypeVersionWiring:
         dm = MagicMock()
         dm.export_as_dict.return_value = {"categories": []}
 
-        with patch(
-            "er_smart_sync.synchronizer.build_event_types",
-            return_value=[],
-        ) as v1_builder, patch(
-            "er_smart_sync.synchronizer.build_event_types_v2",
-            return_value=[],
-        ) as v2_builder:
+        with (
+            patch(
+                "er_smart_sync.synchronizer.build_event_types",
+                return_value=[],
+            ) as v1_builder,
+            patch(
+                "er_smart_sync.synchronizer.build_event_types_v2",
+                return_value=[],
+            ) as v2_builder,
+        ):
             sync = ERSmartSynchronizer(
                 config=sync_config,
                 er_client=mock_er_client,
@@ -927,11 +913,15 @@ class TestEventTypeVersionWiring:
             smart_client=MagicMock(),
         )
         et = ERV2EventType(
-            value="v", display="V", category="c",
-            event_schema={"json": {"a": 1}, "ui": {}},
+            value="v",
+            display="V",
+            category="c",
+            event_schema={"json": {"a": 1}, "ui": {}},  # ty: ignore[unknown-argument]
         )
         existing = {
-            "value": "v", "display": "V", "is_active": True,
+            "value": "v",
+            "display": "V",
+            "is_active": True,
             "schema": {"json": {"a": 1}, "ui": {}},
         }
         assert sync._event_type_needs_update(et, existing) is False
@@ -947,11 +937,15 @@ class TestEventTypeVersionWiring:
             smart_client=MagicMock(),
         )
         et = ERV2EventType(
-            value="v", display="V", category="c",
-            event_schema={"json": {"a": 2}, "ui": {}},
+            value="v",
+            display="V",
+            category="c",
+            event_schema={"json": {"a": 2}, "ui": {}},  # ty: ignore[unknown-argument]
         )
         existing = {
-            "value": "v", "display": "V", "is_active": True,
+            "value": "v",
+            "display": "V",
+            "is_active": True,
             "schema": {"json": {"a": 1}, "ui": {}},
         }
         assert sync._event_type_needs_update(et, existing) is True

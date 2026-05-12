@@ -581,7 +581,9 @@ def test_cm_uuid_requires_cm_from_file():
     assert "--cm-from-file" in result.output
 
 
-def test_datamodel_event_type_version_v1_flag_overrides_config_default(tmp_path, monkeypatch):
+def test_datamodel_event_type_version_v1_flag_overrides_config_default(
+    tmp_path, monkeypatch
+):
     """--event-type-version v1 should produce a synchronizer with _event_type_version == 'v1'."""
     from click.testing import CliRunner
     from unittest.mock import MagicMock
@@ -592,13 +594,17 @@ def test_datamodel_event_type_version_v1_flag_overrides_config_default(tmp_path,
 
     def fake_make_sync(config, ctx=None):
         from er_smart_sync.synchronizer import ERSmartSynchronizer
+
         sync = ERSmartSynchronizer.__new__(ERSmartSynchronizer)
         sync._event_type_version = config.earthranger.event_type_version
         sync.sync_mode = "both"
         sync.datamodel_stats = {
-            "categories_created": 0, "categories_existing": 0,
-            "event_types_created": 0, "event_types_updated": 0,
-            "event_types_unchanged": 0, "event_types_skipped_by_mode": 0,
+            "categories_created": 0,
+            "categories_existing": 0,
+            "event_types_created": 0,
+            "event_types_updated": 0,
+            "event_types_unchanged": 0,
+            "event_types_skipped_by_mode": 0,
             "event_types_errored": 0,
         }
         # Stub out the network calls the command would make
@@ -624,11 +630,16 @@ def test_datamodel_event_type_version_v1_flag_overrides_config_default(tmp_path,
         main,
         [
             "datamodel",
-            "--from-file", str(dm_file),
-            "--er-endpoint", "https://x/api/v1.0",
-            "--er-token", "t",
-            "--er-id", "i",
-            "--event-type-version", "v1",
+            "--from-file",
+            str(dm_file),
+            "--er-endpoint",
+            "https://x/api/v1.0",
+            "--er-token",
+            "t",
+            "--er-id",
+            "i",
+            "--event-type-version",
+            "v1",
         ],
     )
     assert result.exit_code == 0, result.output
@@ -646,13 +657,17 @@ def test_datamodel_event_type_version_defaults_to_v2(tmp_path, monkeypatch):
 
     def fake_make_sync(config, ctx=None):
         from er_smart_sync.synchronizer import ERSmartSynchronizer
+
         sync = ERSmartSynchronizer.__new__(ERSmartSynchronizer)
         sync._event_type_version = config.earthranger.event_type_version
         sync.sync_mode = "both"
         sync.datamodel_stats = {
-            "categories_created": 0, "categories_existing": 0,
-            "event_types_created": 0, "event_types_updated": 0,
-            "event_types_unchanged": 0, "event_types_skipped_by_mode": 0,
+            "categories_created": 0,
+            "categories_existing": 0,
+            "event_types_created": 0,
+            "event_types_updated": 0,
+            "event_types_unchanged": 0,
+            "event_types_skipped_by_mode": 0,
             "event_types_errored": 0,
         }
         sync.push_smart_ca_datamodel_to_earthranger = lambda **kwargs: None
@@ -675,10 +690,14 @@ def test_datamodel_event_type_version_defaults_to_v2(tmp_path, monkeypatch):
         main,
         [
             "datamodel",
-            "--from-file", str(dm_file),
-            "--er-endpoint", "https://x/api/v1.0",
-            "--er-token", "t",
-            "--er-id", "i",
+            "--from-file",
+            str(dm_file),
+            "--er-endpoint",
+            "https://x/api/v1.0",
+            "--er-token",
+            "t",
+            "--er-id",
+            "i",
         ],
     )
     assert result.exit_code == 0, result.output
@@ -693,24 +712,28 @@ def test_inspect_datamodel_v2_prints_field_types(tmp_path, monkeypatch):
 
     dm_mock = MagicMock()
     dm_mock.export_as_dict.return_value = {
-        "categories": [{
-            "path": "incidents",
-            "hkeyPath": "incidents",
-            "display": "Incidents",
-            "is_multiple": False,
-            "is_active": True,
-            "attributes": [{"key": "color", "is_active": True}],
-        }],
-        "attributes": [{
-            "key": "color",
-            "type": "LIST",
-            "isrequired": False,
-            "display": "Color",
-            "options": [
-                {"key": "red", "display": "Red", "isActive": True},
-                {"key": "blue", "display": "Blue", "isActive": True},
-            ],
-        }],
+        "categories": [
+            {
+                "path": "incidents",
+                "hkeyPath": "incidents",
+                "display": "Incidents",
+                "is_multiple": False,
+                "is_active": True,
+                "attributes": [{"key": "color", "is_active": True}],
+            }
+        ],
+        "attributes": [
+            {
+                "key": "color",
+                "type": "LIST",
+                "isrequired": False,
+                "display": "Color",
+                "options": [
+                    {"key": "red", "display": "Red", "isActive": True},
+                    {"key": "blue", "display": "Blue", "isActive": True},
+                ],
+            }
+        ],
     }
     monkeypatch.setattr(
         "smartconnect.SmartClient.load_datamodel",
@@ -725,11 +748,16 @@ def test_inspect_datamodel_v2_prints_field_types(tmp_path, monkeypatch):
         main,
         [
             "inspect-datamodel",
-            "--er-endpoint", "https://er.example.com/api/v1.0",
-            "--er-token", "x",
-            "--from-file", str(dm_file),
-            "--ca-label", "Foasf [FOASF]",
-            "--event-type-version", "v2",
+            "--er-endpoint",
+            "https://er.example.com/api/v1.0",
+            "--er-token",
+            "x",
+            "--from-file",
+            str(dm_file),
+            "--ca-label",
+            "Foasf [FOASF]",
+            "--event-type-version",
+            "v2",
         ],
     )
     assert result.exit_code == 0, result.output

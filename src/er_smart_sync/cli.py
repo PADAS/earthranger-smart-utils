@@ -88,7 +88,9 @@ def _make_synchronizer(
     if dry_run:
         sync.er_client = DryRunERClient(sync.er_client)
         sync.publisher = NullPublisher()
-        click.echo("Dry run mode: no writes will be sent to ER or to the broker.", err=True)
+        click.echo(
+            "Dry run mode: no writes will be sent to ER or to the broker.", err=True
+        )
     return sync
 
 
@@ -111,7 +113,9 @@ def er_options(f):
     f = click.option("--er-token", help="EarthRanger API token")(f)
     f = click.option("--er-username", default="", help="EarthRanger username")(f)
     f = click.option("--er-password", default="", help="EarthRanger password")(f)
-    f = click.option("--er-id", default="cli", help="Integration ID for state tracking")(f)
+    f = click.option(
+        "--er-id", default="cli", help="Integration ID for state tracking"
+    )(f)
     return f
 
 
@@ -134,9 +138,7 @@ def _build_config(
         config = _load_config_from_file(config_file)
     else:
         if not er_endpoint:
-            raise click.UsageError(
-                "Either --config or --er-endpoint is required."
-            )
+            raise click.UsageError("Either --config or --er-endpoint is required.")
         if not er_token and not (er_username and er_password):
             raise click.UsageError(
                 "EarthRanger auth requires either --er-token or both "
@@ -187,15 +189,43 @@ def _validate_config(config: SyncConfig) -> None:
 
 
 @main.command()
-@click.option("--config", "config_file", type=click.Path(exists=True), help="YAML config file")
+@click.option(
+    "--config", "config_file", type=click.Path(exists=True), help="YAML config file"
+)
 @smart_options
 @er_options
-@click.option("--smart-ca-uuid", multiple=True, help="Conservation area UUID(s) to sync")
-@click.option("--from-file", "datamodel_file", type=click.Path(exists=True), help="Load data model from local XML file instead of SMART API")
-@click.option("--cm-from-file", "cm_file", type=click.Path(exists=True), help="Load configurable model from local XML file (used with --from-file)")
-@click.option("--cm-uuid", "cm_uuid", default=None, help="Configurable-model UUID. Required when loading multiple configurable models for the same SMART CA to avoid event-type value collisions. Defaults to the zero UUID.")
-@click.option("--include-base-datamodel", is_flag=True, default=False, help="Also push the base data model as its own ER event category in addition to the configurable model. No effect unless --cm-from-file is given.")
-@click.option("--ca-label", default="[SMART-IMPORT]", help="Category label (used when --from-file)")
+@click.option(
+    "--smart-ca-uuid", multiple=True, help="Conservation area UUID(s) to sync"
+)
+@click.option(
+    "--from-file",
+    "datamodel_file",
+    type=click.Path(exists=True),
+    help="Load data model from local XML file instead of SMART API",
+)
+@click.option(
+    "--cm-from-file",
+    "cm_file",
+    type=click.Path(exists=True),
+    help="Load configurable model from local XML file (used with --from-file)",
+)
+@click.option(
+    "--cm-uuid",
+    "cm_uuid",
+    default=None,
+    help="Configurable-model UUID. Required when loading multiple configurable models for the same SMART CA to avoid event-type value collisions. Defaults to the zero UUID.",
+)
+@click.option(
+    "--include-base-datamodel",
+    is_flag=True,
+    default=False,
+    help="Also push the base data model as its own ER event category in addition to the configurable model. No effect unless --cm-from-file is given.",
+)
+@click.option(
+    "--ca-label",
+    default="[SMART-IMPORT]",
+    help="Category label (used when --from-file)",
+)
 @click.option(
     "--mode",
     type=click.Choice(["both", "create-only", "update-only"]),
@@ -322,12 +352,16 @@ def datamodel(
 
 
 @main.command()
-@click.option("--config", "config_file", type=click.Path(exists=True), help="YAML config file")
+@click.option(
+    "--config", "config_file", type=click.Path(exists=True), help="YAML config file"
+)
 @smart_options
 @er_options
 @click.option("--smart-ca-uuid", multiple=True, help="Conservation area UUID(s)")
 @click.option("--topic", default="", help="Pub/Sub topic for publishing events")
-@click.option("--state-file", default="/tmp/er-smart-sync-state.json", help="Path to state file")
+@click.option(
+    "--state-file", default="/tmp/er-smart-sync-state.json", help="Path to state file"
+)
 @click.pass_context
 def events(
     ctx,
@@ -375,12 +409,16 @@ def events(
 
 
 @main.command()
-@click.option("--config", "config_file", type=click.Path(exists=True), help="YAML config file")
+@click.option(
+    "--config", "config_file", type=click.Path(exists=True), help="YAML config file"
+)
 @smart_options
 @er_options
 @click.option("--smart-ca-uuid", multiple=True, help="Conservation area UUID(s)")
 @click.option("--topic", default="", help="Pub/Sub topic for publishing patrols")
-@click.option("--state-file", default="/tmp/er-smart-sync-state.json", help="Path to state file")
+@click.option(
+    "--state-file", default="/tmp/er-smart-sync-state.json", help="Path to state file"
+)
 @click.pass_context
 def patrols(
     ctx,
@@ -520,7 +558,9 @@ earthranger:
 
 
 @main.command("validate-config")
-@click.option("--config", "config_file", type=click.Path(exists=True), help="YAML config file")
+@click.option(
+    "--config", "config_file", type=click.Path(exists=True), help="YAML config file"
+)
 @smart_options
 @er_options
 def validate_config_cmd(
@@ -562,11 +602,13 @@ def validate_config_cmd(
     if config.smart.endpoint:
         # Hitting any cheap SMART endpoint is enough to validate auth.
         smart_ok = _try_call(
-            lambda: list(config.smart.ca_uuids)
-            and sync.smart_client.get_conservation_area(
-                ca_uuid=config.smart.ca_uuids[0]
-            )
-            or sync.smart_client.get_conservation_area(ca_uuid="probe"),
+            lambda: (
+                list(config.smart.ca_uuids)
+                and sync.smart_client.get_conservation_area(
+                    ca_uuid=config.smart.ca_uuids[0]
+                )
+                or sync.smart_client.get_conservation_area(ca_uuid="probe")
+            ),
             label=f"SMART Connect {config.smart.endpoint}",
             allow_404=True,
         )
@@ -595,7 +637,9 @@ def _try_call(fn, *, label: str, allow_404: bool = False) -> bool:
 
 
 @main.command("list-cas")
-@click.option("--config", "config_file", type=click.Path(exists=True), help="YAML config file")
+@click.option(
+    "--config", "config_file", type=click.Path(exists=True), help="YAML config file"
+)
 @smart_options
 @er_options
 def list_cas_cmd(
@@ -676,7 +720,9 @@ def _extract_id(label: str) -> str:
 
 
 @main.command("inspect-datamodel")
-@click.option("--config", "config_file", type=click.Path(exists=True), help="YAML config file")
+@click.option(
+    "--config", "config_file", type=click.Path(exists=True), help="YAML config file"
+)
 @smart_options
 @er_options
 @click.option("--smart-ca-uuid", help="Conservation area UUID to inspect")
@@ -770,9 +816,7 @@ def inspect_datamodel_cmd(
         ca = sclient.get_conservation_area(ca_uuid=smart_ca_uuid)
         ca_label = ca.label
     else:
-        raise click.UsageError(
-            "Either --from-file or --smart-ca-uuid is required."
-        )
+        raise click.UsageError("Either --from-file or --smart-ca-uuid is required.")
 
     if cm_uuid and not cm_file:
         raise click.UsageError("--cm-uuid requires --cm-from-file")
@@ -791,6 +835,7 @@ def inspect_datamodel_cmd(
 
     if event_type_version == "v2":
         from .smart_to_er_v2 import build_event_types_v2
+
         event_types = build_event_types_v2(
             dm=dm.export_as_dict(),
             cm=cm.export_as_dict() if cm else None,
@@ -800,6 +845,7 @@ def inspect_datamodel_cmd(
         _print_event_type_summary_v2(event_types, ca_label=ca_label)
     else:
         from .smart_to_er import build_event_types
+
         event_types = build_event_types(
             dm=dm.export_as_dict(),
             cm=cm.export_as_dict() if cm else None,
