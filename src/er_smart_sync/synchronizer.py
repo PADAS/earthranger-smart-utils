@@ -111,6 +111,15 @@ class ERSmartSynchronizer:
         # Drives whether create_or_update_er_event_types skips creates or updates.
         self.sync_mode: str = "both"
         self._event_type_version: str = config.earthranger.event_type_version
+        if self._event_type_version == "v2":
+            logger.warning(
+                "event_type_version='v2' selected, but the v2 builder is "
+                "experimental and known to produce schemas that fail ER's v2 "
+                "meta-schema validation (every CHOICE_LIST attribute, every "
+                "field's missing `deprecated` flag, wrong UI types, etc.). "
+                "Expect datamodel sync to fail. See "
+                "docs/superpowers/specs/ for the current state of v2 work."
+            )
         # Datamodel-sync run summary counters, populated by create_or_update_er_event_types.
         self.datamodel_stats: dict[str, int] = {
             "categories_created": 0,
@@ -574,9 +583,7 @@ class ERSmartSynchronizer:
                         # Fell back to patch because of a duplicate-value race on v1.
                         self.datamodel_stats["event_types_updated"] += 1
                     elif outcome == "skipped":
-                        self.datamodel_stats[
-                            "event_types_skipped_by_conflict"
-                        ] += 1
+                        self.datamodel_stats["event_types_skipped_by_conflict"] += 1
                     else:
                         self.datamodel_stats["event_types_errored"] += 1
                 elif self._event_type_needs_update(event_type, existing_er_event_type):

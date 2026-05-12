@@ -186,26 +186,18 @@ That creates two ER event categories — one for the base data model and one for
 
 ### Event type version
 
-EarthRanger supports two event-type API versions: v1 (legacy) and v2 (current).
-By default `er-smart-sync` creates **v2 event types**, which use the JSON Schema
-2020-12 envelope (`json` + `ui` blocks) and a richer set of field types
-(`TEXT`, `NUMBER`, `BOOLEAN`, `CHOICE_LIST`, `ATTACHMENT`, etc.).
+EarthRanger supports two event-type API versions: v1 (legacy, still fully
+supported by ER) and v2 (newer JSON-Schema-2020-12 shape). By default
+`er-smart-sync` creates **v1 event types**, which is the only version this
+tool currently produces correctly.
 
-Override with `--event-type-version v1` on the `datamodel` or `inspect-datamodel`
-commands, or with `event_type_version: v1` under `earthranger:` in your config.
-
-EarthRanger enforces a tenant-wide unique constraint on event-type `value`
-across **both** versions. If a previous run created v1 event types and you
-re-run with v2, you'll get duplicate-key conflicts. `er-smart-sync` logs and
-skips these — to convert existing v1 records to v2, run EarthRanger's
-server-side migrate endpoint:
-
-```
-POST /api/v2.0/activity/eventtypes/migrate/
-```
-
-(Tooling around that endpoint is tracked as a follow-up; you can call it
-directly via `curl` or the ER admin UI today.)
+`--event-type-version v2` and `event_type_version: v2` in YAML are wired
+through and will select a v2 code path, but the v2 builder in this repo is
+**experimental and incomplete**: it does not pass ER's v2 meta-schema and
+every event type POST is rejected with `400 Invalid JSON Schema`. Selecting
+v2 will log a warning at startup; do not use it against a production tenant
+until the v2 work is properly rebuilt against the real ER meta-schema (see
+`docs/superpowers/specs/`).
 
 ---
 

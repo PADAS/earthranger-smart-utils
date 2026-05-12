@@ -236,7 +236,10 @@ def _validate_config(config: SyncConfig) -> None:
     "--event-type-version",
     type=click.Choice(["v1", "v2"]),
     default=None,
-    help="EarthRanger event-type API version. Overrides the value in --config or the default (v2).",
+    help=(
+        "EarthRanger event-type API version. Overrides --config or the default (v1). "
+        "v2 is experimental and currently fails ER's v2 meta-schema validation."
+    ),
 )
 @click.pass_context
 def datamodel(
@@ -549,11 +552,13 @@ earthranger:
   # Defaults to "das_web_client".
   client_id: das_web_client
 
-  # EarthRanger event-type API version: "v1" or "v2". Default: v2.
-  # v2 is the current EarthRanger event-type shape (JSON Schema 2020-12 +
-  # UI envelope). v1 is the legacy shape and is still supported for tenants
-  # that haven't enabled v2.
-  event_type_version: v2
+  # EarthRanger event-type API version: "v1" or "v2". Default: v1.
+  # v1 is the legacy shape and is what this tool currently produces correctly.
+  # v2 is the newer EarthRanger event-type shape (JSON Schema 2020-12 + UI
+  # envelope). The v2 builder in this repo is incomplete and known to fail
+  # ER's v2 meta-schema validation; do not use it without first reading
+  # docs/superpowers/specs/ for the current state of the v2 work.
+  event_type_version: v1
 """
 
 
@@ -752,8 +757,11 @@ def _extract_id(label: str) -> str:
 @click.option(
     "--event-type-version",
     type=click.Choice(["v1", "v2"]),
-    default="v2",
-    help="Which event-type schema shape to print. Default: v2.",
+    default="v1",
+    help=(
+        "Which event-type schema shape to print. Default: v1. "
+        "(v2 builder is experimental; its output does not pass ER's v2 meta-schema.)"
+    ),
 )
 def inspect_datamodel_cmd(
     config_file,
