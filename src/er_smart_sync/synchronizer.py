@@ -33,6 +33,7 @@ from .defaults import (
     NullTracing,
 )
 from .smart_to_er import build_event_types
+from .smart_to_er_v2 import build_event_types_v2
 from .utils import unicode_to_ascii
 
 logger = logging.getLogger(__name__)
@@ -241,7 +242,12 @@ class ERSmartSynchronizer:
         cdm_dict = cm.export_as_dict() if cm else None
 
         ca_identifier = self.get_identifier_from_ca_label(ca_label)
-        event_types = build_event_types(
+        builder = (
+            build_event_types_v2
+            if self._event_type_version == "v2"
+            else build_event_types
+        )
+        event_types = builder(
             dm=dm_dict,
             cm=cdm_dict,
             ca_uuid=smart_ca_uuid,

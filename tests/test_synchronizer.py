@@ -777,3 +777,59 @@ class TestEventTypeVersionWiring:
             config=sync_config_v2, er_client=mock_er_client, smart_client=MagicMock()
         )
         assert sync._event_type_version == "v2"
+
+    def test_push_smart_ca_uses_v2_builder_when_configured(
+        self, sync_config_v2, mock_er_client
+    ):
+        mock_er_client.get_event_categories.return_value = []
+        mock_er_client.get_event_types.return_value = []
+
+        dm = MagicMock()
+        dm.export_as_dict.return_value = {"categories": []}
+
+        with patch(
+            "er_smart_sync.synchronizer.build_event_types_v2",
+            return_value=[],
+        ) as v2_builder, patch(
+            "er_smart_sync.synchronizer.build_event_types",
+            return_value=[],
+        ) as v1_builder:
+            sync = ERSmartSynchronizer(
+                config=sync_config_v2,
+                er_client=mock_er_client,
+                smart_client=MagicMock(),
+            )
+            sync.push_smart_ca_datamodel_to_earthranger(
+                dm=dm, smart_ca_uuid="uuid", ca_label="[TEST]"
+            )
+
+        v2_builder.assert_called_once()
+        v1_builder.assert_not_called()
+
+    def test_push_smart_ca_uses_v1_builder_when_configured(
+        self, sync_config, mock_er_client
+    ):
+        mock_er_client.get_event_categories.return_value = []
+        mock_er_client.get_event_types.return_value = []
+
+        dm = MagicMock()
+        dm.export_as_dict.return_value = {"categories": []}
+
+        with patch(
+            "er_smart_sync.synchronizer.build_event_types",
+            return_value=[],
+        ) as v1_builder, patch(
+            "er_smart_sync.synchronizer.build_event_types_v2",
+            return_value=[],
+        ) as v2_builder:
+            sync = ERSmartSynchronizer(
+                config=sync_config,
+                er_client=mock_er_client,
+                smart_client=MagicMock(),
+            )
+            sync.push_smart_ca_datamodel_to_earthranger(
+                dm=dm, smart_ca_uuid="uuid", ca_label="[TEST]"
+            )
+
+        v1_builder.assert_called_once()
+        v2_builder.assert_not_called()
