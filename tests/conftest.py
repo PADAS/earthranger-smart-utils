@@ -38,12 +38,29 @@ def er_config():
         id="test-integration-id",
         endpoint="https://test.pamdas.org/api/v1.0",
         token="test-token",
+        event_type_version="v1",
+    )
+
+
+@pytest.fixture
+def er_config_v2():
+    return EarthRangerConfig(
+        id="test-integration-id-v2",
+        endpoint="https://test.pamdas.org/api/v1.0",
+        token="test-token",
+        event_type_version="v2",
     )
 
 
 @pytest.fixture
 def sync_config(smart_config, er_config):
     return SyncConfig(smart=smart_config, earthranger=er_config)
+
+
+@pytest.fixture
+def sync_config_v2(smart_config, er_config_v2):
+    from er_smart_sync.config import SyncConfig
+    return SyncConfig(smart=smart_config, earthranger=er_config_v2)
 
 
 @pytest.fixture
