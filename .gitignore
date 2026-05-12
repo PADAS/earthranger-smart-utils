@@ -1,0 +1,27 @@
+# Virtualenvs
+.venv/
+venv/
+env/
+
+# Python bytecode and packaging
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+build/
+dist/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.ty_cache/
+
+# OS / editor
+.DS_Store
+*.swp
+
+# Local secrets / state
+.env
+state.json
+/tmp/

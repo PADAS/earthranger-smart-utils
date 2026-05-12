@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "er-smart-sync"
+version = "0.1.0"
+description = "Synchronize SMART Connect data models, events, and patrols with EarthRanger"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+dependencies = [
+    "earthranger-client",
+    "smartconnect-client @ https://github.com/PADAS/smartconnect-client/releases/download/v1.11.0/smartconnect_client-1.11.0-py3-none-any.whl",
+    "gundi-core>=1.11.0",
+    "pydantic>=1.10,<2.0",
+    "packaging",
+    "click",
+    "pyyaml",
+]
+
+[project.optional-dependencies]
+gcp = ["google-cloud-pubsub", "google-cloud-storage"]
+tracing = ["opentelemetry-api", "opentelemetry-sdk"]
+dev = [
+    "pytest",
+    "pytest-mock",
+    "ruff",
+    "ty",
+]
+
+[project.scripts]
+er-smart-sync = "er_smart_sync.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+src = ["src"]
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["er_smart_sync"]
+
+[tool.ty.environment]
+extra-paths = ["src"]

@@ -1,0 +1,55 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "sync junglekeepers-peru.pamdas.org",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/.venv/bin/er-smart-sync",
+            "args": [
+                "datamodel",
+                "--smart-language",
+                "es",
+                "--er-token",
+                "98ILsqkxMA0R9MSK7Kl6nZLBQ9SKAI",
+                "--er-endpoint",
+                "https://junglekeepers-peru.pamdas.org",
+                "--smart-ca-uuid",
+                "SMART-IMPORT",
+                "--from-file",
+                "/Users/chrisdo/junglekeepers-peru.datamodel.xml",
+                "--ca-label",
+                "[SMART]",
+                "--cm-from-file",
+                "/Users/chrisdo/junglekeepers-peru.cm.xml"
+            ],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "sync ujugkulan-np.pamdas.org",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/.venv/bin/er-smart-sync",
+            "args": [
+                "datamodel",
+                "--smart-language",
+                "in",
+                "--er-token",
+                "df7cddebb00c8e509ba820022b6c730d3c3414c6",
+                "--er-endpoint",
+                "https://ujungkulon-np.pamdas.org",
+                "--smart-ca-uuid",
+                "SMART-IMPORT",
+                "--from-file",
+                "/Users/chrisdo/uknp-datamodel.xml",
+                "--ca-label",
+                "SMART-IMPORT"
+            ],
+            "console": "integratedTerminal"
+        }
+
+    ]
+}
