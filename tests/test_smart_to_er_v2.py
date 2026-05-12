@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from er_smart_sync.smart_to_er_v2 import ERV2EventType, build_event_types_v2
 
 CA_UUID = "ca-1234"
