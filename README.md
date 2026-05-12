@@ -94,4 +94,4 @@ ty check               # type check
 
 ## License
 
-MIT. See `pyproject.toml`.
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE).
