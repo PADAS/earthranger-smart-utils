@@ -109,6 +109,7 @@ class ERSmartSynchronizer:
         # Datamodel-sync mode: "both", "create-only", or "update-only".
         # Drives whether create_or_update_er_event_types skips creates or updates.
         self.sync_mode: str = "both"
+        self._event_type_version: str = config.earthranger.event_type_version
         # Datamodel-sync run summary counters, populated by create_or_update_er_event_types.
         self.datamodel_stats: dict[str, int] = {
             "categories_created": 0,
