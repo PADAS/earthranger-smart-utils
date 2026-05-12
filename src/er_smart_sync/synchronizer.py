@@ -415,7 +415,7 @@ class ERSmartSynchronizer:
         return ""
 
     def _event_type_needs_update(
-        self, event_type: EREventType, existing_er_event_type: dict
+        self, event_type, existing_er_event_type: dict
     ) -> bool:
         if (
             event_type.is_active != existing_er_event_type.get("is_active")
@@ -424,12 +424,21 @@ class ERSmartSynchronizer:
             return True
 
         if event_type.is_active and event_type.event_schema:
-            new_schema = json.loads(event_type.event_schema).get("schema")
-            existing_schema = json.loads(
-                existing_er_event_type.get("schema", "{}")
-            ).get("schema")
-            if not er_event_type_schemas_equal(new_schema, existing_schema):
-                return True
+            if self._event_type_version == "v2":
+                new_schema = event_type.event_schema
+                existing_schema = existing_er_event_type.get("schema") or {}
+                if not isinstance(existing_schema, dict):
+                    # Defensive: shouldn't happen on v2 endpoint but guard anyway.
+                    existing_schema = {}
+                if new_schema != existing_schema:
+                    return True
+            else:
+                new_schema = json.loads(event_type.event_schema).get("schema")
+                existing_schema = json.loads(
+                    existing_er_event_type.get("schema", "{}")
+                ).get("schema")
+                if not er_event_type_schemas_equal(new_schema, existing_schema):
+                    return True
 
         return False
 
