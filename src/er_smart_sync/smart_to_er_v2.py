@@ -178,7 +178,6 @@ def _build_field_blocks(
     is_multiple: bool,
     attribute_configs: list | None,
 ) -> tuple[dict, dict, list[str]]:
-    """Return (json.properties, ui.fields, field_order_for_section)."""
     properties: dict[str, dict] = {}
     ui_fields: dict[str, dict] = {}
     order: list[str] = []
@@ -191,19 +190,106 @@ def _build_field_blocks(
             continue
 
         smart_type = attribute.type
-        if smart_type not in SCALAR_JSON:
-            # Choice and tree types arrive in a later task; skip for now.
-            continue
+        options = list(attribute.options or [])
+        options_cfg = _options_config_for(attribute_configs, key)
 
-        json_prop = copy.deepcopy(SCALAR_JSON[smart_type])
-        json_prop["title"] = attribute.display
-        ui_field = copy.deepcopy(SCALAR_UI[smart_type])
+        if options:
+            if options_cfg is not None:
+                options = _filter_options_by_config(options, options_cfg)
+            elif smart_type == "TREE":
+                options = _leaf_options(options)
+            # else: keep all options as-is for LIST/MLIST
+
+        json_prop, ui_field = _build_property_pair(
+            smart_type=smart_type,
+            display=attribute.display,
+            options=options,
+            is_multiple=is_multiple,
+        )
+        if json_prop is None:
+            continue
 
         properties[key] = json_prop
         ui_fields[key] = ui_field
         order.append(key)
 
     return properties, ui_fields, order
+
+
+def _build_property_pair(
+    *,
+    smart_type: str,
+    display: str,
+    options: list,
+    is_multiple: bool,
+) -> tuple[dict | None, dict | None]:
+    """Return (json_property, ui_field) or (None, None) to skip."""
+    if smart_type in SCALAR_JSON and not options:
+        return (
+            {**copy.deepcopy(SCALAR_JSON[smart_type]), "title": display},
+            copy.deepcopy(SCALAR_UI[smart_type]),
+        )
+
+    if not options:
+        logger.warning("Unknown SMART type %r; emitting string", smart_type)
+        return (
+            {"type": "string", "title": display},
+            {"type": "TEXT", "inputType": "SHORT_TEXT"},
+        )
+
+    keys = [o.key for o in options]
+    choices = {o.key: o.display for o in options}
+    is_array = smart_type == "MLIST" or (smart_type == "LIST" and is_multiple)
+
+    if is_array:
+        json_prop = {
+            "type": "array",
+            "title": display,
+            "items": {"type": "string", "enum": keys},
+        }
+        ui_field = {
+            "type": "CHOICE_LIST",
+            "inputType": "CHECKBOX",
+            "choices": choices,
+        }
+    else:
+        json_prop = {
+            "type": "string",
+            "title": display,
+            "enum": keys,
+        }
+        ui_field = {
+            "type": "CHOICE_LIST",
+            "inputType": "DROPDOWN",
+            "choices": choices,
+        }
+    return json_prop, ui_field
+
+
+def _options_config_for(attribute_configs: list | None, key: str) -> list | None:
+    if not attribute_configs:
+        return None
+    cfg = next((c for c in attribute_configs if c.get("key") == key), None)
+    return cfg.get("options") if cfg else None
+
+
+def _filter_options_by_config(options: list, options_config: list) -> list:
+    """Keep options the configurable-model overlay marks active, preserving CM order."""
+    kept = []
+    for opt_cfg in options_config:
+        key = opt_cfg.get("key")
+        if not key or not opt_cfg.get("isActive"):
+            continue
+        match = next((o for o in options if o.key == key), None)
+        if match:
+            kept.append(match)
+    return kept
+
+
+def _leaf_options(options: list) -> list:
+    """Filter to leaf options only (for TREE-shaped option sets)."""
+    keys = [o.key for o in options]
+    return [o for o in options if _is_leaf_node(keys, o.key)]
 
 
 def _is_leaf_node(node_paths: list[str], cur_node: str) -> bool:
