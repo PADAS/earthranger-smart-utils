@@ -372,3 +372,16 @@ def test_configurable_model_event_type_value_includes_cm_uuid():
         dm=dm, cm=cm, ca_uuid="ca-1", ca_identifier=CA_ID
     )
     assert result[0].value == "ca-1_abcd-cm_wildlife"
+
+
+def test_event_type_category_is_settable_post_build():
+    dm = {
+        "categories": [_category("c", attributes=[_cat_attr("a")])],
+        "attributes": [_attr("a", "TEXT")],
+    }
+    et = build_event_types_v2(
+        dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID
+    )[0]
+    et.category = "foasf"
+    payload = et.dict(by_alias=True, exclude_none=True)
+    assert payload["category"] == "foasf"
