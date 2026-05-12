@@ -288,3 +288,33 @@ def test_tree_flattens_to_leaf_options():
     # Only leaves: africa.kenya.nairobi and africa.tanzania
     assert set(json_prop["enum"]) == {"africa.kenya.nairobi", "africa.tanzania"}
     assert schema["ui"]["fields"]["region"]["inputType"] == "DROPDOWN"
+
+
+def test_inactive_attribute_marked_deprecated_and_kept_in_section():
+    dm = {
+        "categories": [
+            _category(
+                "c",
+                attributes=[
+                    _cat_attr("active_attr", is_active=True),
+                    _cat_attr("retired_attr", is_active=False),
+                ],
+            )
+        ],
+        "attributes": [
+            _attr("active_attr", "TEXT", display="Active"),
+            _attr("retired_attr", "TEXT", display="Retired"),
+        ],
+    }
+    schema = build_event_types_v2(
+        dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID
+    )[0].event_schema
+
+    assert schema["json"]["properties"]["retired_attr"]["deprecated"] is True
+    assert "deprecated" not in schema["json"]["properties"]["active_attr"]
+
+    # Both fields still listed in the form section
+    leftCol = schema["ui"]["sections"]["section-1"]["leftColumn"]
+    names = [item["name"] for item in leftCol]
+    assert "active_attr" in names
+    assert "retired_attr" in names

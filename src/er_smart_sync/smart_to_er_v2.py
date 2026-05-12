@@ -210,6 +210,9 @@ def _build_field_blocks(
         if json_prop is None:
             continue
 
+        if not cat_attr.is_active:
+            json_prop["deprecated"] = True
+
         properties[key] = json_prop
         ui_fields[key] = ui_field
         order.append(key)
