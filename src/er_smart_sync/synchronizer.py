@@ -165,7 +165,9 @@ class ERSmartSynchronizer:
         # the prior CA's writes.
         self._er_event_categories_cache = self.er_client.get_event_categories()
         self._er_event_types_cache = self.er_client.get_event_types(
-            include_inactive=True, include_schema=True
+            include_inactive=True,
+            include_schema=True,
+            version=self._event_type_version,
         )
         try:
             for idx, ca_uuid in enumerate(ca_uuids, start=1):
@@ -451,6 +453,7 @@ class ERSmartSynchronizer:
             _retry(
                 self.er_client.post_event_type,
                 event_type=event_type.dict(by_alias=True, exclude_none=True),
+                version=self._event_type_version,
             )
             return True
         except Exception as e:
@@ -482,7 +485,9 @@ class ERSmartSynchronizer:
         """
         try:
             fresh = self.er_client.get_event_types(
-                include_inactive=True, include_schema=True
+                include_inactive=True,
+                include_schema=True,
+                version=self._event_type_version,
             )
         except Exception:
             logger.exception("Failed to refetch event types after conflict")
@@ -507,6 +512,7 @@ class ERSmartSynchronizer:
             _retry(
                 self.er_client.patch_event_type,
                 event_type=event_type.dict(by_alias=True, exclude_none=True),
+                version=self._event_type_version,
             )
         except Exception as e:
             logger.exception(
@@ -529,7 +535,9 @@ class ERSmartSynchronizer:
             existing_event_types = self._er_event_types_cache
         else:
             existing_event_types = self.er_client.get_event_types(
-                include_inactive=True, include_schema=True
+                include_inactive=True,
+                include_schema=True,
+                version=self._event_type_version,
             )
         logger.debug(
             "Fetched %d existing event types from ER for category %s",

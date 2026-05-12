@@ -833,3 +833,53 @@ class TestEventTypeVersionWiring:
 
         v1_builder.assert_called_once()
         v2_builder.assert_not_called()
+
+    def test_v2_get_event_types_passes_version_kwarg(
+        self, sync_config_v2, mock_er_client
+    ):
+        mock_er_client.get_event_categories.return_value = []
+        mock_er_client.get_event_types.return_value = []
+
+        sync = ERSmartSynchronizer(
+            config=sync_config_v2,
+            er_client=mock_er_client,
+            smart_client=MagicMock(),
+        )
+        sync.config.smart.ca_uuids = []  # no CAs to iterate, snapshot still runs
+        sync.synchronize_datamodel()
+
+        get_calls = mock_er_client.get_event_types.call_args_list
+        # snapshot at top of synchronize_datamodel must pass version="v2"
+        assert any(c.kwargs.get("version") == "v2" for c in get_calls)
+
+    def test_v2_post_event_type_passes_version_kwarg(
+        self, sync_config_v2, mock_er_client
+    ):
+        mock_er_client.get_event_categories.return_value = []
+        mock_er_client.get_event_types.return_value = []
+
+        from er_smart_sync.smart_to_er_v2 import ERV2EventType
+
+        et = ERV2EventType(value="v", display="V", category=None)
+        with patch(
+            "er_smart_sync.synchronizer.build_event_types_v2",
+            return_value=[et],
+        ):
+            dm = MagicMock()
+            dm.export_as_dict.return_value = {"categories": []}
+            sync = ERSmartSynchronizer(
+                config=sync_config_v2,
+                er_client=mock_er_client,
+                smart_client=MagicMock(),
+            )
+            sync.push_smart_ca_datamodel_to_earthranger(
+                dm=dm, smart_ca_uuid="uuid", ca_label="[TEST]"
+            )
+
+        assert mock_er_client.post_event_type.called
+        post_kwargs = mock_er_client.post_event_type.call_args.kwargs
+        assert post_kwargs.get("version") == "v2"
+        # Payload should have schema as a dict (or absent for an empty model)
+        et_payload = post_kwargs["event_type"]
+        if "schema" in et_payload:
+            assert isinstance(et_payload["schema"], dict)
