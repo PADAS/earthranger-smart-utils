@@ -120,7 +120,7 @@ For each SMART attribute we emit (a) a property in the v2 `json.properties` bloc
 Notes on the mapping:
 
 - `enumNames` (used in v1 for display labels) is not v2-canonical. v2's `ui.fields[key].choices` carries the key→display mapping; the `json.properties[key].enum` carries the keys only.
-- Inactive attributes (`cat_attr.is_active == False`) get `deprecated: true` in `json.properties` **and are excluded from `ui.sections`**. v2 has no equivalent of v1's per-field `readOnly` UI hint.
+- Inactive attributes (`cat_attr.is_active == False`) get `deprecated: true` in `json.properties` **and remain present in `ui.sections`** so the form still renders them. JSON Schema 2020-12's `deprecated` flag is the standards-compliant marker; the ER UI may or may not visually distinguish deprecated fields, but the metadata is preserved either way.
 - The TREE leaf-flatten rule mirrors what `smart_to_er.py` already does for v1 (`_leaf_options`).
 
 ### v2 schema envelope
@@ -189,7 +189,7 @@ Per-event-type create/update log lines already print the display and value (`Cre
 
 - One unit test per SMART attribute type asserting the exact `json.properties[key]` + `ui.fields[key]` shape.
 - Configurable-model overlay test: option filtering via `attribute_configs` still works in v2 output.
-- Inactive-attribute test: `deprecated: true` present in `json`, absent from `ui.sections.section-1.leftColumn`.
+- Inactive-attribute test: `deprecated: true` present in `json.properties`, field **still** listed in `ui.sections.section-1.leftColumn`.
 - TREE leaf-flatten test.
 - Snapshot test: a fixture data model from `tests/fixtures/` → assert against a stored `expected_v2.json`.
 - Category value test: assert `category` field on the output equals the same lower-cased CA-scoped identifier we use for v1.
@@ -222,7 +222,7 @@ USAGE.md gets a "Choosing v1 vs v2 event types" subsection explaining:
 ## Open questions / risks
 
 - **Inline `enum` acceptance**: the v2 docs show `anyOf: [$ref]` for choices. JSON Schema 2020-12 *does* allow inline `enum` and the v2 validator is built on a standard validator, so this should work. We will verify with a smoke test against a v2 tenant during implementation. If it fails, the choices-API follow-up spec becomes a blocker.
-- **`deprecated: true` rendering** in ER's form designer: we're emitting a valid JSON Schema flag but ER UIs may or may not honor it visually. Acceptable risk — the field is at least present in the schema and absent from the active form layout.
+- **`deprecated: true` rendering** in ER's form designer: we're emitting a valid JSON Schema flag but ER UIs may or may not honor it visually. Acceptable risk — the field stays present in both the schema and the form layout, so worst-case a deprecated field renders as a normal field with the flag preserved as metadata for downstream consumers.
 
 ## Related future work (not in this spec)
 
