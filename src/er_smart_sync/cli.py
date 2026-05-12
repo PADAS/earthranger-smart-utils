@@ -510,6 +510,12 @@ earthranger:
   # Optional. OAuth client_id used when authenticating with login/password.
   # Defaults to "das_web_client".
   client_id: das_web_client
+
+  # EarthRanger event-type API version: "v1" or "v2". Default: v2.
+  # v2 is the current EarthRanger event-type shape (JSON Schema 2020-12 +
+  # UI envelope). v1 is the legacy shape and is still supported for tenants
+  # that haven't enabled v2.
+  event_type_version: v2
 """
 
 

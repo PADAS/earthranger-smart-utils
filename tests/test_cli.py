@@ -787,3 +787,14 @@ def test_datamodel_update_only_skips_creates(tmp_path):
         # Summary shows the skip (labels render with spaces in stdout).
         assert "event types skipped by mode: 1" in result.output
         assert "categories created: 0" in result.output
+
+
+def test_config_template_mentions_event_type_version():
+    from click.testing import CliRunner
+    from er_smart_sync.cli import main
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["config-template"])
+    assert result.exit_code == 0, result.output
+    assert "event_type_version" in result.output
+    assert "v2" in result.output
