@@ -119,6 +119,7 @@ class ERSmartSynchronizer:
             "event_types_updated": 0,
             "event_types_unchanged": 0,
             "event_types_skipped_by_mode": 0,
+            "event_types_skipped_by_conflict": 0,
             "event_types_errored": 0,
         }
 
@@ -398,7 +399,7 @@ class ERSmartSynchronizer:
         return ""
 
     def _event_type_needs_update(
-        self, event_type, existing_er_event_type: dict
+        self, event_type: EREventType | ERV2EventType, existing_er_event_type: dict
     ) -> bool:
         if event_type.is_active != existing_er_event_type.get(
             "is_active"
@@ -424,7 +425,7 @@ class ERSmartSynchronizer:
 
         return False
 
-    def _create_event_type(self, event_type: EREventType | ERV2EventType) -> bool:
+    def _create_event_type(self, event_type: EREventType | ERV2EventType) -> str:
         """Create an event type; recover by patching on duplicate-value conflicts.
 
         ER enforces a unique constraint on `value` per tenant (across all
@@ -432,7 +433,7 @@ class ERSmartSynchronizer:
         e.g. because get_event_types didn't return everything — the POST will
         fail with a duplicate-key error. In that case, re-fetch and patch.
 
-        Returns True if a record was created, False if we fell back to a patch.
+        Returns one of "created", "patched", "skipped", or "errored".
         """
         logger.info(
             "Creating ER event type %r (%s)",
@@ -446,7 +447,7 @@ class ERSmartSynchronizer:
                 event_type=event_type.dict(by_alias=True, exclude_none=True),
                 version=self._event_type_version,
             )
-            return True
+            return "created"
         except Exception as e:
             if "duplicate key" in str(e) or "already exists" in str(e):
                 if self._event_type_version == "v2":
@@ -458,7 +459,7 @@ class ERSmartSynchronizer:
                         event_type.value,
                         extra=dict(value=event_type.value),
                     )
-                    return False
+                    return "skipped"
                 logger.warning(
                     "post_event_type hit existing record; patching instead",
                     extra=dict(value=event_type.value),
@@ -466,7 +467,7 @@ class ERSmartSynchronizer:
                 existing = self._find_existing_event_type(event_type.value)
                 if existing is not None:
                     self._update_event_type(event_type, existing)
-                    return False
+                    return "patched"
             logger.exception(
                 "Error occurred during er_client.post_event_type",
                 extra=dict(
@@ -474,7 +475,7 @@ class ERSmartSynchronizer:
                     error=str(e),
                 ),
             )
-            return False
+            return "errored"
 
     def _find_existing_event_type(self, value: str) -> dict | None:
         """Look up an event type by value, bypassing any cache.
@@ -566,12 +567,18 @@ class ERSmartSynchronizer:
                     if self.sync_mode == "update-only":
                         self.datamodel_stats["event_types_skipped_by_mode"] += 1
                         continue
-                    created = self._create_event_type(event_type)
-                    if created:
+                    outcome = self._create_event_type(event_type)
+                    if outcome == "created":
                         self.datamodel_stats["event_types_created"] += 1
-                    else:
-                        # Fell back to patch because of a duplicate-value race.
+                    elif outcome == "patched":
+                        # Fell back to patch because of a duplicate-value race on v1.
                         self.datamodel_stats["event_types_updated"] += 1
+                    elif outcome == "skipped":
+                        self.datamodel_stats[
+                            "event_types_skipped_by_conflict"
+                        ] += 1
+                    else:
+                        self.datamodel_stats["event_types_errored"] += 1
                 elif self._event_type_needs_update(event_type, existing_er_event_type):
                     if self.sync_mode == "create-only":
                         self.datamodel_stats["event_types_skipped_by_mode"] += 1

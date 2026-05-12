@@ -1,3 +1,6 @@
+import pydantic
+import pytest
+
 from er_smart_sync.config import (
     EarthRangerConfig,
     SmartConnectConfig,
@@ -67,9 +70,7 @@ def test_er_config_event_type_version_accepts_dotted_aliases():
 
 
 def test_er_config_event_type_version_rejects_unknown():
-    import pytest
-
-    with pytest.raises(Exception):
+    with pytest.raises(pydantic.ValidationError):
         EarthRangerConfig(
             id="i",
             endpoint="https://x/api/v1.0",
