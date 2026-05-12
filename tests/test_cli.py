@@ -685,6 +685,59 @@ def test_datamodel_event_type_version_defaults_to_v2(tmp_path, monkeypatch):
     assert captured["sync"]._event_type_version == "v2"
 
 
+def test_inspect_datamodel_v2_prints_field_types(tmp_path, monkeypatch):
+    from click.testing import CliRunner
+    from unittest.mock import MagicMock
+
+    from er_smart_sync.cli import main
+
+    dm_mock = MagicMock()
+    dm_mock.export_as_dict.return_value = {
+        "categories": [{
+            "path": "incidents",
+            "hkeyPath": "incidents",
+            "display": "Incidents",
+            "is_multiple": False,
+            "is_active": True,
+            "attributes": [{"key": "color", "is_active": True}],
+        }],
+        "attributes": [{
+            "key": "color",
+            "type": "LIST",
+            "isrequired": False,
+            "display": "Color",
+            "options": [
+                {"key": "red", "display": "Red", "isActive": True},
+                {"key": "blue", "display": "Blue", "isActive": True},
+            ],
+        }],
+    }
+    monkeypatch.setattr(
+        "smartconnect.SmartClient.load_datamodel",
+        lambda self, filename: dm_mock,
+    )
+
+    dm_file = tmp_path / "dm.xml"
+    dm_file.write_text("<datamodel/>")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "inspect-datamodel",
+            "--er-endpoint", "https://er.example.com/api/v1.0",
+            "--er-token", "x",
+            "--from-file", str(dm_file),
+            "--ca-label", "Foasf [FOASF]",
+            "--event-type-version", "v2",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    # v2 printer should mention CHOICE_LIST or DROPDOWN somewhere
+    assert "CHOICE_LIST" in result.output or "DROPDOWN" in result.output
+    assert "color" in result.output
+
+
 def test_datamodel_update_only_skips_creates(tmp_path):
     # With no matching category in ER and --mode update-only, create_or_update
     # should report zero creates and an event_types_skipped_by_mode count of 1.

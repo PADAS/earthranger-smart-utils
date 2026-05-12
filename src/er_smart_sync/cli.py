@@ -697,6 +697,12 @@ def _extract_id(label: str) -> str:
     default="[INSPECT]",
     help="CA label, used when --from-file is given",
 )
+@click.option(
+    "--event-type-version",
+    type=click.Choice(["v1", "v2"]),
+    default="v2",
+    help="Which event-type schema shape to print. Default: v2.",
+)
 def inspect_datamodel_cmd(
     config_file,
     smart_api,
@@ -714,6 +720,7 @@ def inspect_datamodel_cmd(
     cm_file,
     cm_uuid,
     ca_label,
+    event_type_version,
 ):
     """Show the EarthRanger event types that *would* be created/updated from a SMART data model.
 
@@ -773,18 +780,27 @@ def inspect_datamodel_cmd(
         with open(cm_file) as f:
             cm.load(f.read())
 
-    from .smart_to_er import build_event_types
-
     ca_uuid = smart_ca_uuid or "ca-uuid-placeholder"
     ca_identifier = ERSmartSynchronizer.get_identifier_from_ca_label(ca_label)
-    event_types = build_event_types(
-        dm=dm.export_as_dict(),
-        cm=cm.export_as_dict() if cm else None,
-        ca_uuid=ca_uuid,
-        ca_identifier=ca_identifier,
-    )
 
-    _print_event_type_summary(event_types, ca_label=ca_label)
+    if event_type_version == "v2":
+        from .smart_to_er_v2 import build_event_types_v2
+        event_types = build_event_types_v2(
+            dm=dm.export_as_dict(),
+            cm=cm.export_as_dict() if cm else None,
+            ca_uuid=ca_uuid,
+            ca_identifier=ca_identifier,
+        )
+        _print_event_type_summary_v2(event_types, ca_label=ca_label)
+    else:
+        from .smart_to_er import build_event_types
+        event_types = build_event_types(
+            dm=dm.export_as_dict(),
+            cm=cm.export_as_dict() if cm else None,
+            ca_uuid=ca_uuid,
+            ca_identifier=ca_identifier,
+        )
+        _print_event_type_summary(event_types, ca_label=ca_label)
 
 
 def _print_event_type_summary(event_types, *, ca_label: str) -> None:
@@ -822,5 +838,49 @@ def _print_event_type_summary(event_types, *, ca_label: str) -> None:
                 extras.append(f"enum={enum}")
             if prop.get("readOnly"):
                 extras.append("readOnly")
+            extras_str = f" ({', '.join(extras)})" if extras else ""
+            click.echo(f"      {key}: {type_part}{extras_str}")
+
+
+def _print_event_type_summary_v2(event_types, *, ca_label: str) -> None:
+    click.echo(f"CA: {ca_label}")
+    click.echo(f"Event types: {len(event_types)}")
+    active = [et for et in event_types if et.is_active]
+    inactive = [et for et in event_types if not et.is_active]
+    click.echo(f"  active:   {len(active)}")
+    click.echo(f"  inactive: {len(inactive)}")
+    click.echo("")
+
+    for et in event_types:
+        active_marker = "" if et.is_active else " [inactive]"
+        click.echo(f"- {et.value}{active_marker}")
+        click.echo(f"    display: {et.display}")
+        if not et.event_schema:
+            continue
+        properties = et.event_schema.get("json", {}).get("properties", {})
+        ui_fields = et.event_schema.get("ui", {}).get("fields", {})
+        if not properties:
+            continue
+        click.echo("    fields:")
+        for key, prop in properties.items():
+            type_part = prop.get("type", "?")
+            if "format" in prop:
+                type_part = f"{type_part}/{prop['format']}"
+            ui = ui_fields.get(key, {})
+            extras = []
+            ui_type = ui.get("type")
+            if ui_type:
+                input_type = ui.get("inputType")
+                extras.append(
+                    f"ui={ui_type}/{input_type}" if input_type else f"ui={ui_type}"
+                )
+            enum = prop.get("enum")
+            items = prop.get("items", {})
+            if not enum and isinstance(items, dict):
+                enum = items.get("enum")
+            if enum:
+                extras.append(f"enum={enum}")
+            if prop.get("deprecated"):
+                extras.append("deprecated")
             extras_str = f" ({', '.join(extras)})" if extras else ""
             click.echo(f"      {key}: {type_part}{extras_str}")
