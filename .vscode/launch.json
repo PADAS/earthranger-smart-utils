@@ -1,0 +1,55 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "sync ***REMOVED***.pamdas.org",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/.venv/bin/er-smart-sync",
+            "args": [
+                "datamodel",
+                "--smart-language",
+                "es",
+                "--er-token",
+                "***REMOVED***",
+                "--er-endpoint",
+                "https://***REMOVED***.pamdas.org",
+                "--smart-ca-uuid",
+                "SMART-IMPORT",
+                "--from-file",
+                "/Users/chrisdo/***REMOVED***.datamodel.xml",
+                "--ca-label",
+                "[SMART]",
+                "--cm-from-file",
+                "/Users/chrisdo/***REMOVED***.cm.xml"
+            ],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "sync ujugkulan-np.pamdas.org",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/.venv/bin/er-smart-sync",
+            "args": [
+                "datamodel",
+                "--smart-language",
+                "in",
+                "--er-token",
+                "***REMOVED***",
+                "--er-endpoint",
+                "https://***REMOVED***.pamdas.org",
+                "--smart-ca-uuid",
+                "SMART-IMPORT",
+                "--from-file",
+                "/Users/chrisdo/uknp-datamodel.xml",
+                "--ca-label",
+                "SMART-IMPORT"
+            ],
+            "console": "integratedTerminal"
+        }
+
+    ]
+}

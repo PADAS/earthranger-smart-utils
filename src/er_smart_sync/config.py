@@ -1,0 +1,61 @@
+
+import pydantic
+
+
+class ConfigurableModelTranslation(pydantic.BaseModel):
+    language_code: str = "en"
+    value: str = ""
+
+
+class ConfigurableModelMetadata(pydantic.BaseModel):
+    ca_id: str
+    ca_name: str
+    ca_uuid: str
+    name: str
+    translations: list[ConfigurableModelTranslation]
+    uuid: str
+
+
+class SmartIntegrationAdditional(pydantic.BaseModel):
+    ca_uuids: list[str] = []
+    configurable_models_enabled: list[str] = []
+    configurable_models_map: dict[str, list[ConfigurableModelMetadata]] = {}
+
+
+class SmartConnectConfig(pydantic.BaseModel):
+    """SMART Connect server connection and sync configuration.
+
+    Replaces the Django OutboundIntegrationConfiguration model fields
+    used by the synchronizer.
+    """
+
+    endpoint: str
+    login: str
+    password: str
+    version: str = "7.0"
+    use_language_code: str = "en"
+    ca_uuids: list[str] = []
+    configurable_models_lists: dict[str, list[dict]] = {}
+    provider_key: str = "smart_connect"
+
+
+class EarthRangerConfig(pydantic.BaseModel):
+    """EarthRanger server connection configuration.
+
+    Replaces the Django InboundIntegrationConfiguration model fields
+    used by the synchronizer.
+    """
+
+    id: str  # Opaque integration identifier, used for state tracking
+    endpoint: str  # e.g. https://site.pamdas.org/api/v1.0
+    login: str = ""
+    password: str = ""
+    token: str = ""
+    client_id: str = "das_web_client"
+
+
+class SyncConfig(pydantic.BaseModel):
+    """Top-level configuration combining SMART and EarthRanger settings."""
+
+    smart: SmartConnectConfig
+    earthranger: EarthRangerConfig
