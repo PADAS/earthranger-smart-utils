@@ -883,3 +883,43 @@ class TestEventTypeVersionWiring:
         et_payload = post_kwargs["event_type"]
         if "schema" in et_payload:
             assert isinstance(et_payload["schema"], dict)
+
+    def test_event_type_needs_update_v2_dict_equal(
+        self, sync_config_v2, mock_er_client
+    ):
+        from er_smart_sync.smart_to_er_v2 import ERV2EventType
+
+        sync = ERSmartSynchronizer(
+            config=sync_config_v2,
+            er_client=mock_er_client,
+            smart_client=MagicMock(),
+        )
+        et = ERV2EventType(
+            value="v", display="V", category="c",
+            event_schema={"json": {"a": 1}, "ui": {}},
+        )
+        existing = {
+            "value": "v", "display": "V", "is_active": True,
+            "schema": {"json": {"a": 1}, "ui": {}},
+        }
+        assert sync._event_type_needs_update(et, existing) is False
+
+    def test_event_type_needs_update_v2_dict_different(
+        self, sync_config_v2, mock_er_client
+    ):
+        from er_smart_sync.smart_to_er_v2 import ERV2EventType
+
+        sync = ERSmartSynchronizer(
+            config=sync_config_v2,
+            er_client=mock_er_client,
+            smart_client=MagicMock(),
+        )
+        et = ERV2EventType(
+            value="v", display="V", category="c",
+            event_schema={"json": {"a": 2}, "ui": {}},
+        )
+        existing = {
+            "value": "v", "display": "V", "is_active": True,
+            "schema": {"json": {"a": 1}, "ui": {}},
+        }
+        assert sync._event_type_needs_update(et, existing) is True
