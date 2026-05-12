@@ -59,7 +59,6 @@ def sync_config(smart_config, er_config):
 
 @pytest.fixture
 def sync_config_v2(smart_config, er_config_v2):
-    from er_smart_sync.config import SyncConfig
     return SyncConfig(smart=smart_config, earthranger=er_config_v2)
 
 
