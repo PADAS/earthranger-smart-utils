@@ -11,11 +11,10 @@ happens in ``synchronizer.ERSmartSynchronizer`` based on
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 import pydantic
 from pydantic import BaseModel, Field, parse_obj_as
-from smartconnect.models import Attribute, Category, CategoryAttribute
+from smartconnect.models import Category
 
 logger = logging.getLogger(__name__)
 
