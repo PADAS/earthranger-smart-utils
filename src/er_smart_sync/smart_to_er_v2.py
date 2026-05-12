@@ -178,6 +178,7 @@ def _build_field_blocks(
     is_multiple: bool,
     attribute_configs: list | None,
 ) -> tuple[dict, dict, list[str]]:
+    """Return (json.properties, ui.fields, field_order_for_section)."""
     properties: dict[str, dict] = {}
     ui_fields: dict[str, dict] = {}
     order: list[str] = []
@@ -231,7 +232,13 @@ def _build_property_pair(
         )
 
     if not options:
-        logger.warning("Unknown SMART type %r; emitting string", smart_type)
+        if smart_type in {"LIST", "MLIST", "TREE"}:
+            logger.warning(
+                "All options filtered out for %r choice; emitting string",
+                smart_type,
+            )
+        else:
+            logger.warning("Unknown SMART type %r; emitting string", smart_type)
         return (
             {"type": "string", "title": display},
             {"type": "TEXT", "inputType": "SHORT_TEXT"},
@@ -283,6 +290,8 @@ def _filter_options_by_config(options: list, options_config: list) -> list:
         match = next((o for o in options if o.key == key), None)
         if match:
             kept.append(match)
+        else:
+            logger.warning("No option found for config key %s", key)
     return kept
 
 
