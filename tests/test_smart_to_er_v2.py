@@ -318,3 +318,57 @@ def test_inactive_attribute_marked_deprecated_and_kept_in_section():
     names = [item["name"] for item in leftCol]
     assert "active_attr" in names
     assert "retired_attr" in names
+
+
+# ── Configurable-model overlay ────────────────────────────────────
+
+
+def test_configurable_model_filters_options():
+    dm = {
+        "categories": [_category("c", attributes=[_cat_attr("color")])],
+        "attributes": [
+            _attr(
+                "color", "LIST", display="Color",
+                options=[_option("red"), _option("blue"), _option("green")],
+            )
+        ],
+    }
+    cm = {
+        "cm_uuid": "cm-9999",
+        "categories": [_category("c", attributes=[_cat_attr("color")])],
+        "attributes": [
+            {
+                "key": "color",
+                "options": [
+                    {"key": "red", "isActive": True},
+                    {"key": "blue", "isActive": False},
+                    {"key": "green", "isActive": True},
+                ],
+            }
+        ],
+    }
+
+    schema = build_event_types_v2(
+        dm=dm, cm=cm, ca_uuid=CA_UUID, ca_identifier=CA_ID
+    )[0].event_schema
+
+    assert schema["json"]["properties"]["color"]["enum"] == ["red", "green"]
+    assert schema["ui"]["fields"]["color"]["choices"] == {
+        "red": "red", "green": "green"
+    }
+
+
+def test_configurable_model_event_type_value_includes_cm_uuid():
+    dm = {
+        "categories": [_category("Wildlife", attributes=[_cat_attr("a")])],
+        "attributes": [_attr("a", "TEXT")],
+    }
+    cm = {
+        "cm_uuid": "abcd-cm",
+        "categories": [_category("Wildlife", attributes=[_cat_attr("a")], hkey_path="Wildlife")],
+        "attributes": [],
+    }
+    result = build_event_types_v2(
+        dm=dm, cm=cm, ca_uuid="ca-1", ca_identifier=CA_ID
+    )
+    assert result[0].value == "ca-1_abcd-cm_wildlife"
