@@ -581,6 +581,110 @@ def test_cm_uuid_requires_cm_from_file():
     assert "--cm-from-file" in result.output
 
 
+def test_datamodel_event_type_version_v1_flag_overrides_config_default(tmp_path, monkeypatch):
+    """--event-type-version v1 should produce a synchronizer with _event_type_version == 'v1'."""
+    from click.testing import CliRunner
+    from unittest.mock import MagicMock
+
+    from er_smart_sync.cli import main
+
+    captured = {}
+
+    def fake_make_sync(config, ctx=None):
+        from er_smart_sync.synchronizer import ERSmartSynchronizer
+        sync = ERSmartSynchronizer.__new__(ERSmartSynchronizer)
+        sync._event_type_version = config.earthranger.event_type_version
+        sync.sync_mode = "both"
+        sync.datamodel_stats = {
+            "categories_created": 0, "categories_existing": 0,
+            "event_types_created": 0, "event_types_updated": 0,
+            "event_types_unchanged": 0, "event_types_skipped_by_mode": 0,
+            "event_types_errored": 0,
+        }
+        # Stub out the network calls the command would make
+        sync.push_smart_ca_datamodel_to_earthranger = lambda **kwargs: None
+        sync.synchronize_datamodel = lambda: None
+        captured["sync"] = sync
+        return sync
+
+    monkeypatch.setattr("er_smart_sync.cli._make_synchronizer", fake_make_sync)
+
+    # Use a dummy XML file (file-based path)
+    dm_file = tmp_path / "dm.xml"
+    dm_file.write_text("<datamodel/>")
+
+    # Patch the SmartClient.load_datamodel so we don't actually parse XML
+    monkeypatch.setattr(
+        "smartconnect.SmartClient.load_datamodel",
+        lambda self, filename: MagicMock(),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "datamodel",
+            "--from-file", str(dm_file),
+            "--er-endpoint", "https://x/api/v1.0",
+            "--er-token", "t",
+            "--er-id", "i",
+            "--event-type-version", "v1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["sync"]._event_type_version == "v1"
+
+
+def test_datamodel_event_type_version_defaults_to_v2(tmp_path, monkeypatch):
+    """No --event-type-version flag → uses config default which is v2."""
+    from click.testing import CliRunner
+    from unittest.mock import MagicMock
+
+    from er_smart_sync.cli import main
+
+    captured = {}
+
+    def fake_make_sync(config, ctx=None):
+        from er_smart_sync.synchronizer import ERSmartSynchronizer
+        sync = ERSmartSynchronizer.__new__(ERSmartSynchronizer)
+        sync._event_type_version = config.earthranger.event_type_version
+        sync.sync_mode = "both"
+        sync.datamodel_stats = {
+            "categories_created": 0, "categories_existing": 0,
+            "event_types_created": 0, "event_types_updated": 0,
+            "event_types_unchanged": 0, "event_types_skipped_by_mode": 0,
+            "event_types_errored": 0,
+        }
+        sync.push_smart_ca_datamodel_to_earthranger = lambda **kwargs: None
+        sync.synchronize_datamodel = lambda: None
+        captured["sync"] = sync
+        return sync
+
+    monkeypatch.setattr("er_smart_sync.cli._make_synchronizer", fake_make_sync)
+
+    dm_file = tmp_path / "dm.xml"
+    dm_file.write_text("<datamodel/>")
+
+    monkeypatch.setattr(
+        "smartconnect.SmartClient.load_datamodel",
+        lambda self, filename: MagicMock(),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "datamodel",
+            "--from-file", str(dm_file),
+            "--er-endpoint", "https://x/api/v1.0",
+            "--er-token", "t",
+            "--er-id", "i",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["sync"]._event_type_version == "v2"
+
+
 def test_datamodel_update_only_skips_creates(tmp_path):
     # With no matching category in ER and --mode update-only, create_or_update
     # should report zero creates and an event_types_skipped_by_mode count of 1.

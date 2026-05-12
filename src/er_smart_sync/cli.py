@@ -202,6 +202,12 @@ def _validate_config(config: SyncConfig) -> None:
     default="both",
     help="Restrict to creating only new event types, updating only existing ones, or both.",
 )
+@click.option(
+    "--event-type-version",
+    type=click.Choice(["v1", "v2"]),
+    default=None,
+    help="EarthRanger event-type API version. Overrides the value in --config or the default (v2).",
+)
 @click.pass_context
 def datamodel(
     ctx,
@@ -223,6 +229,7 @@ def datamodel(
     include_base_datamodel,
     ca_label,
     mode,
+    event_type_version,
 ):
     """Sync SMART data models to EarthRanger as event categories/types."""
     config = _build_config(
@@ -239,6 +246,9 @@ def datamodel(
         er_id=er_id,
         smart_ca_uuids=smart_ca_uuid,
     )
+
+    if event_type_version:
+        config.earthranger.event_type_version = event_type_version
 
     if cm_file and not datamodel_file:
         raise click.UsageError("--cm-from-file requires --from-file")
