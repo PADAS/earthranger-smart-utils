@@ -184,6 +184,29 @@ That creates two ER event categories — one for the base data model and one for
 
 `update-only` is useful when you've already created categories by hand in the EarthRanger admin UI and only want this tool to keep schemas in sync.
 
+### Event type version
+
+EarthRanger supports two event-type API versions: v1 (legacy) and v2 (current).
+By default `er-smart-sync` creates **v2 event types**, which use the JSON Schema
+2020-12 envelope (`json` + `ui` blocks) and a richer set of field types
+(`TEXT`, `NUMBER`, `BOOLEAN`, `CHOICE_LIST`, `ATTACHMENT`, etc.).
+
+Override with `--event-type-version v1` on the `datamodel` or `inspect-datamodel`
+commands, or with `event_type_version: v1` under `earthranger:` in your config.
+
+EarthRanger enforces a tenant-wide unique constraint on event-type `value`
+across **both** versions. If a previous run created v1 event types and you
+re-run with v2, you'll get duplicate-key conflicts. `er-smart-sync` logs and
+skips these — to convert existing v1 records to v2, run EarthRanger's
+server-side migrate endpoint:
+
+```
+POST /api/v2.0/activity/eventtypes/migrate/
+```
+
+(Tooling around that endpoint is tracked as a follow-up; you can call it
+directly via `curl` or the ER admin UI today.)
+
 ---
 
 ## Polling events from EarthRanger
