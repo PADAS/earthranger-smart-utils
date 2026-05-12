@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import copy
 import logging
+from collections.abc import Sequence
 from typing import Any
 
 import pydantic
@@ -110,19 +111,20 @@ def _build_one(
     is_leaf = _is_leaf_node(cat_paths, cat.path)
     is_active = bool(cm) or (cat.is_active and is_leaf)
 
-    path_components = cat.hkeyPath.split(".") if cm else cat.path.split(".")
+    hkey = cat.hkeyPath or cat.path or ""
+    path_components = hkey.split(".") if cm else (cat.path or "").split(".")
     value_suffix = "_".join(path_components)
     if cm:
-        value = f'{ca_uuid}_{cm["cm_uuid"]}_{value_suffix}'
+        value = f"{ca_uuid}_{cm['cm_uuid']}_{value_suffix}"
     else:
         value = f"{ca_uuid}_{value_suffix}"
     value = value.lower()
 
-    et = ERV2EventType(value=value, display=cat.display, is_active=is_active)
+    et = ERV2EventType(value=value, display=cat.display, is_active=bool(is_active))
     if not is_active:
         return et
 
-    leaf_attributes = list(cat.attributes)
+    leaf_attributes = list(cat.attributes or [])
     if not cm:
         leaf_attributes.extend(_get_inherited_attributes(cats, path_components))
     if not leaf_attributes:
@@ -135,7 +137,7 @@ def _build_one(
     properties, ui_fields, field_order = _build_field_blocks(
         attributes=attributes,
         leaf_attributes=leaf_attributes,
-        is_multiple=cat.is_multiple,
+        is_multiple=bool(cat.is_multiple),
         attribute_configs=attribute_configs,
     )
     if not properties:
@@ -160,9 +162,7 @@ def _build_one(
                     "label": "Details",
                     "columns": 1,
                     "isActive": True,
-                    "leftColumn": [
-                        {"name": k, "type": "field"} for k in field_order
-                    ],
+                    "leftColumn": [{"name": k, "type": "field"} for k in field_order],
                 }
             },
             "order": ["section-1"],
@@ -207,7 +207,7 @@ def _build_field_blocks(
             options=options,
             is_multiple=is_multiple,
         )
-        if json_prop is None:
+        if json_prop is None or ui_field is None:
             continue
 
         if not cat_attr.is_active:
@@ -310,7 +310,7 @@ def _is_leaf_node(node_paths: list[str], cur_node: str) -> bool:
 
 
 def _get_inherited_attributes(
-    cats: list[Category], path_components: list[str]
+    cats: list[Category], path_components: Sequence[str]
 ) -> list[CategoryAttribute]:
     inherited: list[CategoryAttribute] = []
     parent_path = ""
@@ -318,5 +318,5 @@ def _get_inherited_attributes(
         parent_path = component if not parent_path else f"{parent_path}.{component}"
         parent_cat = next((c for c in cats if c.path == parent_path), None)
         if parent_cat:
-            inherited.extend(parent_cat.attributes)
+            inherited.extend(parent_cat.attributes or [])
     return inherited

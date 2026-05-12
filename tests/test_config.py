@@ -1,4 +1,3 @@
-
 from er_smart_sync.config import (
     EarthRangerConfig,
     SmartConnectConfig,
@@ -53,19 +52,26 @@ def test_er_config_event_type_version_accepts_v1():
 
 def test_er_config_event_type_version_accepts_dotted_aliases():
     cfg = EarthRangerConfig(
-        id="i", endpoint="https://x/api/v1.0", event_type_version="v2.0"
+        id="i",
+        endpoint="https://x/api/v1.0",
+        event_type_version="v2.0",  # ty: ignore[invalid-argument-type]
     )
     assert cfg.event_type_version == "v2"
 
     cfg = EarthRangerConfig(
-        id="i", endpoint="https://x/api/v1.0", event_type_version="V1"
+        id="i",
+        endpoint="https://x/api/v1.0",
+        event_type_version="V1",  # ty: ignore[invalid-argument-type]
     )
     assert cfg.event_type_version == "v1"
 
 
 def test_er_config_event_type_version_rejects_unknown():
     import pytest
+
     with pytest.raises(Exception):
         EarthRangerConfig(
-            id="i", endpoint="https://x/api/v1.0", event_type_version="v3"
+            id="i",
+            endpoint="https://x/api/v1.0",
+            event_type_version="v3",  # ty: ignore[invalid-argument-type]
         )

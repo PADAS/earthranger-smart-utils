@@ -57,7 +57,7 @@ def test_er_v2_event_type_serializes_schema_as_dict():
         value="v",
         display="V",
         category="cat",
-        event_schema={"json": {}, "ui": {}},
+        event_schema={"json": {}, "ui": {}},  # ty: ignore[unknown-argument]
     )
     payload = et.dict(by_alias=True, exclude_none=True)
     assert payload["schema"] == {"json": {}, "ui": {}}
@@ -96,12 +96,21 @@ def test_empty_data_model_yields_no_event_types():
         ("TEXT", {"type": "string"}, {"type": "TEXT", "inputType": "SHORT_TEXT"}),
         ("NUMERIC", {"type": "number"}, {"type": "NUMBER"}),
         ("BOOLEAN", {"type": "boolean"}, {"type": "BOOLEAN"}),
-        ("DATE", {"type": "string", "format": "date"},
-         {"type": "TEXT", "inputType": "DATE"}),
-        ("TIME", {"type": "string", "format": "time"},
-         {"type": "TEXT", "inputType": "TIME"}),
-        ("DATETIME", {"type": "string", "format": "date-time"},
-         {"type": "TEXT", "inputType": "DATETIME"}),
+        (
+            "DATE",
+            {"type": "string", "format": "date"},
+            {"type": "TEXT", "inputType": "DATE"},
+        ),
+        (
+            "TIME",
+            {"type": "string", "format": "time"},
+            {"type": "TEXT", "inputType": "TIME"},
+        ),
+        (
+            "DATETIME",
+            {"type": "string", "format": "date-time"},
+            {"type": "TEXT", "inputType": "DATETIME"},
+        ),
         (
             "ATTACHMENT",
             {"type": "string", "format": "uri"},
@@ -120,9 +129,7 @@ def test_scalar_attribute_mapping(smart_type, expected_json, expected_ui):
         "attributes": [_attr("field1", smart_type, display="Field One")],
     }
 
-    result = build_event_types_v2(
-        dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID
-    )
+    result = build_event_types_v2(dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID)
 
     assert len(result) == 1
     et = result[0]
@@ -154,13 +161,10 @@ def test_attachment_allowable_file_types_is_not_shared_across_calls():
         "categories": [_category("c", attributes=[_cat_attr("f")])],
         "attributes": [_attr("f", "ATTACHMENT")],
     }
-    result = build_event_types_v2(
-        dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID
-    )
+    result = build_event_types_v2(dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID)
     # Mutate the returned list — must not affect the module constant.
-    result[0].event_schema["ui"]["fields"]["f"]["allowableFileTypes"].append(
-        "EVIL"
-    )
+    assert result[0].event_schema is not None
+    result[0].event_schema["ui"]["fields"]["f"]["allowableFileTypes"].append("EVIL")
     assert SCALAR_UI["ATTACHMENT"]["allowableFileTypes"] == original
 
 
@@ -169,10 +173,9 @@ def test_envelope_top_level_keys():
         "categories": [_category("incidents", attributes=[_cat_attr("a")])],
         "attributes": [_attr("a", "TEXT")],
     }
-    result = build_event_types_v2(
-        dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID
-    )
+    result = build_event_types_v2(dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID)
     schema = result[0].event_schema
+    assert schema is not None
     assert schema["json"]["$schema"] == "https://json-schema.org/draft/2020-12/schema"
     assert schema["json"]["type"] == "object"
     assert schema["json"]["additionalProperties"] is False
@@ -201,14 +204,17 @@ def test_list_single_value_emits_enum_and_dropdown():
         "categories": [_category("c", attributes=[_cat_attr("color")])],
         "attributes": [
             _attr(
-                "color", "LIST", display="Color",
+                "color",
+                "LIST",
+                display="Color",
                 options=[_option("red", "Red"), _option("blue", "Blue")],
             )
         ],
     }
-    schema = build_event_types_v2(
-        dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID
-    )[0].event_schema
+    schema = build_event_types_v2(dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID)[
+        0
+    ].event_schema
+    assert schema is not None
 
     json_prop = schema["json"]["properties"]["color"]
     assert json_prop["type"] == "string"
@@ -227,14 +233,17 @@ def test_list_multi_value_emits_array_enum_and_checkbox():
         ],
         "attributes": [
             _attr(
-                "tags", "LIST", display="Tags",
+                "tags",
+                "LIST",
+                display="Tags",
                 options=[_option("a"), _option("b")],
             )
         ],
     }
-    schema = build_event_types_v2(
-        dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID
-    )[0].event_schema
+    schema = build_event_types_v2(dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID)[
+        0
+    ].event_schema
+    assert schema is not None
 
     json_prop = schema["json"]["properties"]["tags"]
     assert json_prop["type"] == "array"
@@ -249,14 +258,17 @@ def test_mlist_emits_array_enum_and_checkbox():
         "categories": [_category("c", attributes=[_cat_attr("species")])],
         "attributes": [
             _attr(
-                "species", "MLIST", display="Species",
+                "species",
+                "MLIST",
+                display="Species",
                 options=[_option("lion"), _option("zebra")],
             )
         ],
     }
-    schema = build_event_types_v2(
-        dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID
-    )[0].event_schema
+    schema = build_event_types_v2(dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID)[
+        0
+    ].event_schema
+    assert schema is not None
 
     json_prop = schema["json"]["properties"]["species"]
     assert json_prop["type"] == "array"
@@ -269,7 +281,9 @@ def test_tree_flattens_to_leaf_options():
         "categories": [_category("c", attributes=[_cat_attr("region")])],
         "attributes": [
             _attr(
-                "region", "TREE", display="Region",
+                "region",
+                "TREE",
+                display="Region",
                 options=[
                     _option("africa"),
                     _option("africa.kenya"),
@@ -279,9 +293,10 @@ def test_tree_flattens_to_leaf_options():
             )
         ],
     }
-    schema = build_event_types_v2(
-        dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID
-    )[0].event_schema
+    schema = build_event_types_v2(dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID)[
+        0
+    ].event_schema
+    assert schema is not None
 
     json_prop = schema["json"]["properties"]["region"]
     assert json_prop["type"] == "string"
@@ -306,9 +321,10 @@ def test_inactive_attribute_marked_deprecated_and_kept_in_section():
             _attr("retired_attr", "TEXT", display="Retired"),
         ],
     }
-    schema = build_event_types_v2(
-        dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID
-    )[0].event_schema
+    schema = build_event_types_v2(dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID)[
+        0
+    ].event_schema
+    assert schema is not None
 
     assert schema["json"]["properties"]["retired_attr"]["deprecated"] is True
     assert "deprecated" not in schema["json"]["properties"]["active_attr"]
@@ -328,7 +344,9 @@ def test_configurable_model_filters_options():
         "categories": [_category("c", attributes=[_cat_attr("color")])],
         "attributes": [
             _attr(
-                "color", "LIST", display="Color",
+                "color",
+                "LIST",
+                display="Color",
                 options=[_option("red"), _option("blue"), _option("green")],
             )
         ],
@@ -348,13 +366,15 @@ def test_configurable_model_filters_options():
         ],
     }
 
-    schema = build_event_types_v2(
-        dm=dm, cm=cm, ca_uuid=CA_UUID, ca_identifier=CA_ID
-    )[0].event_schema
+    schema = build_event_types_v2(dm=dm, cm=cm, ca_uuid=CA_UUID, ca_identifier=CA_ID)[
+        0
+    ].event_schema
+    assert schema is not None
 
     assert schema["json"]["properties"]["color"]["enum"] == ["red", "green"]
     assert schema["ui"]["fields"]["color"]["choices"] == {
-        "red": "red", "green": "green"
+        "red": "red",
+        "green": "green",
     }
 
 
@@ -365,12 +385,12 @@ def test_configurable_model_event_type_value_includes_cm_uuid():
     }
     cm = {
         "cm_uuid": "abcd-cm",
-        "categories": [_category("Wildlife", attributes=[_cat_attr("a")], hkey_path="Wildlife")],
+        "categories": [
+            _category("Wildlife", attributes=[_cat_attr("a")], hkey_path="Wildlife")
+        ],
         "attributes": [],
     }
-    result = build_event_types_v2(
-        dm=dm, cm=cm, ca_uuid="ca-1", ca_identifier=CA_ID
-    )
+    result = build_event_types_v2(dm=dm, cm=cm, ca_uuid="ca-1", ca_identifier=CA_ID)
     assert result[0].value == "ca-1_abcd-cm_wildlife"
 
 
@@ -379,9 +399,7 @@ def test_event_type_category_is_settable_post_build():
         "categories": [_category("c", attributes=[_cat_attr("a")])],
         "attributes": [_attr("a", "TEXT")],
     }
-    et = build_event_types_v2(
-        dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID
-    )[0]
+    et = build_event_types_v2(dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID)[0]
     et.category = "foasf"
     payload = et.dict(by_alias=True, exclude_none=True)
     assert payload["category"] == "foasf"
