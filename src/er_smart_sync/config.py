@@ -53,7 +53,7 @@ class EarthRangerConfig(pydantic.BaseModel):
     password: str = ""
     token: str = ""
     client_id: str = "das_web_client"
-    event_type_version: Literal["v1", "v2"] = "v2"
+    event_type_version: Literal["v1", "v2"] = "v1"
 
     @pydantic.validator("event_type_version", pre=True)
     def _normalize_event_type_version(cls, v):
