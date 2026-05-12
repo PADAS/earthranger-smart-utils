@@ -144,6 +144,26 @@ def test_scalar_attribute_mapping(smart_type, expected_json, expected_ui):
     assert schema["ui"]["order"] == ["section-1"]
 
 
+def test_attachment_allowable_file_types_is_not_shared_across_calls():
+    """Verify SCALAR_UI constant isn't mutated when ATTACHMENT properties are built."""
+    from er_smart_sync.smart_to_er_v2 import SCALAR_UI
+
+    original = list(SCALAR_UI["ATTACHMENT"]["allowableFileTypes"])
+
+    dm = {
+        "categories": [_category("c", attributes=[_cat_attr("f")])],
+        "attributes": [_attr("f", "ATTACHMENT")],
+    }
+    result = build_event_types_v2(
+        dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID
+    )
+    # Mutate the returned list — must not affect the module constant.
+    result[0].event_schema["ui"]["fields"]["f"]["allowableFileTypes"].append(
+        "EVIL"
+    )
+    assert SCALAR_UI["ATTACHMENT"]["allowableFileTypes"] == original
+
+
 def test_envelope_top_level_keys():
     dm = {
         "categories": [_category("incidents", attributes=[_cat_attr("a")])],
