@@ -758,3 +758,22 @@ class TestDefaults:
             span.set_attribute("key", "value")
             span.add_event("event")
         assert tracing.build_context_headers() == {}
+
+
+class TestEventTypeVersionWiring:
+    def test_synchronizer_reads_event_type_version_from_config(
+        self, sync_config, mock_er_client
+    ):
+        # sync_config uses er_config which is pinned to v1.
+        sync = ERSmartSynchronizer(
+            config=sync_config, er_client=mock_er_client, smart_client=MagicMock()
+        )
+        assert sync._event_type_version == "v1"
+
+    def test_synchronizer_v2_from_config(
+        self, sync_config_v2, mock_er_client
+    ):
+        sync = ERSmartSynchronizer(
+            config=sync_config_v2, er_client=mock_er_client, smart_client=MagicMock()
+        )
+        assert sync._event_type_version == "v2"
