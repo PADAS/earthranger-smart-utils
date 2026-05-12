@@ -585,11 +585,6 @@ def test_datamodel_event_type_version_v1_flag_overrides_config_default(
     tmp_path, monkeypatch
 ):
     """--event-type-version v1 should produce a synchronizer with _event_type_version == 'v1'."""
-    from click.testing import CliRunner
-    from unittest.mock import MagicMock
-
-    from er_smart_sync.cli import main
-
     captured = {}
 
     def fake_make_sync(config, ctx=None):
@@ -648,11 +643,6 @@ def test_datamodel_event_type_version_v1_flag_overrides_config_default(
 
 def test_datamodel_event_type_version_defaults_to_v2(tmp_path, monkeypatch):
     """No --event-type-version flag → uses config default which is v2."""
-    from click.testing import CliRunner
-    from unittest.mock import MagicMock
-
-    from er_smart_sync.cli import main
-
     captured = {}
 
     def fake_make_sync(config, ctx=None):
@@ -705,11 +695,6 @@ def test_datamodel_event_type_version_defaults_to_v2(tmp_path, monkeypatch):
 
 
 def test_inspect_datamodel_v2_prints_field_types(tmp_path, monkeypatch):
-    from click.testing import CliRunner
-    from unittest.mock import MagicMock
-
-    from er_smart_sync.cli import main
-
     dm_mock = MagicMock()
     dm_mock.export_as_dict.return_value = {
         "categories": [
@@ -818,9 +803,6 @@ def test_datamodel_update_only_skips_creates(tmp_path):
 
 
 def test_config_template_mentions_event_type_version():
-    from click.testing import CliRunner
-    from er_smart_sync.cli import main
-
     runner = CliRunner()
     result = runner.invoke(main, ["config-template"])
     assert result.exit_code == 0, result.output
