@@ -149,14 +149,6 @@ class ERSmartSynchronizer:
         self.sync_mode: str = "both"
         self.skip_choices: bool = False
         self._event_type_version: str = config.earthranger.event_type_version
-        if self._event_type_version == "v2":
-            logger.warning(
-                "event_type_version='v2' selected. The v2 builder now emits "
-                "schemas that match ER's v2 meta-schema requirements, but "
-                "this path has not yet been smoke-tested end-to-end against "
-                "a live tenant. Use --dry-run first; report any 400s back to "
-                "the spec maintainer.",
-            )
         # Datamodel-sync run summary counters, populated by create_or_update_er_event_types.
         self.datamodel_stats: dict[str, int] = {
             "categories_created": 0,

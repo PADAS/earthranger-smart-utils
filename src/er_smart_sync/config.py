@@ -53,7 +53,7 @@ class EarthRangerConfig(pydantic.BaseModel):
     password: str = ""
     token: str = ""
     client_id: str = "das_web_client"
-    event_type_version: Literal["v1", "v2"] = "v1"
+    event_type_version: Literal["v1", "v2"] = "v2"
     choices_base_url: str = "/api/v2.0/schemas"
 
     @pydantic.validator("event_type_version", pre=True)
