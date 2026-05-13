@@ -35,6 +35,19 @@ def _resolve_cm_uuid(cm_uuid: str | None) -> str:
     return cm_uuid
 
 
+def _set_network_timeout(seconds: float = 120.0) -> None:
+    """Bound every TCP read/connect so a stalled ER request can't hang the run.
+
+    ERClient (sync) doesn't expose a constructor-level network timeout; it
+    uses `requests.{get,post,patch}` directly without a `timeout=` kwarg.
+    Setting socket.setdefaulttimeout enforces a process-wide ceiling on every
+    blocking socket operation, after which requests raises and our _retry
+    wrapper kicks in.
+    """
+    import socket
+    socket.setdefaulttimeout(seconds)
+
+
 def _setup_logging(verbose: bool) -> None:
     """Configure logging.
 
@@ -43,6 +56,7 @@ def _setup_logging(verbose: bool) -> None:
     keeping noisy underlying libraries (requests, urllib3, smartconnect's
     auth chatter) at WARNING so the output stays readable.
     """
+    _set_network_timeout()
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
