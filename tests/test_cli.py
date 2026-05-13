@@ -641,8 +641,8 @@ def test_datamodel_event_type_version_v1_flag_overrides_config_default(
     assert captured["sync"]._event_type_version == "v1"
 
 
-def test_datamodel_event_type_version_defaults_to_v1(tmp_path, monkeypatch):
-    """No --event-type-version flag → uses config default which is v1."""
+def test_datamodel_event_type_version_defaults_to_v2(tmp_path, monkeypatch):
+    """No --event-type-version flag → uses config default which is v2."""
     captured = {}
 
     def fake_make_sync(config, ctx=None):
@@ -691,7 +691,7 @@ def test_datamodel_event_type_version_defaults_to_v1(tmp_path, monkeypatch):
         ],
     )
     assert result.exit_code == 0, result.output
-    assert captured["sync"]._event_type_version == "v1"
+    assert captured["sync"]._event_type_version == "v2"
 
 
 def test_inspect_datamodel_v2_prints_field_types(tmp_path, monkeypatch):
