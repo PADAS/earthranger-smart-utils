@@ -267,21 +267,25 @@ class ERSmartSynchronizer:
             cm = None
 
         return self.push_smart_ca_datamodel_to_earthranger(
-            dm=dm, smart_ca_uuid=smart_ca_uuid, ca_label=ca.label, cm=cm
+            dm=dm,
+            smart_ca_uuid=smart_ca_uuid,
+            ca_identifier=self.get_identifier_from_ca_label(ca.label),
+            cm=cm,
         )
 
     def push_smart_ca_datamodel_to_earthranger(
-        self, *, dm=None, smart_ca_uuid: str | None = None, ca_label=None, cm=None
+        self, *, dm=None, smart_ca_uuid: str | None = None,
+        ca_identifier: str | None = None, cm=None,
     ) -> None:
         if not dm:
             raise ValueError("dm is required")
         if not smart_ca_uuid:
             raise ValueError("smart_ca_uuid is required")
+        if not ca_identifier:
+            raise ValueError("ca_identifier is required")
 
         dm_dict = dm.export_as_dict()
         cdm_dict = cm.export_as_dict() if cm else None
-
-        ca_identifier = self.get_identifier_from_ca_label(ca_label)
 
         if self._event_type_version == "v2" and not self.skip_choices:
             choice_sets = build_choice_sets(
@@ -430,8 +434,6 @@ class ERSmartSynchronizer:
 
         translation = str.maketrans(
             {
-                "[": "",
-                "]": "",
                 " ": "_",
                 "-": "_",
                 "/": "_",

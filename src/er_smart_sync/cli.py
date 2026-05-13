@@ -1,4 +1,5 @@
 import logging
+import re
 import sys
 
 import click
@@ -9,6 +10,8 @@ from .config import EarthRangerConfig, SmartConnectConfig, SyncConfig
 from .defaults import DryRunERClient, JsonFileStateStore, NullPublisher
 from .synchronizer import ERSmartSynchronizer
 
+logger = logging.getLogger(__name__)
+
 # Default cm_uuid used when --cm-from-file is given but --cm-uuid is not.
 # The on-server cm_uuid isn't always known in the file-based flow, but
 # build_event_types stitches it into the event-type `value`. The zero UUID
@@ -18,6 +21,19 @@ from .synchronizer import ERSmartSynchronizer
 # ER site, the user must pass --cm-uuid <uuid> for each run so the generated
 # event-type values don't collide.
 _DEFAULT_FILE_CM_UUID = "00000000-0000-0000-0000-000000000000"
+
+_CA_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9]{2,30}$")
+
+
+def _validate_ca_identifier(ctx, param, value):
+    """Click callback: enforce 2-30 alphanumeric chars on --ca-identifier."""
+    if value is None:
+        return None
+    if not _CA_IDENTIFIER_RE.match(value):
+        raise click.BadParameter(
+            f"{value!r}: must be 2-30 alphanumeric characters (A-Z, a-z, 0-9)"
+        )
+    return value
 
 
 def _resolve_cm_uuid(cm_uuid: str | None) -> str:
@@ -237,9 +253,16 @@ def _validate_config(config: SyncConfig) -> None:
     help="Also push the base data model as its own ER event category in addition to the configurable model. No effect unless --cm-from-file is given.",
 )
 @click.option(
-    "--ca-label",
-    default="[SMART-IMPORT]",
-    help="Category label (used when --from-file)",
+    "--ca-identifier",
+    "ca_identifier",
+    default=None,
+    callback=_validate_ca_identifier,
+    help=(
+        "Short alphanumeric code (2-30 chars, A-Z/a-z/0-9) used as the ER "
+        "event-category identifier. Required when --from-file is used. "
+        "Ignored when syncing from the SMART API (the identifier is "
+        "extracted from the CA label in that case)."
+    ),
 )
 @click.option(
     "--mode",
@@ -282,7 +305,7 @@ def datamodel(
     cm_file,
     cm_uuid,
     include_base_datamodel,
-    ca_label,
+    ca_identifier,
     mode,
     event_type_version,
     skip_choices,
@@ -321,6 +344,11 @@ def datamodel(
 
     if datamodel_file:
         # File-based sync: load XML, push directly to ER
+        if not ca_identifier:
+            raise click.UsageError(
+                "--ca-identifier is required when --from-file is used"
+            )
+
         from smartconnect import ConfigurableDataModel, SmartClient
 
         sclient = SmartClient(
@@ -353,13 +381,13 @@ def datamodel(
             sync.push_smart_ca_datamodel_to_earthranger(
                 dm=dm,
                 smart_ca_uuid="smart-ca-import",
-                ca_label=ca_label,
+                ca_identifier=ca_identifier,
                 cm=None,
             )
         sync.push_smart_ca_datamodel_to_earthranger(
             dm=dm,
             smart_ca_uuid="smart-ca-import",
-            ca_label=ca_label,
+            ca_identifier=ca_identifier,
             cm=cm,
         )
     else:
@@ -367,6 +395,12 @@ def datamodel(
         if not smart_api:
             raise click.UsageError(
                 "Either --from-file or --smart-api (with credentials) is required."
+            )
+        if ca_identifier:
+            logger.warning(
+                "--ca-identifier %r ignored: identifier will be extracted "
+                "from the conservation-area label fetched from the SMART API.",
+                ca_identifier,
             )
         sync = _make_synchronizer(config, ctx=ctx)
         sync.sync_mode = mode
@@ -894,9 +928,15 @@ def _extract_id(label: str) -> str:
     help="Configurable-model UUID (used with --cm-from-file). Required when loading multiple configurable models for the same SMART CA to avoid event-type value collisions. Defaults to the zero UUID.",
 )
 @click.option(
-    "--ca-label",
-    default="[INSPECT]",
-    help="CA label, used when --from-file is given",
+    "--ca-identifier",
+    "ca_identifier",
+    default=None,
+    callback=_validate_ca_identifier,
+    help=(
+        "Short alphanumeric code (2-30 chars, A-Z/a-z/0-9) used as the ER "
+        "event-category identifier when --from-file is used. Ignored when "
+        "--smart-ca-uuid is given (identifier extracted from CA label)."
+    ),
 )
 @click.option(
     "--event-type-version",
@@ -920,7 +960,7 @@ def inspect_datamodel_cmd(
     datamodel_file,
     cm_file,
     cm_uuid,
-    ca_label,
+    ca_identifier,
     event_type_version,
 ):
     """Show the EarthRanger event types that *would* be created/updated from a SMART data model.
@@ -946,6 +986,10 @@ def inspect_datamodel_cmd(
     from smartconnect import ConfigurableDataModel, SmartClient
 
     if datamodel_file:
+        if not ca_identifier:
+            raise click.UsageError(
+                "--ca-identifier is required when --from-file is used"
+            )
         sclient = SmartClient(
             api="https://tempuri.org/",
             username="",
@@ -954,6 +998,12 @@ def inspect_datamodel_cmd(
         )
         dm = sclient.load_datamodel(filename=datamodel_file)
     elif smart_ca_uuid:
+        if ca_identifier:
+            logger.warning(
+                "--ca-identifier %r ignored: identifier will be extracted "
+                "from the conservation-area label fetched from the SMART API.",
+                ca_identifier,
+            )
         sclient = SmartClient(
             api=config.smart.endpoint,
             username=config.smart.login,
@@ -963,7 +1013,7 @@ def inspect_datamodel_cmd(
         )
         dm = sclient.get_data_model(ca_uuid=smart_ca_uuid)
         ca = sclient.get_conservation_area(ca_uuid=smart_ca_uuid)
-        ca_label = ca.label
+        ca_identifier = ERSmartSynchronizer.get_identifier_from_ca_label(ca.label)
     else:
         raise click.UsageError("Either --from-file or --smart-ca-uuid is required.")
 
@@ -980,7 +1030,6 @@ def inspect_datamodel_cmd(
             cm.load(f.read())
 
     ca_uuid = smart_ca_uuid or "ca-uuid-placeholder"
-    ca_identifier = ERSmartSynchronizer.get_identifier_from_ca_label(ca_label)
 
     if event_type_version == "v2":
         from .smart_to_er_v2 import build_event_types_v2
@@ -991,7 +1040,7 @@ def inspect_datamodel_cmd(
             ca_uuid=ca_uuid,
             ca_identifier=ca_identifier,
         )
-        _print_event_type_summary_v2(event_types, ca_label=ca_label)
+        _print_event_type_summary_v2(event_types, ca_identifier=ca_identifier)
         choice_sets = build_choice_sets(
             dm=dm.export_as_dict(),
             cm=cm.export_as_dict() if cm else None,
@@ -1007,13 +1056,13 @@ def inspect_datamodel_cmd(
             ca_uuid=ca_uuid,
             ca_identifier=ca_identifier,
         )
-        _print_event_type_summary(event_types, ca_label=ca_label)
+        _print_event_type_summary(event_types, ca_identifier=ca_identifier)
 
 
-def _print_event_type_summary(event_types, *, ca_label: str) -> None:
+def _print_event_type_summary(event_types, *, ca_identifier: str) -> None:
     import json as _json
 
-    click.echo(f"CA: {ca_label}")
+    click.echo(f"CA: {ca_identifier}")
     click.echo(f"Event types: {len(event_types)}")
     active = [et for et in event_types if et.is_active]
     inactive = [et for et in event_types if not et.is_active]
@@ -1049,8 +1098,8 @@ def _print_event_type_summary(event_types, *, ca_label: str) -> None:
             click.echo(f"      {key}: {type_part}{extras_str}")
 
 
-def _print_event_type_summary_v2(event_types, *, ca_label: str) -> None:
-    click.echo(f"CA: {ca_label}")
+def _print_event_type_summary_v2(event_types, *, ca_identifier: str) -> None:
+    click.echo(f"CA: {ca_identifier}")
     click.echo(f"Event types: {len(event_types)}")
     active = [et for et in event_types if et.is_active]
     inactive = [et for et in event_types if not et.is_active]
