@@ -53,15 +53,16 @@ SCALAR_JSON: dict[str, dict[str, Any]] = {
 }
 
 SCALAR_UI: dict[str, dict[str, Any]] = {
-    "TEXT": {"type": "TEXT", "inputType": "SHORT_TEXT"},
-    "NUMERIC": {"type": "NUMBER"},
-    "BOOLEAN": {"type": "BOOLEAN"},
-    "DATE": {"type": "TEXT", "inputType": "DATE"},
-    "TIME": {"type": "TEXT", "inputType": "TIME"},
-    "DATETIME": {"type": "TEXT", "inputType": "DATETIME"},
+    "TEXT": {"type": "TEXT", "inputType": "SHORT_TEXT", "parent": "section-1"},
+    "NUMERIC": {"type": "NUMBER", "parent": "section-1"},
+    "BOOLEAN": {"type": "BOOLEAN", "parent": "section-1"},
+    "DATE": {"type": "TEXT", "inputType": "DATE", "parent": "section-1"},
+    "TIME": {"type": "TEXT", "inputType": "TIME", "parent": "section-1"},
+    "DATETIME": {"type": "TEXT", "inputType": "DATETIME", "parent": "section-1"},
     "ATTACHMENT": {
         "type": "ATTACHMENT",
         "allowableFileTypes": ["image", "document", "video", "audio"],
+        "parent": "section-1",
     },
 }
 
@@ -161,15 +162,17 @@ def _build_one(
         },
         "ui": {
             "fields": ui_fields,
+            "headers": {},
+            "order": ["section-1"],
             "sections": {
                 "section-1": {
                     "label": "Details",
                     "columns": 1,
                     "isActive": True,
                     "leftColumn": [{"name": k, "type": "field"} for k in field_order],
+                    "rightColumn": [],
                 }
             },
-            "order": ["section-1"],
         },
     }
     return et
@@ -251,7 +254,7 @@ def _build_property_pair(
             logger.warning("Unknown SMART type %r; emitting string", smart_type)
         return (
             {"type": "string", "title": display},
-            {"type": "TEXT", "inputType": "SHORT_TEXT"},
+            {"type": "TEXT", "inputType": "SHORT_TEXT", "parent": "section-1"},
         )
 
     keys = [o.key for o in options]
@@ -268,6 +271,7 @@ def _build_property_pair(
             "type": "CHOICE_LIST",
             "inputType": "CHECKBOX",
             "choices": choices,
+            "parent": "section-1",
         }
     else:
         json_prop = {
@@ -279,6 +283,7 @@ def _build_property_pair(
             "type": "CHOICE_LIST",
             "inputType": "DROPDOWN",
             "choices": choices,
+            "parent": "section-1",
         }
     return json_prop, ui_field
 
