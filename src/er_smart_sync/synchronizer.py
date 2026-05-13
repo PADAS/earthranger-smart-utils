@@ -78,6 +78,42 @@ def _retry(fn, *, max_attempts: int = 4, base_delay: float = 1.0, **kwargs):
     raise last_exc  # pragma: no cover — unreachable
 
 
+def _summarize_schema_diff(new: dict, existing: dict) -> str:
+    """Compact human-readable diff of two schema dicts for debugging."""
+    if not isinstance(new, dict) or not isinstance(existing, dict):
+        return (
+            f"type-mismatch new={type(new).__name__} existing={type(existing).__name__}"
+        )
+
+    new_keys = set(new.keys())
+    existing_keys = set(existing.keys())
+    only_new = new_keys - existing_keys
+    only_existing = existing_keys - new_keys
+    common = new_keys & existing_keys
+
+    diffs = []
+    if only_new:
+        diffs.append(f"keys-only-in-new={sorted(only_new)}")
+    if only_existing:
+        diffs.append(f"keys-only-in-existing={sorted(only_existing)}")
+    for k in sorted(common):
+        if new[k] != existing[k]:
+            n_repr = repr(new[k])
+            e_repr = repr(existing[k])
+            if len(n_repr) > 120 or len(e_repr) > 120:
+                # For deeply nested mismatches, recurse one level if both are dicts.
+                if isinstance(new[k], dict) and isinstance(existing[k], dict):
+                    nested = _summarize_schema_diff(new[k], existing[k])
+                    diffs.append(f"{k}: {{ {nested} }}")
+                else:
+                    diffs.append(
+                        f"{k}: new={n_repr[:120]}... existing={e_repr[:120]}..."
+                    )
+            else:
+                diffs.append(f"{k}: new={n_repr} existing={e_repr}")
+    return "; ".join(diffs) or "(equal but != returned True?)"
+
+
 class ERSmartSynchronizer:
     """Synchronizes data between SMART Connect and EarthRanger.
 
@@ -459,11 +495,26 @@ class ERSmartSynchronizer:
         if event_type.is_active and event_type.event_schema:
             if self._event_type_version == "v2":
                 new_schema = event_type.event_schema
-                existing_schema = existing_er_event_type.get("schema") or {}
-                if not isinstance(existing_schema, dict):
-                    # Defensive: shouldn't happen on v2 endpoint but guard anyway.
+                raw_existing = existing_er_event_type.get("schema") or {}
+                if not isinstance(raw_existing, dict):
+                    logger.warning(
+                        "Existing v2 schema for %r came back as %s (not dict); "
+                        "treating as empty and flagging an update. "
+                        "First 200 chars: %r",
+                        event_type.value,
+                        type(raw_existing).__name__,
+                        str(raw_existing)[:200],
+                    )
                     existing_schema = {}
+                else:
+                    existing_schema = raw_existing
                 if new_schema != existing_schema:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "v2 schema diff for %r: %s",
+                            event_type.value,
+                            _summarize_schema_diff(new_schema, existing_schema),
+                        )
                     return True
             else:
                 new_schema = json.loads(event_type.event_schema).get("schema")
