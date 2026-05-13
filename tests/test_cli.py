@@ -955,3 +955,57 @@ def test_datamodel_skip_choices_flag(tmp_path, monkeypatch):
     )
     assert result.exit_code == 0, result.output
     assert captured["sync"].skip_choices is True
+
+
+def test_inspect_datamodel_v2_prints_choice_sets(tmp_path, monkeypatch):
+    """`inspect-datamodel --event-type-version v2` includes a choices section."""
+    from click.testing import CliRunner
+
+    from er_smart_sync.cli import main
+
+    dm_mock = MagicMock()
+    dm_mock.export_as_dict.return_value = {
+        "categories": [{
+            "path": "incidents",
+            "hkeyPath": "incidents",
+            "display": "Incidents",
+            "is_multiple": False,
+            "is_active": True,
+            "attributes": [{"key": "color", "is_active": True}],
+        }],
+        "attributes": [{
+            "key": "color",
+            "type": "LIST",
+            "isrequired": False,
+            "display": "Color",
+            "options": [
+                {"key": "red", "display": "Red", "isActive": True},
+                {"key": "blue", "display": "Blue", "isActive": True},
+            ],
+        }],
+    }
+    monkeypatch.setattr(
+        "smartconnect.SmartClient.load_datamodel",
+        lambda self, filename: dm_mock,
+    )
+
+    dm_file = tmp_path / "dm.xml"
+    dm_file.write_text("<datamodel/>")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "inspect-datamodel",
+            "--er-endpoint", "https://er.example.com/api/v1.0",
+            "--er-token", "x",
+            "--from-file", str(dm_file),
+            "--ca-label", "Foasf [FOASF]",
+            "--event-type-version", "v2",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    # Output should mention "Choice sets" header and the option keys.
+    assert "Choice" in result.output or "choice" in result.output
+    assert "red" in result.output
+    assert "blue" in result.output
