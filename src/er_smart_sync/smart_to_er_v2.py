@@ -117,6 +117,11 @@ def _build_one(
     is_leaf = _is_leaf_node(cat_paths, cat.path)
     is_active = bool(cm) or (cat.is_active and is_leaf)
 
+    if not is_active:
+        # v2 has no equivalent of v1's "inactive event type" record — there
+        # is no schema-less POST shape that passes the meta-schema. Skip.
+        return None
+
     hkey = cat.hkeyPath or cat.path or ""
     path_components = hkey.split(".") if cm else (cat.path or "").split(".")
     value_suffix = "_".join(path_components)
@@ -130,9 +135,7 @@ def _build_one(
     # Choice.field $ref URL.
     et_value = value
 
-    et = ERV2EventType(value=value, display=cat.display, is_active=bool(is_active))
-    if not is_active:
-        return et
+    et = ERV2EventType(value=value, display=cat.display, is_active=True)
 
     leaf_attributes = list(cat.attributes or [])
     if not cm:

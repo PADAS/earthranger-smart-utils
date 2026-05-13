@@ -487,3 +487,17 @@ def test_ui_field_has_parent():
         assert field_block.get("parent") == "section-1", (
             f"ui.fields[{field_name}] missing parent='section-1'"
         )
+
+
+def test_build_event_types_v2_skips_inactive_non_cm_categories():
+    """Inactive leaf categories without a CM produce no event type at all."""
+    dm = {
+        "categories": [
+            _category("c", attributes=[_cat_attr("a")], is_active=False),
+        ],
+        "attributes": [_attr("a", "TEXT")],
+    }
+    result = build_event_types_v2(
+        dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID,
+    )
+    assert result == []
