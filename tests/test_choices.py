@@ -250,3 +250,130 @@ def test_build_choice_sets_mlist_attribute():
     result = build_choice_sets(dm=dm, cm=None, ca_uuid=CA_UUID)
     assert len(result) == 1
     assert tuple(o.value for o in result[0].options) == ("a", "b")
+
+
+def test_build_choice_sets_cm_filters_active_options():
+    from er_smart_sync.choices import build_choice_sets
+
+    dm = {
+        "categories": [_category("c", attributes=[_cat_attr("color")])],
+        "attributes": [
+            _attr(
+                "color", "LIST",
+                options=[
+                    _option("red"),
+                    _option("blue"),
+                    _option("green"),
+                ],
+            )
+        ],
+    }
+    cm = {
+        "cm_uuid": "cm-1",
+        "categories": [_category("c", attributes=[_cat_attr("color")])],
+        "attributes": [
+            {
+                "key": "color",
+                "options": [
+                    {"key": "red", "isActive": True},
+                    {"key": "blue", "isActive": False},
+                    {"key": "green", "isActive": True},
+                ],
+            }
+        ],
+    }
+    result = build_choice_sets(dm=dm, cm=cm, ca_uuid=CA_UUID)
+
+    assert len(result) == 1
+    values = [(o.value, o.is_active) for o in result[0].options]
+    assert values == [
+        ("red", True),
+        ("blue", False),  # CM deactivated → still emitted, is_active=False
+        ("green", True),
+    ]
+
+
+def test_build_choice_sets_cm_omits_option_entirely():
+    """An option present in the DM but missing from CM is dropped from the plan."""
+    from er_smart_sync.choices import build_choice_sets
+
+    dm = {
+        "categories": [_category("c", attributes=[_cat_attr("color")])],
+        "attributes": [
+            _attr(
+                "color", "LIST",
+                options=[_option("red"), _option("blue"), _option("legacy")],
+            )
+        ],
+    }
+    cm = {
+        "cm_uuid": "cm-1",
+        "categories": [_category("c", attributes=[_cat_attr("color")])],
+        "attributes": [
+            {
+                "key": "color",
+                "options": [
+                    {"key": "red", "isActive": True},
+                    {"key": "blue", "isActive": True},
+                ],
+            }
+        ],
+    }
+    result = build_choice_sets(dm=dm, cm=cm, ca_uuid=CA_UUID)
+    assert [o.value for o in result[0].options] == ["red", "blue"]
+
+
+def test_build_choice_sets_tree_flattens_to_leaves():
+    from er_smart_sync.choices import build_choice_sets
+
+    dm = {
+        "categories": [_category("c", attributes=[_cat_attr("region")])],
+        "attributes": [
+            _attr(
+                "region", "TREE",
+                options=[
+                    _option("africa"),
+                    _option("africa.kenya"),
+                    _option("africa.kenya.nairobi"),
+                    _option("africa.tanzania"),
+                ],
+            )
+        ],
+    }
+    result = build_choice_sets(dm=dm, cm=None, ca_uuid=CA_UUID)
+    values = {o.value for o in result[0].options}
+    # Only leaves: africa.kenya.nairobi → africa_kenya_nairobi, africa.tanzania → africa_tanzania
+    assert values == {"africa_kenya_nairobi", "africa_tanzania"}
+
+
+def test_build_choice_sets_skips_inactive_categories_without_cm():
+    from er_smart_sync.choices import build_choice_sets
+
+    dm = {
+        "categories": [
+            _category("c", attributes=[_cat_attr("color")], is_active=False),
+        ],
+        "attributes": [
+            _attr("color", "LIST", options=[_option("red")]),
+        ],
+    }
+    result = build_choice_sets(dm=dm, cm=None, ca_uuid=CA_UUID)
+    assert result == []
+
+
+def test_build_choice_sets_two_categories_distinct_fields():
+    """Same attribute referenced from two leaf categories → two distinct field hashes."""
+    from er_smart_sync.choices import build_choice_sets
+
+    dm = {
+        "categories": [
+            _category("incidents", attributes=[_cat_attr("species")]),
+            _category("wildlife", attributes=[_cat_attr("species")]),
+        ],
+        "attributes": [
+            _attr("species", "LIST", options=[_option("lion"), _option("zebra")]),
+        ],
+    }
+    result = build_choice_sets(dm=dm, cm=None, ca_uuid=CA_UUID)
+    assert len(result) == 2
+    assert result[0].field != result[1].field
