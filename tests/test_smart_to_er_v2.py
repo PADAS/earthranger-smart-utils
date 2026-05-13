@@ -117,9 +117,7 @@ def test_scalar_attribute_mapping(smart_type, expected_json, expected_ui):
         "attributes": [_attr("field1", smart_type, display="Field One")],
     }
 
-    result = build_event_types_v2(
-        dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID
-    )
+    result = build_event_types_v2(dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID)
 
     assert len(result) == 1
     et = result[0]
@@ -203,13 +201,18 @@ def test_list_single_value_emits_anyof_ref_and_choice_list():
         "categories": [_category("c", attributes=[_cat_attr("color")])],
         "attributes": [
             _attr(
-                "color", "LIST", display="Color",
+                "color",
+                "LIST",
+                display="Color",
                 options=[_option("red", "Red"), _option("blue", "Blue")],
             )
         ],
     }
     schema = build_event_types_v2(
-        dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID,
+        dm=dm,
+        cm=None,
+        ca_uuid=CA_UUID,
+        ca_identifier=CA_ID,
         choices_base_url="/api/v2.0/schemas",
     )[0].event_schema
 
@@ -252,13 +255,18 @@ def test_list_multi_value_emits_array_anyof_ref():
         ],
         "attributes": [
             _attr(
-                "tags", "LIST", display="Tags",
+                "tags",
+                "LIST",
+                display="Tags",
                 options=[_option("a"), _option("b")],
             )
         ],
     }
     schema = build_event_types_v2(
-        dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID,
+        dm=dm,
+        cm=None,
+        ca_uuid=CA_UUID,
+        ca_identifier=CA_ID,
     )[0].event_schema
 
     et_value = event_type_value_for(category_path="c", ca_uuid=CA_UUID, cm=None)
@@ -291,13 +299,18 @@ def test_mlist_emits_array_anyof_ref():
         "categories": [_category("c", attributes=[_cat_attr("species")])],
         "attributes": [
             _attr(
-                "species", "MLIST", display="Species",
+                "species",
+                "MLIST",
+                display="Species",
                 options=[_option("lion"), _option("zebra")],
             )
         ],
     }
     schema = build_event_types_v2(
-        dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID,
+        dm=dm,
+        cm=None,
+        ca_uuid=CA_UUID,
+        ca_identifier=CA_ID,
     )[0].event_schema
 
     et_value = event_type_value_for(category_path="c", ca_uuid=CA_UUID, cm=None)
@@ -320,7 +333,9 @@ def test_tree_flattens_to_leaf_options():
         "categories": [_category("c", attributes=[_cat_attr("region")])],
         "attributes": [
             _attr(
-                "region", "TREE", display="Region",
+                "region",
+                "TREE",
+                display="Region",
                 options=[
                     _option("africa"),
                     _option("africa.kenya"),
@@ -330,9 +345,9 @@ def test_tree_flattens_to_leaf_options():
             )
         ],
     }
-    schema = build_event_types_v2(
-        dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID
-    )[0].event_schema
+    schema = build_event_types_v2(dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID)[
+        0
+    ].event_schema
 
     et_value = event_type_value_for(category_path="c", ca_uuid=CA_UUID, cm=None)
     expected_field = derive_choice_field(et_value, "region")
@@ -363,9 +378,9 @@ def test_inactive_attribute_marked_deprecated_and_kept_in_section():
             _attr("retired_attr", "TEXT", display="Retired"),
         ],
     }
-    schema = build_event_types_v2(
-        dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID
-    )[0].event_schema
+    schema = build_event_types_v2(dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID)[
+        0
+    ].event_schema
 
     # Both have `deprecated`; only the inactive one is True.
     assert schema["json"]["properties"]["retired_attr"]["deprecated"] is True
@@ -379,7 +394,6 @@ def test_inactive_attribute_marked_deprecated_and_kept_in_section():
 
 
 # ── Configurable-model overlay ────────────────────────────────────
-
 
 
 def test_configurable_model_event_type_value_includes_cm_uuid():
@@ -417,7 +431,10 @@ def test_build_event_types_v2_accepts_choices_base_url():
     }
     # Should not raise on the kwarg.
     result = build_event_types_v2(
-        dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID,
+        dm=dm,
+        cm=None,
+        ca_uuid=CA_UUID,
+        ca_identifier=CA_ID,
         choices_base_url="/custom/v2/schemas",
     )
     assert len(result) == 1
@@ -431,7 +448,10 @@ def test_build_event_types_v2_choices_base_url_defaults():
     }
     # Calling without choices_base_url must still succeed.
     result = build_event_types_v2(
-        dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID,
+        dm=dm,
+        cm=None,
+        ca_uuid=CA_UUID,
+        ca_identifier=CA_ID,
     )
     assert len(result) == 1
 
@@ -442,9 +462,9 @@ def test_ui_envelope_has_required_keys():
         "categories": [_category("c", attributes=[_cat_attr("a")])],
         "attributes": [_attr("a", "TEXT")],
     }
-    schema = build_event_types_v2(
-        dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID
-    )[0].event_schema
+    schema = build_event_types_v2(dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID)[
+        0
+    ].event_schema
 
     ui = schema["ui"]
     assert "fields" in ui
@@ -459,9 +479,9 @@ def test_ui_section_has_required_keys():
         "categories": [_category("c", attributes=[_cat_attr("a")])],
         "attributes": [_attr("a", "TEXT")],
     }
-    schema = build_event_types_v2(
-        dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID
-    )[0].event_schema
+    schema = build_event_types_v2(dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID)[
+        0
+    ].event_schema
 
     section = schema["ui"]["sections"]["section-1"]
     assert section["columns"] == 1
@@ -479,9 +499,9 @@ def test_ui_field_has_parent():
             _attr("b", "NUMERIC"),
         ],
     }
-    schema = build_event_types_v2(
-        dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID
-    )[0].event_schema
+    schema = build_event_types_v2(dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID)[
+        0
+    ].event_schema
 
     for field_name, field_block in schema["ui"]["fields"].items():
         assert field_block.get("parent") == "section-1", (
@@ -498,7 +518,10 @@ def test_build_event_types_v2_skips_inactive_non_cm_categories():
         "attributes": [_attr("a", "TEXT")],
     }
     result = build_event_types_v2(
-        dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID,
+        dm=dm,
+        cm=None,
+        ca_uuid=CA_UUID,
+        ca_identifier=CA_ID,
     )
     assert result == []
 
@@ -509,16 +532,19 @@ def test_snapshot_full_mix_of_types():
 
     dm = {
         "categories": [
-            _category("incidents", attributes=[
-                _cat_attr("title"),
-                _cat_attr("count"),
-                _cat_attr("confirmed"),
-                _cat_attr("when_date"),
-                _cat_attr("photo"),
-                _cat_attr("species"),
-                _cat_attr("tags"),
-                _cat_attr("legacy_field", is_active=False),
-            ]),
+            _category(
+                "incidents",
+                attributes=[
+                    _cat_attr("title"),
+                    _cat_attr("count"),
+                    _cat_attr("confirmed"),
+                    _cat_attr("when_date"),
+                    _cat_attr("photo"),
+                    _cat_attr("species"),
+                    _cat_attr("tags"),
+                    _cat_attr("legacy_field", is_active=False),
+                ],
+            ),
         ],
         "attributes": [
             _attr("title", "TEXT", display="Title"),
@@ -526,15 +552,23 @@ def test_snapshot_full_mix_of_types():
             _attr("confirmed", "BOOLEAN", display="Confirmed"),
             _attr("when_date", "DATE", display="When"),
             _attr("photo", "ATTACHMENT", display="Photo"),
-            _attr("species", "LIST", display="Species",
-                  options=[_option("lion", "Lion"), _option("zebra", "Zebra")]),
-            _attr("tags", "MLIST", display="Tags",
-                  options=[_option("a"), _option("b")]),
+            _attr(
+                "species",
+                "LIST",
+                display="Species",
+                options=[_option("lion", "Lion"), _option("zebra", "Zebra")],
+            ),
+            _attr(
+                "tags", "MLIST", display="Tags", options=[_option("a"), _option("b")]
+            ),
             _attr("legacy_field", "TEXT", display="Legacy"),
         ],
     }
     result = build_event_types_v2(
-        dm=dm, cm=None, ca_uuid="ca-snap", ca_identifier="SNAP",
+        dm=dm,
+        cm=None,
+        ca_uuid="ca-snap",
+        ca_identifier="SNAP",
         choices_base_url="/api/v2.0/schemas",
     )
 
@@ -556,8 +590,16 @@ def test_snapshot_full_mix_of_types():
     assert section["rightColumn"] == []
     # All 8 fields appear in leftColumn
     leftcol_names = [item["name"] for item in section["leftColumn"]]
-    for k in ("title", "count", "confirmed", "when_date", "photo",
-              "species", "tags", "legacy_field"):
+    for k in (
+        "title",
+        "count",
+        "confirmed",
+        "when_date",
+        "photo",
+        "species",
+        "tags",
+        "legacy_field",
+    ):
         assert k in leftcol_names
 
     # Spot-check every property carries description + deprecated.
@@ -575,7 +617,9 @@ def test_snapshot_full_mix_of_types():
 
     # Choice attribute uses anyOf $ref
     et_value = event_type_value_for(
-        category_path="incidents", ca_uuid="ca-snap", cm=None,
+        category_path="incidents",
+        ca_uuid="ca-snap",
+        cm=None,
     )
     expected_species_field = derive_choice_field(et_value, "species")
     expected_tags_field = derive_choice_field(et_value, "tags")
@@ -590,9 +634,7 @@ def test_snapshot_full_mix_of_types():
 
     # All ui fields have parent
     for key, ui_block in schema["ui"]["fields"].items():
-        assert ui_block.get("parent") == "section-1", (
-            f"ui.fields[{key}] missing parent"
-        )
+        assert ui_block.get("parent") == "section-1", f"ui.fields[{key}] missing parent"
 
     # Scalar ui types
     assert schema["ui"]["fields"]["title"]["type"] == "TEXT"
