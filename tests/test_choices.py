@@ -596,3 +596,116 @@ def test_upsert_choices_deactivates_when_planned_inactive():
     )
     assert stats.deactivated == 1
     assert client._patch.call_args.kwargs["payload"]["is_active"] is False
+
+
+def test_upsert_choices_deactivates_orphans():
+    """Existing active records not in the plan get soft-deactivated."""
+    from er_smart_sync.choices import ChoiceOption, ChoiceSet, upsert_choices
+
+    client = _mock_er_client_for_choices(
+        existing_results={
+            "count": 2, "next": None,
+            "results": [
+                {
+                    "id": "uuid-r", "model": "activity.event",
+                    "field": "etxxx_color", "value": "red",
+                    "display": "Red", "ordernum": 0, "is_active": True,
+                },
+                {
+                    "id": "uuid-l", "model": "activity.event",
+                    "field": "etxxx_color", "value": "legacy",
+                    "display": "Legacy", "ordernum": 1, "is_active": True,
+                },
+            ],
+        },
+    )
+    stats = upsert_choices(
+        er_client=client,
+        choice_sets=[
+            ChoiceSet(
+                field="etxxx_color",
+                options=(
+                    ChoiceOption(value="red", display="Red", is_active=True),
+                ),
+            )
+        ],
+    )
+    # red is unchanged; legacy is orphaned → deactivated.
+    assert stats.unchanged == 1
+    assert stats.deactivated == 1
+    patch_call = client._patch.call_args
+    assert "choices/uuid-l" in patch_call.kwargs["path"]
+    assert patch_call.kwargs["payload"] == {"is_active": False}
+
+
+def test_upsert_choices_does_not_deactivate_already_inactive_orphans():
+    """Already-inactive orphans are no-ops, not double-deactivated."""
+    from er_smart_sync.choices import ChoiceOption, ChoiceSet, upsert_choices
+
+    client = _mock_er_client_for_choices(
+        existing_results={
+            "count": 1, "next": None,
+            "results": [
+                {
+                    "id": "uuid-l", "model": "activity.event",
+                    "field": "etxxx_color", "value": "legacy",
+                    "display": "Legacy", "ordernum": 0, "is_active": False,
+                },
+            ],
+        },
+    )
+    stats = upsert_choices(
+        er_client=client,
+        choice_sets=[
+            ChoiceSet(
+                field="etxxx_color",
+                options=(
+                    ChoiceOption(value="red", display="Red", is_active=True),
+                ),
+            )
+        ],
+    )
+    assert stats.deactivated == 0
+    assert stats.created == 1
+    client._patch.assert_not_called()
+
+
+def test_upsert_choices_duplicate_field_identical_options_deduplicates():
+    from er_smart_sync.choices import ChoiceOption, ChoiceSet, upsert_choices
+
+    client = _mock_er_client_for_choices()
+    options = (ChoiceOption(value="red", display="Red", is_active=True),)
+    stats = upsert_choices(
+        er_client=client,
+        choice_sets=[
+            ChoiceSet(field="etxxx_color", options=options),
+            ChoiceSet(field="etxxx_color", options=options),
+        ],
+    )
+    # Second occurrence skipped; only one POST.
+    assert stats.created == 1
+    assert client._post.call_count == 1
+
+
+def test_upsert_choices_duplicate_field_different_options_raises():
+    from er_smart_sync.choices import ChoiceOption, ChoiceSet, upsert_choices
+
+    client = _mock_er_client_for_choices()
+    with pytest.raises(ValueError, match="builder bug"):
+        upsert_choices(
+            er_client=client,
+            choice_sets=[
+                ChoiceSet(
+                    field="etxxx_color",
+                    options=(
+                        ChoiceOption(value="red", display="Red", is_active=True),
+                    ),
+                ),
+                ChoiceSet(
+                    field="etxxx_color",
+                    options=(
+                        ChoiceOption(value="blue", display="Blue", is_active=True),
+                    ),
+                ),
+            ],
+        )
