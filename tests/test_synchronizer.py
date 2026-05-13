@@ -1033,6 +1033,47 @@ class TestEventTypeVersionWiring:
         upsert.assert_not_called()
 
 
+    def test_v2_abort_event_types_when_choices_errored(
+        self, sync_config_v2, mock_er_client, caplog
+    ):
+        from er_smart_sync.choices import ChoicesStats
+
+        mock_er_client.get_event_categories.return_value = []
+        mock_er_client.get_event_types.return_value = []
+
+        dm = MagicMock()
+        dm.export_as_dict.return_value = {"categories": []}
+
+        stats = ChoicesStats(errored=2)
+
+        with patch(
+            "er_smart_sync.synchronizer.build_choice_sets",
+            return_value=[],
+        ), patch(
+            "er_smart_sync.synchronizer.upsert_choices",
+            return_value=stats,
+        ), patch(
+            "er_smart_sync.synchronizer.build_event_types_v2",
+        ) as build_types:
+            sync = ERSmartSynchronizer(
+                config=sync_config_v2,
+                er_client=mock_er_client,
+                smart_client=MagicMock(),
+            )
+            with caplog.at_level("WARNING"):
+                sync.push_smart_ca_datamodel_to_earthranger(
+                    dm=dm, smart_ca_uuid="ca-1", ca_label="[TEST]"
+                )
+
+        # build_event_types_v2 never called; no POSTs attempted.
+        build_types.assert_not_called()
+        mock_er_client.post_event_type.assert_not_called()
+        # Clear warning log.
+        assert any(
+            "Aborting event-type push" in r.message
+            for r in caplog.records
+        )
+
     def test_v2_choice_stats_merge_into_datamodel_stats(
         self, sync_config_v2, mock_er_client
     ):
