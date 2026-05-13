@@ -112,24 +112,35 @@ Notes:
 
 ## Data flow
 
+`build_choice_sets` and `build_event_types_v2` are deliberately **separate** functions. Both walk the same SMART data model, but they own different outputs and live in different modules. The choices CLI subcommand only needs the first; the synchronizer's v2 path calls both. The internal DM walk is small (hundreds of attributes per CA) so the duplication is cheap.
+
 ```
 SMART DM + optional CM
         │
-        ▼
-build_event_types_v2(dm, cm, ca_uuid)
-        │
-        ├──► list[ERV2EventType]   (each property's $ref uses derive_choice_field)
-        └──► list[ChoiceSet]
-              │
-              ▼
-       upsert_choices(er_client, choice_sets)
-              │
-              ▼
-   ┌──────────────────────────────┐
-   │ choices_errored > 0 for CA?  │
-   ├──── yes ──► skip event-type POSTs for this CA, log abort
-   └──── no  ──► proceed to event-type POSTs (existing code path)
+        ├──► build_choice_sets(dm, cm, ca_uuid)         [lives in choices.py]
+        │        │
+        │        ▼
+        │   list[ChoiceSet]
+        │        │
+        │        ▼
+        │   upsert_choices(er_client, choice_sets)
+        │        │
+        │        ▼
+        │   ┌──────────────────────────────┐
+        │   │ choices_errored > 0 for CA?  │
+        │   ├──── yes ──► skip event-type POSTs for this CA, log abort
+        │   └──── no  ──► continue
+        │                  │
+        └──► build_event_types_v2(dm, cm, ca_uuid, ca_identifier)  [lives in smart_to_er_v2.py]
+                 │   (uses derive_choice_field for $ref URLs)
+                 ▼
+            list[ERV2EventType]
+                 │
+                 ▼
+            POST event types via er_client (existing code path)
 ```
+
+Both builders compute `event_type_value` the same way (the same string the existing v2 builder already produces). Both then call `derive_choice_field(event_type_value, attr_key)` for any attribute with options. As long as the two functions share that one helper, their views of "what field name does this property reference" stay consistent.
 
 ### `ChoiceSet` plan record
 
@@ -149,6 +160,34 @@ class ChoiceSet:
     field: str                       # derive_choice_field(event_type_value, attr_key)
     options: tuple[ChoiceOption, ...]  # order matches SMART option order → ordernum
 ```
+
+### `build_choice_sets`
+
+```python
+def build_choice_sets(
+    *,
+    dm: dict,
+    cm: dict | None = None,
+    ca_uuid: str,
+) -> list[ChoiceSet]:
+    """Walk a SMART data model and emit one ChoiceSet per (event_type, choice-bearing attribute).
+
+    Uses the same event_type_value computation as build_event_types_v2 so that
+    field names line up. Calls derive_choice_field(event_type_value, attr_key)
+    for each LIST/MLIST/TREE attribute referenced from a leaf category
+    (respecting CM overlay option filtering and isActive flags).
+
+    Does NOT produce event types or know anything about the v2 wire format.
+    """
+```
+
+Implementation notes:
+
+- The event-type-value computation (`{ca_uuid}_{path}` or `{ca_uuid}_{cm_uuid}_{path}`, lowercased) is duplicated between this function and `build_event_types_v2`. Extract it to a shared helper in `choices.py` (e.g. `event_type_value_for(cat, ca_uuid, cm)`) so both modules import from one source of truth.
+- TREE attributes are flattened to leaves (same as the v1 builder), then sanitized via `sanitize_choice_value`.
+- CM overlay: when `cm` is provided, only options the CM marks `isActive=true` appear in the `ChoiceSet`. Options the CM has explicitly deactivated still produce a `ChoiceOption` with `is_active=False` so the upserter soft-deactivates them in ER; options the CM omits entirely don't appear in the plan at all (orphan handling will deactivate any pre-existing ER records).
+
+### Duplicate `field` across `ChoiceSet`s
 
 Same `field` may legitimately appear in two `ChoiceSet` records if the v2 builder emits it twice (e.g. the carcass reference uses `carcassrep_species` at the top level AND nested inside `animal_groups.items.properties`). The upserter deduplicates by `field`, asserting the options are identical between duplicates (raise if not — that's a bug in the builder).
 
@@ -175,9 +214,9 @@ Retries use the existing `_retry()` helper (exponential backoff, network/5xx onl
 
 | Path | Action | Responsibility |
 |---|---|---|
-| `src/er_smart_sync/choices.py` | create | `derive_choice_field`, `sanitize_choice_value`, `ChoiceOption`, `ChoiceSet`, `upsert_choices`, `ChoicesStats` dataclass. |
-| `src/er_smart_sync/smart_to_er_v2.py` | (rewrite per parent spec) | Imports `derive_choice_field` and `sanitize_choice_value`. Returns `tuple[list[ERV2EventType], list[ChoiceSet]]`. |
-| `src/er_smart_sync/synchronizer.py` | modify | New two-pass orchestration in `push_smart_ca_datamodel_to_earthranger` on v2: call `build_event_types_v2`, upsert choices, gate event-type POSTs on choices success. Extend `datamodel_stats` with five new counters. New `_event_type_version`-aware path; v1 path unchanged. |
+| `src/er_smart_sync/choices.py` | create | `derive_choice_field`, `sanitize_choice_value`, `event_type_value_for` (shared helper), `ChoiceOption`, `ChoiceSet`, `build_choice_sets`, `upsert_choices`, `ChoicesStats` dataclass. |
+| `src/er_smart_sync/smart_to_er_v2.py` | (rewrite per parent spec) | Imports `derive_choice_field`, `sanitize_choice_value`, and `event_type_value_for` from `choices.py`. Returns `list[ERV2EventType]`. **Does not return ChoiceSets** — the synchronizer calls `build_choice_sets` separately. |
+| `src/er_smart_sync/synchronizer.py` | modify | New two-pass orchestration in `push_smart_ca_datamodel_to_earthranger` on v2: call `build_choice_sets` then `upsert_choices` then `build_event_types_v2` then POST. Gate event-type POSTs on choices success. Extend `datamodel_stats` with five new counters. v1 path unchanged. |
 | `src/er_smart_sync/config.py` | modify | Add `EarthRangerConfig.choices_base_url: str = "/api/v2.0/schemas"` for the `$ref` URL prefix. |
 | `src/er_smart_sync/cli.py` | modify | New `choices` subcommand. New `--skip-choices` flag on `datamodel`. v2 path in `inspect-datamodel` previews choice sets. |
 | `tests/test_choices.py` | create | Field derivation, value sanitization, upsert decision matrix (mocked `er_client`). |
@@ -199,7 +238,7 @@ er-smart-sync choices --from-file dm.xml [--cm-from-file cm.xml] [--cm-uuid <uui
 Same flag surface as `datamodel`: accepts either a config or individual `--smart-*`/`--er-*` flags, plus the file-based `--from-file` variants. Behavior:
 
 - Loads the SMART data model.
-- Builds `ChoiceSet`s (calling the same `build_event_types_v2` to compute the field names — even though we discard the event-types output here, we use the builder's wiring for consistency; alternative is a lighter-weight `build_choice_sets` helper if memory/time becomes a concern, which it won't).
+- Calls `build_choice_sets(dm=..., cm=..., ca_uuid=...)` — no event-type building happens.
 - Runs `upsert_choices`.
 - Prints a `ChoicesStats` summary.
 - Exits non-zero if any choice errored (mirrors how `datamodel --dry-run` errors out on critical issues today).
@@ -256,6 +295,17 @@ The existing summary line (`Datamodel sync summary: ...`) auto-includes these be
   - `africa.kenya.nairobi` → `africa_kenya_nairobi`.
   - Accented chars → underscored.
   - All-non-word input → `_` (fallback).
+- `event_type_value_for` shared helper:
+  - Without CM: matches the existing v2 builder's value scheme byte-for-byte.
+  - With CM: includes `cm_uuid` segment.
+  - Both lowercased.
+- `build_choice_sets`:
+  - Empty DM → empty list.
+  - DM with one LIST attribute on one leaf category → one `ChoiceSet` whose `field` matches `derive_choice_field` for that event type's value.
+  - DM with TREE attribute → leaves flattened, dot-separated keys sanitized to underscores.
+  - CM overlay drops one option → that option appears in the `ChoiceSet` with `is_active=False`.
+  - Two leaf categories referencing the same SMART attribute → two distinct `ChoiceSet`s (different `field` hashes).
+  - Inactive leaf category (no CM) → no `ChoiceSet` emitted (matches v2's "skip inactive entirely" rule).
 - `upsert_choices` decision matrix, with `MagicMock` `er_client`:
   - New option → POST.
   - Unchanged → no GET-or-write side effects.
@@ -269,7 +319,7 @@ The existing summary line (`Datamodel sync summary: ...`) auto-includes these be
 
 ### `tests/test_synchronizer.py` (extend `TestEventTypeVersionWiring`)
 
-- v2 path: `push_smart_ca_datamodel_to_earthranger` calls `upsert_choices` BEFORE `er_client.post_event_type`.
+- v2 path: `push_smart_ca_datamodel_to_earthranger` calls `build_choice_sets` then `upsert_choices` BEFORE `build_event_types_v2` + `er_client.post_event_type`.
 - Choice error aborts event-type POSTs: when `upsert_choices` reports `choices_errored=1`, no `post_event_type` calls happen for that CA; abort log line emitted; `datamodel_stats["event_types_errored"]` reflects the skip.
 - v1 path: no `upsert_choices` call, no abort logic exercised. Backward compat.
 - `--skip-choices` honored: when set, choices phase skipped, event-type POSTs still happen.
