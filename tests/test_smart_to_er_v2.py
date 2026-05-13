@@ -243,56 +243,73 @@ def test_list_single_value_emits_anyof_ref_and_choice_list():
     }
 
 
-@pytest.mark.xfail(reason="Task 6 rewrites these assertions")
-def test_list_multi_value_emits_array_enum_and_checkbox():
+def test_list_multi_value_emits_array_anyof_ref():
+    from er_smart_sync.choices import derive_choice_field, event_type_value_for
+
     dm = {
         "categories": [
             _category("c", is_multiple=True, attributes=[_cat_attr("tags")]),
         ],
         "attributes": [
             _attr(
-                "tags",
-                "LIST",
-                display="Tags",
+                "tags", "LIST", display="Tags",
                 options=[_option("a"), _option("b")],
             )
         ],
     }
-    schema = build_event_types_v2(dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID)[
-        0
-    ].event_schema
-    assert schema is not None
+    schema = build_event_types_v2(
+        dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID,
+    )[0].event_schema
+
+    et_value = event_type_value_for(category_path="c", ca_uuid=CA_UUID, cm=None)
+    expected_field = derive_choice_field(et_value, "tags")
 
     json_prop = schema["json"]["properties"]["tags"]
     assert json_prop["type"] == "array"
-    assert json_prop["items"] == {"type": "string", "enum": ["a", "b"]}
+    assert json_prop["uniqueItems"] is True
+    assert json_prop["deprecated"] is False
+    assert json_prop["description"] == ""
+    assert json_prop["title"] == "Tags"
+    assert json_prop["items"] == {
+        "type": "string",
+        "anyOf": [{"$ref": f"/api/v2.0/schemas/choices.json?field={expected_field}"}],
+    }
+    # Inline enum must not be present.
+    assert "enum" not in json_prop
+    assert "enum" not in json_prop["items"]
 
     ui_field = schema["ui"]["fields"]["tags"]
-    assert ui_field["inputType"] == "CHECKBOX"
+    assert ui_field["type"] == "CHOICE_LIST"
+    assert ui_field["inputType"] == "DROPDOWN"
+    assert ui_field["parent"] == "section-1"
 
 
-@pytest.mark.xfail(reason="Task 6 rewrites these assertions")
-def test_mlist_emits_array_enum_and_checkbox():
+def test_mlist_emits_array_anyof_ref():
+    from er_smart_sync.choices import derive_choice_field, event_type_value_for
+
     dm = {
         "categories": [_category("c", attributes=[_cat_attr("species")])],
         "attributes": [
             _attr(
-                "species",
-                "MLIST",
-                display="Species",
+                "species", "MLIST", display="Species",
                 options=[_option("lion"), _option("zebra")],
             )
         ],
     }
-    schema = build_event_types_v2(dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID)[
-        0
-    ].event_schema
-    assert schema is not None
+    schema = build_event_types_v2(
+        dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID,
+    )[0].event_schema
+
+    et_value = event_type_value_for(category_path="c", ca_uuid=CA_UUID, cm=None)
+    expected_field = derive_choice_field(et_value, "species")
 
     json_prop = schema["json"]["properties"]["species"]
     assert json_prop["type"] == "array"
-    assert json_prop["items"]["enum"] == ["lion", "zebra"]
-    assert schema["ui"]["fields"]["species"]["inputType"] == "CHECKBOX"
+    assert json_prop["uniqueItems"] is True
+    assert json_prop["items"]["anyOf"] == [
+        {"$ref": f"/api/v2.0/schemas/choices.json?field={expected_field}"}
+    ]
+    assert schema["ui"]["fields"]["species"]["type"] == "CHOICE_LIST"
 
 
 def test_tree_flattens_to_leaf_options():
