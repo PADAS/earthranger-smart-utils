@@ -403,3 +403,30 @@ def test_event_type_category_is_settable_post_build():
     et.category = "foasf"
     payload = et.dict(by_alias=True, exclude_none=True)
     assert payload["category"] == "foasf"
+
+
+def test_build_event_types_v2_accepts_choices_base_url():
+    """The builder takes choices_base_url to construct $ref URLs."""
+    dm = {
+        "categories": [_category("c", attributes=[_cat_attr("a")])],
+        "attributes": [_attr("a", "TEXT")],
+    }
+    # Should not raise on the kwarg.
+    result = build_event_types_v2(
+        dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID,
+        choices_base_url="/custom/v2/schemas",
+    )
+    assert len(result) == 1
+
+
+def test_build_event_types_v2_choices_base_url_defaults():
+    """Default choices_base_url is /api/v2.0/schemas (parameter is optional)."""
+    dm = {
+        "categories": [_category("c", attributes=[_cat_attr("a")])],
+        "attributes": [_attr("a", "TEXT")],
+    }
+    # Calling without choices_base_url must still succeed.
+    result = build_event_types_v2(
+        dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID,
+    )
+    assert len(result) == 1

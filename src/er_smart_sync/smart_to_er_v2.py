@@ -72,6 +72,7 @@ def build_event_types_v2(
     cm: dict | None = None,
     ca_uuid: str,
     ca_identifier: str,
+    choices_base_url: str = "/api/v2.0/schemas",
 ) -> list[ERV2EventType]:
     """Build ERV2EventType records for a SMART CA (optionally with a CM overlay)."""
     del ca_identifier  # reserved; parity with v1 signature
@@ -92,6 +93,7 @@ def build_event_types_v2(
             attribute_configs=attribute_configs,
             ca_uuid=ca_uuid,
             cm=cm,
+            choices_base_url=choices_base_url,
         )
         if et is not None:
             event_types.append(et)
@@ -107,6 +109,7 @@ def _build_one(
     attribute_configs: list | None,
     ca_uuid: str,
     cm: dict | None,
+    choices_base_url: str = "/api/v2.0/schemas",
 ) -> ERV2EventType | None:
     is_leaf = _is_leaf_node(cat_paths, cat.path)
     is_active = bool(cm) or (cat.is_active and is_leaf)
@@ -139,6 +142,7 @@ def _build_one(
         leaf_attributes=leaf_attributes,
         is_multiple=bool(cat.is_multiple),
         attribute_configs=attribute_configs,
+        choices_base_url=choices_base_url,
     )
     if not properties:
         logger.warning(
@@ -177,6 +181,7 @@ def _build_field_blocks(
     leaf_attributes: list[CategoryAttribute],
     is_multiple: bool,
     attribute_configs: list | None,
+    choices_base_url: str = "/api/v2.0/schemas",
 ) -> tuple[dict, dict, list[str]]:
     """Return (json.properties, ui.fields, field_order_for_section)."""
     properties: dict[str, dict] = {}
@@ -206,6 +211,7 @@ def _build_field_blocks(
             display=attribute.display,
             options=options,
             is_multiple=is_multiple,
+            choices_base_url=choices_base_url,
         )
         if json_prop is None or ui_field is None:
             continue
@@ -226,6 +232,7 @@ def _build_property_pair(
     display: str,
     options: list,
     is_multiple: bool,
+    choices_base_url: str = "/api/v2.0/schemas",
 ) -> tuple[dict | None, dict | None]:
     """Return (json_property, ui_field) or (None, None) to skip."""
     if smart_type in SCALAR_JSON and not options:
