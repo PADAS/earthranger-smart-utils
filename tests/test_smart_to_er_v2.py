@@ -94,23 +94,11 @@ def test_empty_data_model_yields_no_event_types():
     "smart_type,expected_json,expected_ui",
     [
         ("TEXT", {"type": "string"}, {"type": "TEXT", "inputType": "SHORT_TEXT"}),
-        ("NUMERIC", {"type": "number"}, {"type": "NUMBER"}),
+        ("NUMERIC", {"type": "number"}, {"type": "NUMERIC"}),
         ("BOOLEAN", {"type": "boolean"}, {"type": "BOOLEAN"}),
-        (
-            "DATE",
-            {"type": "string", "format": "date"},
-            {"type": "TEXT", "inputType": "DATE"},
-        ),
-        (
-            "TIME",
-            {"type": "string", "format": "time"},
-            {"type": "TEXT", "inputType": "TIME"},
-        ),
-        (
-            "DATETIME",
-            {"type": "string", "format": "date-time"},
-            {"type": "TEXT", "inputType": "DATETIME"},
-        ),
+        ("DATE", {"type": "string", "format": "date"}, {"type": "DATE_TIME"}),
+        ("TIME", {"type": "string", "format": "time"}, {"type": "DATE_TIME"}),
+        ("DATETIME", {"type": "string", "format": "date-time"}, {"type": "DATE_TIME"}),
         (
             "ATTACHMENT",
             {"type": "string", "format": "uri"},
@@ -129,7 +117,9 @@ def test_scalar_attribute_mapping(smart_type, expected_json, expected_ui):
         "attributes": [_attr("field1", smart_type, display="Field One")],
     }
 
-    result = build_event_types_v2(dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID)
+    result = build_event_types_v2(
+        dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID
+    )
 
     assert len(result) == 1
     et = result[0]
@@ -140,12 +130,18 @@ def test_scalar_attribute_mapping(smart_type, expected_json, expected_ui):
     for k, v in expected_json.items():
         assert json_props[k] == v
     assert json_props["title"] == "Field One"
+    # New: every property has description and deprecated.
+    assert json_props["description"] == ""
+    assert json_props["deprecated"] is False  # active attribute
 
     ui_field = schema["ui"]["fields"]["field1"]
     for k, v in expected_ui.items():
         assert ui_field[k] == v
+    # UI fields no longer carry inputType for DATE_TIME types.
+    if expected_ui["type"] == "DATE_TIME":
+        assert "inputType" not in ui_field
+    assert ui_field["parent"] == "section-1"
 
-    # Field is listed in the default section
     section = schema["ui"]["sections"]["section-1"]
     assert {"name": "field1", "type": "field"} in section["leftColumn"]
     assert schema["ui"]["order"] == ["section-1"]
@@ -322,13 +318,13 @@ def test_inactive_attribute_marked_deprecated_and_kept_in_section():
             _attr("retired_attr", "TEXT", display="Retired"),
         ],
     }
-    schema = build_event_types_v2(dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID)[
-        0
-    ].event_schema
-    assert schema is not None
+    schema = build_event_types_v2(
+        dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID
+    )[0].event_schema
 
+    # Both have `deprecated`; only the inactive one is True.
     assert schema["json"]["properties"]["retired_attr"]["deprecated"] is True
-    assert "deprecated" not in schema["json"]["properties"]["active_attr"]
+    assert schema["json"]["properties"]["active_attr"]["deprecated"] is False
 
     # Both fields still listed in the form section
     leftCol = schema["ui"]["sections"]["section-1"]["leftColumn"]

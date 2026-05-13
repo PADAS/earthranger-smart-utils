@@ -43,22 +43,22 @@ class ERV2EventType(BaseModel):
 
 
 SCALAR_JSON: dict[str, dict[str, Any]] = {
-    "TEXT": {"type": "string"},
-    "NUMERIC": {"type": "number"},
-    "BOOLEAN": {"type": "boolean"},
-    "DATE": {"type": "string", "format": "date"},
-    "TIME": {"type": "string", "format": "time"},
-    "DATETIME": {"type": "string", "format": "date-time"},
-    "ATTACHMENT": {"type": "string", "format": "uri"},
+    "TEXT": {"type": "string", "description": ""},
+    "NUMERIC": {"type": "number", "description": ""},
+    "BOOLEAN": {"type": "boolean", "description": ""},
+    "DATE": {"type": "string", "format": "date", "description": ""},
+    "TIME": {"type": "string", "format": "time", "description": ""},
+    "DATETIME": {"type": "string", "format": "date-time", "description": ""},
+    "ATTACHMENT": {"type": "string", "format": "uri", "description": ""},
 }
 
 SCALAR_UI: dict[str, dict[str, Any]] = {
     "TEXT": {"type": "TEXT", "inputType": "SHORT_TEXT", "parent": "section-1"},
-    "NUMERIC": {"type": "NUMBER", "parent": "section-1"},
+    "NUMERIC": {"type": "NUMERIC", "parent": "section-1"},
     "BOOLEAN": {"type": "BOOLEAN", "parent": "section-1"},
-    "DATE": {"type": "TEXT", "inputType": "DATE", "parent": "section-1"},
-    "TIME": {"type": "TEXT", "inputType": "TIME", "parent": "section-1"},
-    "DATETIME": {"type": "TEXT", "inputType": "DATETIME", "parent": "section-1"},
+    "DATE": {"type": "DATE_TIME", "parent": "section-1"},
+    "TIME": {"type": "DATE_TIME", "parent": "section-1"},
+    "DATETIME": {"type": "DATE_TIME", "parent": "section-1"},
     "ATTACHMENT": {
         "type": "ATTACHMENT",
         "allowableFileTypes": ["image", "document", "video", "audio"],
@@ -219,8 +219,7 @@ def _build_field_blocks(
         if json_prop is None or ui_field is None:
             continue
 
-        if not cat_attr.is_active:
-            json_prop["deprecated"] = True
+        json_prop["deprecated"] = not cat_attr.is_active
 
         properties[key] = json_prop
         ui_fields[key] = ui_field
