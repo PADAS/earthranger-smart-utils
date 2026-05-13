@@ -496,18 +496,31 @@ class ERSmartSynchronizer:
             if self._event_type_version == "v2":
                 new_schema = event_type.event_schema
                 raw_existing = existing_er_event_type.get("schema") or {}
-                if not isinstance(raw_existing, dict):
+                if isinstance(raw_existing, str):
+                    # ER returns v2 schemas as JSON-stringified blobs on GET
+                    # (DRF serializes the JSONField as a string). Parse it
+                    # so dict == dict comparison works.
+                    try:
+                        existing_schema = json.loads(raw_existing)
+                    except (json.JSONDecodeError, TypeError):
+                        logger.warning(
+                            "Existing v2 schema for %r is a string that "
+                            "doesn't parse as JSON; treating as empty. "
+                            "First 200 chars: %r",
+                            event_type.value,
+                            raw_existing[:200],
+                        )
+                        existing_schema = {}
+                elif isinstance(raw_existing, dict):
+                    existing_schema = raw_existing
+                else:
                     logger.warning(
-                        "Existing v2 schema for %r came back as %s (not dict); "
-                        "treating as empty and flagging an update. "
-                        "First 200 chars: %r",
+                        "Existing v2 schema for %r came back as %s "
+                        "(unexpected); treating as empty.",
                         event_type.value,
                         type(raw_existing).__name__,
-                        str(raw_existing)[:200],
                     )
                     existing_schema = {}
-                else:
-                    existing_schema = raw_existing
                 if new_schema != existing_schema:
                     if logger.isEnabledFor(logging.DEBUG):
                         logger.debug(
