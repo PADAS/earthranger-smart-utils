@@ -63,7 +63,7 @@ SCALAR_UI: dict[str, dict[str, Any]] = {
     "DATETIME": {"type": "DATE_TIME", "parent": "section-1"},
     "ATTACHMENT": {
         "type": "ATTACHMENT",
-        "allowableFileTypes": ["image", "document", "video", "audio"],
+        "allowableFileTypes": ["audio", "document", "image", "video"],
         "parent": "section-1",
     },
 }
