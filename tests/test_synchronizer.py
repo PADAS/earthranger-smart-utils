@@ -39,9 +39,9 @@ class TestStaticHelpers:
 
     def test_calculate_event_category_value_special_chars(self):
         result = ERSmartSynchronizer.calculate_event_category_value(
-            ca_label="[Test Area]"
+            ca_label="TestArea"
         )
-        assert result == "test_area"
+        assert result == "testarea"
 
     def test_calculate_event_category_value_empty_raises(self):
         with pytest.raises(ValueError):
@@ -74,7 +74,7 @@ class TestDatamodelSync:
         )
         with pytest.raises(ValueError, match="dm is required"):
             sync.push_smart_ca_datamodel_to_earthranger(
-                dm=None, smart_ca_uuid="uuid", ca_label="[TEST]"
+                dm=None, smart_ca_uuid="uuid", ca_identifier="TEST"
             )
 
     def test_creates_event_category_when_missing(self, sync_config, mock_er_client):
@@ -93,7 +93,7 @@ class TestDatamodelSync:
                 smart_client=MagicMock(),
             )
             sync.push_smart_ca_datamodel_to_earthranger(
-                dm=dm, smart_ca_uuid="uuid", ca_label="[TEST]"
+                dm=dm, smart_ca_uuid="uuid", ca_identifier="TEST"
             )
 
         mock_er_client.post_event_category.assert_called_once()
@@ -120,7 +120,7 @@ class TestDatamodelSync:
                 smart_client=MagicMock(),
             )
             sync.push_smart_ca_datamodel_to_earthranger(
-                dm=dm, smart_ca_uuid="uuid", ca_label="[TEST]"
+                dm=dm, smart_ca_uuid="uuid", ca_identifier="TEST"
             )
 
         mock_er_client.post_event_category.assert_not_called()
@@ -152,7 +152,7 @@ class TestDatamodelSync:
             )
             # Must not raise; must continue and refetch.
             sync.push_smart_ca_datamodel_to_earthranger(
-                dm=dm, smart_ca_uuid="uuid", ca_label="[TEST]"
+                dm=dm, smart_ca_uuid="uuid", ca_identifier="TEST"
             )
 
         assert mock_er_client.get_event_categories.call_count == 2
@@ -179,7 +179,7 @@ class TestDatamodelSync:
             )
             with pytest.raises(Exception, match="Some other ER error"):
                 sync.push_smart_ca_datamodel_to_earthranger(
-                    dm=dm, smart_ca_uuid="uuid", ca_label="[TEST]"
+                    dm=dm, smart_ca_uuid="uuid", ca_identifier="TEST"
                 )
 
     def test_create_or_update_event_types_handles_none(
@@ -644,7 +644,7 @@ class TestRetry:
                 smart_client=MagicMock(),
             )
             sync.push_smart_ca_datamodel_to_earthranger(
-                dm=dm, smart_ca_uuid="uuid", ca_label="[TEST]"
+                dm=dm, smart_ca_uuid="uuid", ca_identifier="TEST"
             )
 
         assert mock_er_client.post_event_category.call_count == 2
@@ -669,7 +669,7 @@ class TestRetry:
             )
             with pytest.raises(ERClientBadCredentials):
                 sync.push_smart_ca_datamodel_to_earthranger(
-                    dm=dm, smart_ca_uuid="uuid", ca_label="[TEST]"
+                    dm=dm, smart_ca_uuid="uuid", ca_identifier="TEST"
                 )
 
         # Only one call — no retries on bad credentials.
@@ -784,7 +784,7 @@ class TestEventTypeVersionWiring:
                 smart_client=MagicMock(),
             )
             sync.push_smart_ca_datamodel_to_earthranger(
-                dm=dm, smart_ca_uuid="uuid", ca_label="[TEST]"
+                dm=dm, smart_ca_uuid="uuid", ca_identifier="TEST"
             )
 
         v2_builder.assert_called_once()
@@ -821,7 +821,7 @@ class TestEventTypeVersionWiring:
                 smart_client=MagicMock(),
             )
             sync.push_smart_ca_datamodel_to_earthranger(
-                dm=dm, smart_ca_uuid="uuid", ca_label="[TEST]"
+                dm=dm, smart_ca_uuid="uuid", ca_identifier="TEST"
             )
 
         v1_builder.assert_called_once()
@@ -866,7 +866,7 @@ class TestEventTypeVersionWiring:
                 smart_client=MagicMock(),
             )
             sync.push_smart_ca_datamodel_to_earthranger(
-                dm=dm, smart_ca_uuid="uuid", ca_label="[TEST]"
+                dm=dm, smart_ca_uuid="uuid", ca_identifier="TEST"
             )
 
         assert mock_er_client.post_event_type.called
@@ -898,7 +898,7 @@ class TestEventTypeVersionWiring:
             )
             with caplog.at_level("WARNING"):
                 sync.push_smart_ca_datamodel_to_earthranger(
-                    dm=dm, smart_ca_uuid="uuid", ca_label="[TEST]"
+                    dm=dm, smart_ca_uuid="uuid", ca_identifier="TEST"
                 )
 
         # Post attempted; patch NOT attempted (no auto-recover on v2)
@@ -1004,7 +1004,7 @@ class TestEventTypeVersionWiring:
                 smart_client=MagicMock(),
             )
             sync.push_smart_ca_datamodel_to_earthranger(
-                dm=dm, smart_ca_uuid="ca-1", ca_label="[TEST]"
+                dm=dm, smart_ca_uuid="ca-1", ca_identifier="TEST"
             )
 
         assert order == [
@@ -1040,7 +1040,7 @@ class TestEventTypeVersionWiring:
                 smart_client=MagicMock(),
             )
             sync.push_smart_ca_datamodel_to_earthranger(
-                dm=dm, smart_ca_uuid="ca-1", ca_label="[TEST]"
+                dm=dm, smart_ca_uuid="ca-1", ca_identifier="TEST"
             )
 
         build_choices.assert_not_called()
@@ -1079,7 +1079,7 @@ class TestEventTypeVersionWiring:
             )
             with caplog.at_level("WARNING"):
                 sync.push_smart_ca_datamodel_to_earthranger(
-                    dm=dm, smart_ca_uuid="ca-1", ca_label="[TEST]"
+                    dm=dm, smart_ca_uuid="ca-1", ca_identifier="TEST"
                 )
 
         # build_event_types_v2 never called; no POSTs attempted.
@@ -1124,7 +1124,7 @@ class TestEventTypeVersionWiring:
                 smart_client=MagicMock(),
             )
             sync.push_smart_ca_datamodel_to_earthranger(
-                dm=dm, smart_ca_uuid="ca-1", ca_label="[TEST]"
+                dm=dm, smart_ca_uuid="ca-1", ca_identifier="TEST"
             )
 
         assert sync.datamodel_stats["choices_created"] == 3
@@ -1161,7 +1161,7 @@ class TestEventTypeVersionWiring:
             )
             sync.skip_choices = True
             sync.push_smart_ca_datamodel_to_earthranger(
-                dm=dm, smart_ca_uuid="ca-1", ca_label="[TEST]"
+                dm=dm, smart_ca_uuid="ca-1", ca_identifier="TEST"
             )
 
         build_choices.assert_not_called()

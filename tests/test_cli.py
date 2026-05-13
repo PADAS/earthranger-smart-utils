@@ -223,6 +223,8 @@ def test_inspect_datamodel_with_fixture_xml(tmp_path):
             "x",
             "--from-file",
             str(dm_file),
+            "--ca-identifier",
+            "TEST",
         ],
     )
     if result.exit_code != 0:
@@ -276,8 +278,8 @@ def test_datamodel_dry_run_makes_no_writes(tmp_path):
                 "x",
                 "--from-file",
                 str(dm_file),
-                "--ca-label",
-                "[TEST]",
+                "--ca-identifier",
+                "TEST",
             ],
         )
         if result.exit_code != 0 and result.exception:
@@ -345,8 +347,8 @@ def test_cm_from_file_uses_zero_uuid_in_event_type_value(tmp_path):
                 str(dm_file),
                 "--cm-from-file",
                 str(cm_file),
-                "--ca-label",
-                "[TEST]",
+                "--ca-identifier",
+                "TEST",
             ],
         )
         if result.exit_code != 0 and result.exception:
@@ -429,8 +431,8 @@ def test_cm_uuid_flag_is_used_in_event_type_value(tmp_path):
                 str(cm_file),
                 "--cm-uuid",
                 cm_uuid,
-                "--ca-label",
-                "[TEST]",
+                "--ca-identifier",
+                "TEST",
             ],
         )
         if result.exit_code != 0 and result.exception:
@@ -527,8 +529,8 @@ def test_include_base_datamodel_pushes_both_dm_and_cm(tmp_path):
                 "--cm-from-file",
                 str(cm_file),
                 "--include-base-datamodel",
-                "--ca-label",
-                "[TEST]",
+                "--ca-identifier",
+                "TEST",
             ],
         )
         if result.exit_code != 0 and result.exception:
@@ -633,6 +635,8 @@ def test_datamodel_event_type_version_v1_flag_overrides_config_default(
             "t",
             "--er-id",
             "i",
+            "--ca-identifier",
+            "TEST",
             "--event-type-version",
             "v1",
         ],
@@ -688,6 +692,8 @@ def test_datamodel_event_type_version_defaults_to_v2(tmp_path, monkeypatch):
             "t",
             "--er-id",
             "i",
+            "--ca-identifier",
+            "TEST",
         ],
     )
     assert result.exit_code == 0, result.output
@@ -739,8 +745,8 @@ def test_inspect_datamodel_v2_prints_field_types(tmp_path, monkeypatch):
             "x",
             "--from-file",
             str(dm_file),
-            "--ca-label",
-            "Foasf [FOASF]",
+            "--ca-identifier",
+            "FOASF",
             "--event-type-version",
             "v2",
         ],
@@ -788,6 +794,8 @@ def test_datamodel_update_only_skips_creates(tmp_path):
                 "x",
                 "--from-file",
                 str(dm_file),
+                "--ca-identifier",
+                "TEST",
                 "--mode",
                 "update-only",
             ],
@@ -972,6 +980,8 @@ def test_datamodel_skip_choices_flag(tmp_path, monkeypatch):
             "t",
             "--er-id",
             "i",
+            "--ca-identifier",
+            "TEST",
             "--event-type-version",
             "v2",
             "--skip-choices",
@@ -1031,8 +1041,8 @@ def test_inspect_datamodel_v2_prints_choice_sets(tmp_path, monkeypatch):
             "x",
             "--from-file",
             str(dm_file),
-            "--ca-label",
-            "Foasf [FOASF]",
+            "--ca-identifier",
+            "FOASF",
             "--event-type-version",
             "v2",
         ],
@@ -1049,3 +1059,52 @@ def test_config_template_mentions_choices_base_url():
     result = runner.invoke(main, ["config-template"])
     assert result.exit_code == 0, result.output
     assert "choices_base_url" in result.output
+
+
+def test_ca_identifier_validation_rejects_special_chars(tmp_path, monkeypatch):
+    from click.testing import CliRunner
+
+    from er_smart_sync.cli import main
+
+    dm_file = tmp_path / "dm.xml"
+    dm_file.write_text("<datamodel/>")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "datamodel",
+            "--from-file", str(dm_file),
+            "--er-endpoint", "https://x/api/v1.0",
+            "--er-token", "t",
+            "--er-id", "i",
+            "--ca-identifier", "has-dash",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "alphanumeric" in result.output.lower() or "2-30" in result.output
+
+
+def test_ca_identifier_required_for_file_based_sync(tmp_path, monkeypatch):
+    from click.testing import CliRunner
+
+    from er_smart_sync.cli import main
+
+    dm_file = tmp_path / "dm.xml"
+    dm_file.write_text("<datamodel/>")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "datamodel",
+            "--from-file", str(dm_file),
+            "--er-endpoint", "https://x/api/v1.0",
+            "--er-token", "t",
+            "--er-id", "i",
+            # No --ca-identifier
+        ],
+    )
+    assert result.exit_code != 0
+    output = result.output.lower()
+    assert "ca-identifier" in output or "required" in output
