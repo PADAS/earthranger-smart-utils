@@ -155,7 +155,7 @@ def _build_one(
         "json": {
             "$schema": "https://json-schema.org/draft/2020-12/schema",
             "type": "object",
-            "additionalProperties": False,
+            "unevaluatedProperties": False,
             "properties": properties,
             "required": [],
         },
