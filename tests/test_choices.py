@@ -377,3 +377,96 @@ def test_build_choice_sets_two_categories_distinct_fields():
     result = build_choice_sets(dm=dm, cm=None, ca_uuid=CA_UUID)
     assert len(result) == 2
     assert result[0].field != result[1].field
+
+
+# ── upsert_choices ─────────────────────────────────────────────
+
+
+from unittest.mock import MagicMock
+
+
+def _mock_er_client_for_choices(
+    existing_results=None,
+    post_response=None,
+    patch_response=None,
+):
+    """MagicMock that mimics ERClient._get/_post/_patch for the choices endpoint."""
+    client = MagicMock()
+    client._get.return_value = (
+        existing_results
+        if existing_results is not None
+        else {"count": 0, "next": None, "results": []}
+    )
+    client._post.return_value = post_response or {"id": "new-uuid"}
+    client._patch.return_value = patch_response or {}
+    return client
+
+
+def test_upsert_choices_creates_new_options():
+    from er_smart_sync.choices import (
+        ChoiceOption,
+        ChoiceSet,
+        ChoicesStats,
+        upsert_choices,
+    )
+
+    client = _mock_er_client_for_choices(
+        existing_results={"count": 0, "next": None, "results": []},
+    )
+    choice_sets = [
+        ChoiceSet(
+            field="etabcdef12_species",
+            options=(
+                ChoiceOption(value="lion", display="Lion", is_active=True),
+                ChoiceOption(value="zebra", display="Zebra", is_active=True),
+            ),
+        )
+    ]
+
+    stats = upsert_choices(er_client=client, choice_sets=choice_sets)
+
+    assert stats.created == 2
+    assert stats.updated == 0
+    assert stats.unchanged == 0
+    assert stats.deactivated == 0
+    assert stats.errored == 0
+    # Two POSTs, in option order
+    posts = client._post.call_args_list
+    assert len(posts) == 2
+    assert posts[0].kwargs["payload"]["field"] == "etabcdef12_species"
+    assert posts[0].kwargs["payload"]["value"] == "lion"
+    assert posts[0].kwargs["payload"]["display"] == "Lion"
+    assert posts[0].kwargs["payload"]["ordernum"] == 0
+    assert posts[0].kwargs["payload"]["is_active"] is True
+    assert posts[0].kwargs["payload"]["model"] == "activity.event"
+
+
+def test_upsert_choices_fetches_existing_with_correct_params():
+    from er_smart_sync.choices import (
+        ChoiceOption,
+        ChoiceSet,
+        upsert_choices,
+    )
+
+    client = _mock_er_client_for_choices()
+    upsert_choices(
+        er_client=client,
+        choice_sets=[
+            ChoiceSet(
+                field="etxxx_color",
+                options=(
+                    ChoiceOption(value="red", display="Red", is_active=True),
+                ),
+            )
+        ],
+    )
+
+    assert client._get.called
+    get_call = client._get.call_args
+    # Path should be 'choices', params should include field and include_inactive
+    path_arg = get_call.args[0] if get_call.args else get_call.kwargs.get("path")
+    assert "choices" in path_arg
+    params = get_call.kwargs.get("params", {})
+    assert params.get("field") == "etxxx_color"
+    assert params.get("include_inactive") is True
+    assert params.get("model") == "activity.event"
