@@ -268,6 +268,20 @@ class ERSmartSynchronizer:
             self.datamodel_stats["choices_deactivated"] += choices_stats.deactivated
             self.datamodel_stats["choices_errored"] += choices_stats.errored
 
+            if choices_stats.errored > 0:
+                logger.warning(
+                    "Aborting event-type push for CA %s: %d choice "
+                    "operations failed. Investigate the choice errors above "
+                    "before re-running.",
+                    smart_ca_uuid,
+                    choices_stats.errored,
+                    extra=dict(
+                        ca_uuid=smart_ca_uuid,
+                        choices_errored=choices_stats.errored,
+                    ),
+                )
+                return
+
         builder = (
             build_event_types_v2
             if self._event_type_version == "v2"
