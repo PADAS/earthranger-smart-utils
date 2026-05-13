@@ -286,17 +286,21 @@ class ERSmartSynchronizer:
                 )
                 return
 
-        builder = (
-            build_event_types_v2
-            if self._event_type_version == "v2"
-            else build_event_types
-        )
-        event_types = builder(
-            dm=dm_dict,
-            cm=cdm_dict,
-            ca_uuid=smart_ca_uuid,
-            ca_identifier=ca_identifier,
-        )
+        if self._event_type_version == "v2":
+            event_types = build_event_types_v2(
+                dm=dm_dict,
+                cm=cdm_dict,
+                ca_uuid=smart_ca_uuid,
+                ca_identifier=ca_identifier,
+                choices_base_url=self.config.earthranger.choices_base_url,
+            )
+        else:
+            event_types = build_event_types(
+                dm=dm_dict,
+                cm=cdm_dict,
+                ca_uuid=smart_ca_uuid,
+                ca_identifier=ca_identifier,
+            )
 
         if self._er_event_categories_cache is not None:
             existing_event_categories = self._er_event_categories_cache
