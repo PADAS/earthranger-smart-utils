@@ -244,3 +244,123 @@ def _leaf_options(options: list) -> list:
     """For TREE option sets: keep only leaves (no children)."""
     keys = [o.key for o in options]
     return [o for o in options if _is_leaf_node(keys, o.key)]
+
+
+# ER's Choice DB model is shared across content types; for event types we
+# always POST with model="activity.event" (the serializer default).
+_CHOICE_MODEL = "activity.event"
+
+# Path prefix for the choices REST endpoint. Versionless in ER.
+_CHOICES_PATH = "choices"
+
+
+def upsert_choices(
+    *,
+    er_client,
+    choice_sets: list[ChoiceSet],
+) -> ChoicesStats:
+    """Upsert each ChoiceSet against ER's Choices API.
+
+    Returns a ChoicesStats counter dataclass; failures are logged and
+    counted but do not raise. Per-set processing is independent; an error
+    in one ChoiceSet does not block subsequent sets.
+    """
+    stats = ChoicesStats()
+    seen_fields: dict[str, ChoiceSet] = {}
+
+    for cs in choice_sets:
+        # Deduplicate: same field, identical options is fine; same field,
+        # different options is a builder bug.
+        if cs.field in seen_fields:
+            if seen_fields[cs.field].options != cs.options:
+                raise ValueError(
+                    f"ChoiceSet field {cs.field!r} appears twice with "
+                    f"different options; this is a builder bug."
+                )
+            continue
+        seen_fields[cs.field] = cs
+
+        try:
+            _upsert_one_set(er_client=er_client, cs=cs, stats=stats)
+        except Exception:
+            logger.exception(
+                "Failed to upsert ChoiceSet",
+                extra=dict(field=cs.field),
+            )
+            stats.errored += len(cs.options)
+
+    return stats
+
+
+def _upsert_one_set(*, er_client, cs: ChoiceSet, stats: ChoicesStats) -> None:
+    existing = _fetch_existing(er_client=er_client, field=cs.field)
+    existing_by_value: dict[str, dict] = {r["value"]: r for r in existing}
+
+    for ordernum, planned in enumerate(cs.options):
+        existing_record = existing_by_value.get(planned.value)
+        if existing_record is None:
+            _create_choice(
+                er_client=er_client,
+                cs_field=cs.field,
+                option=planned,
+                ordernum=ordernum,
+                stats=stats,
+            )
+        else:
+            # Update logic added in Task 6.
+            stats.unchanged += 1
+
+
+def _fetch_existing(*, er_client, field: str) -> list[dict]:
+    """List all existing Choice records for (model=activity.event, field=...).
+    Follows pagination via the DRF `next` URL."""
+    results: list[dict] = []
+    page = er_client._get(
+        path=_CHOICES_PATH,
+        params={
+            "model": _CHOICE_MODEL,
+            "field": field,
+            "include_inactive": True,
+            "page_size": 200,
+        },
+    )
+    while True:
+        if isinstance(page, dict) and "results" in page:
+            results.extend(page["results"])
+            next_url = page.get("next")
+            if not next_url:
+                break
+            page = er_client._get(path=next_url)
+        elif isinstance(page, list):
+            results.extend(page)
+            break
+        else:
+            break
+    return results
+
+
+def _create_choice(
+    *,
+    er_client,
+    cs_field: str,
+    option: ChoiceOption,
+    ordernum: int,
+    stats: ChoicesStats,
+) -> None:
+    payload = {
+        "model": _CHOICE_MODEL,
+        "field": cs_field,
+        "value": option.value,
+        "display": option.display,
+        "ordernum": ordernum,
+        "is_active": option.is_active,
+    }
+    try:
+        er_client._post(path=_CHOICES_PATH, payload=payload)
+        stats.created += 1
+    except Exception as e:
+        logger.exception(
+            "Failed to POST choice",
+            extra=dict(field=cs_field, value=option.value, error=str(e)),
+        )
+        stats.errored += 1
