@@ -1009,3 +1009,10 @@ def test_inspect_datamodel_v2_prints_choice_sets(tmp_path, monkeypatch):
     assert "Choice" in result.output or "choice" in result.output
     assert "red" in result.output
     assert "blue" in result.output
+
+
+def test_config_template_mentions_choices_base_url():
+    runner = CliRunner()
+    result = runner.invoke(main, ["config-template"])
+    assert result.exit_code == 0, result.output
+    assert "choices_base_url" in result.output

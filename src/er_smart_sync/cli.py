@@ -689,6 +689,11 @@ earthranger:
   # ER's v2 meta-schema validation; do not use it without first reading
   # docs/superpowers/specs/ for the current state of the v2 work.
   event_type_version: v1
+
+  # URL prefix used in v2 event-type schema $refs (e.g.
+  # "{choices_base_url}/choices.json?field=<field>"). Default matches ER's
+  # standard /api/v2.0/schemas layout.
+  choices_base_url: /api/v2.0/schemas
 """
 
 
