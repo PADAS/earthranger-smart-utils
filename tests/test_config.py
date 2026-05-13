@@ -83,3 +83,16 @@ def test_er_config_event_type_version_rejects_unknown():
             endpoint="https://x/api/v1.0",
             event_type_version="v3",  # ty: ignore[invalid-argument-type]
         )
+
+
+def test_er_config_choices_base_url_default():
+    cfg = EarthRangerConfig(id="i", endpoint="https://x/api/v1.0")
+    assert cfg.choices_base_url == "/api/v2.0/schemas"
+
+
+def test_er_config_choices_base_url_override():
+    cfg = EarthRangerConfig(
+        id="i", endpoint="https://x/api/v1.0",
+        choices_base_url="/custom/path",
+    )
+    assert cfg.choices_base_url == "/custom/path"
