@@ -820,6 +820,7 @@ def test_choices_subcommand_runs_upsert(tmp_path, monkeypatch):
 
     def fake_build_choice_sets(**kwargs):
         from er_smart_sync.choices import ChoiceOption, ChoiceSet
+
         captured["build_called"] = True
         return [
             ChoiceSet(
@@ -830,15 +831,18 @@ def test_choices_subcommand_runs_upsert(tmp_path, monkeypatch):
 
     def fake_upsert_choices(*, er_client, choice_sets):
         from er_smart_sync.choices import ChoicesStats
+
         captured["upsert_called"] = True
         captured["choice_sets"] = choice_sets
         return ChoicesStats(created=1)
 
     monkeypatch.setattr(
-        "er_smart_sync.cli.build_choice_sets", fake_build_choice_sets,
+        "er_smart_sync.cli.build_choice_sets",
+        fake_build_choice_sets,
     )
     monkeypatch.setattr(
-        "er_smart_sync.cli.upsert_choices", fake_upsert_choices,
+        "er_smart_sync.cli.upsert_choices",
+        fake_upsert_choices,
     )
     monkeypatch.setattr(
         "smartconnect.SmartClient.load_datamodel",
@@ -853,10 +857,14 @@ def test_choices_subcommand_runs_upsert(tmp_path, monkeypatch):
         main,
         [
             "choices",
-            "--from-file", str(dm_file),
-            "--er-endpoint", "https://x/api/v1.0",
-            "--er-token", "t",
-            "--er-id", "i",
+            "--from-file",
+            str(dm_file),
+            "--er-endpoint",
+            "https://x/api/v1.0",
+            "--er-token",
+            "t",
+            "--er-id",
+            "i",
         ],
     )
     assert result.exit_code == 0, result.output
@@ -877,6 +885,7 @@ def test_choices_subcommand_exits_nonzero_on_errors(tmp_path, monkeypatch):
 
     def fake_upsert(**kw):
         from er_smart_sync.choices import ChoicesStats
+
         return ChoicesStats(errored=1)
 
     monkeypatch.setattr("er_smart_sync.cli.upsert_choices", fake_upsert)
@@ -893,10 +902,14 @@ def test_choices_subcommand_exits_nonzero_on_errors(tmp_path, monkeypatch):
         main,
         [
             "choices",
-            "--from-file", str(dm_file),
-            "--er-endpoint", "https://x/api/v1.0",
-            "--er-token", "t",
-            "--er-id", "i",
+            "--from-file",
+            str(dm_file),
+            "--er-endpoint",
+            "https://x/api/v1.0",
+            "--er-token",
+            "t",
+            "--er-id",
+            "i",
         ],
     )
     assert result.exit_code != 0
@@ -912,18 +925,24 @@ def test_datamodel_skip_choices_flag(tmp_path, monkeypatch):
 
     def fake_make_sync(config, ctx=None):
         from er_smart_sync.synchronizer import ERSmartSynchronizer
+
         sync = ERSmartSynchronizer.__new__(ERSmartSynchronizer)
         sync._event_type_version = config.earthranger.event_type_version
         sync.sync_mode = "both"
         sync.skip_choices = False
         sync.datamodel_stats = {
-            "categories_created": 0, "categories_existing": 0,
-            "event_types_created": 0, "event_types_updated": 0,
-            "event_types_unchanged": 0, "event_types_skipped_by_mode": 0,
+            "categories_created": 0,
+            "categories_existing": 0,
+            "event_types_created": 0,
+            "event_types_updated": 0,
+            "event_types_unchanged": 0,
+            "event_types_skipped_by_mode": 0,
             "event_types_skipped_by_conflict": 0,
             "event_types_errored": 0,
-            "choices_created": 0, "choices_updated": 0,
-            "choices_unchanged": 0, "choices_deactivated": 0,
+            "choices_created": 0,
+            "choices_updated": 0,
+            "choices_unchanged": 0,
+            "choices_deactivated": 0,
             "choices_errored": 0,
         }
         sync.push_smart_ca_datamodel_to_earthranger = lambda **kwargs: None
@@ -945,11 +964,16 @@ def test_datamodel_skip_choices_flag(tmp_path, monkeypatch):
         main,
         [
             "datamodel",
-            "--from-file", str(dm_file),
-            "--er-endpoint", "https://x/api/v1.0",
-            "--er-token", "t",
-            "--er-id", "i",
-            "--event-type-version", "v2",
+            "--from-file",
+            str(dm_file),
+            "--er-endpoint",
+            "https://x/api/v1.0",
+            "--er-token",
+            "t",
+            "--er-id",
+            "i",
+            "--event-type-version",
+            "v2",
             "--skip-choices",
         ],
     )
@@ -965,24 +989,28 @@ def test_inspect_datamodel_v2_prints_choice_sets(tmp_path, monkeypatch):
 
     dm_mock = MagicMock()
     dm_mock.export_as_dict.return_value = {
-        "categories": [{
-            "path": "incidents",
-            "hkeyPath": "incidents",
-            "display": "Incidents",
-            "is_multiple": False,
-            "is_active": True,
-            "attributes": [{"key": "color", "is_active": True}],
-        }],
-        "attributes": [{
-            "key": "color",
-            "type": "LIST",
-            "isrequired": False,
-            "display": "Color",
-            "options": [
-                {"key": "red", "display": "Red", "isActive": True},
-                {"key": "blue", "display": "Blue", "isActive": True},
-            ],
-        }],
+        "categories": [
+            {
+                "path": "incidents",
+                "hkeyPath": "incidents",
+                "display": "Incidents",
+                "is_multiple": False,
+                "is_active": True,
+                "attributes": [{"key": "color", "is_active": True}],
+            }
+        ],
+        "attributes": [
+            {
+                "key": "color",
+                "type": "LIST",
+                "isrequired": False,
+                "display": "Color",
+                "options": [
+                    {"key": "red", "display": "Red", "isActive": True},
+                    {"key": "blue", "display": "Blue", "isActive": True},
+                ],
+            }
+        ],
     }
     monkeypatch.setattr(
         "smartconnect.SmartClient.load_datamodel",
@@ -997,11 +1025,16 @@ def test_inspect_datamodel_v2_prints_choice_sets(tmp_path, monkeypatch):
         main,
         [
             "inspect-datamodel",
-            "--er-endpoint", "https://er.example.com/api/v1.0",
-            "--er-token", "x",
-            "--from-file", str(dm_file),
-            "--ca-label", "Foasf [FOASF]",
-            "--event-type-version", "v2",
+            "--er-endpoint",
+            "https://er.example.com/api/v1.0",
+            "--er-token",
+            "x",
+            "--from-file",
+            str(dm_file),
+            "--ca-label",
+            "Foasf [FOASF]",
+            "--event-type-version",
+            "v2",
         ],
     )
     assert result.exit_code == 0, result.output

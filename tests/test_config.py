@@ -92,7 +92,8 @@ def test_er_config_choices_base_url_default():
 
 def test_er_config_choices_base_url_override():
     cfg = EarthRangerConfig(
-        id="i", endpoint="https://x/api/v1.0",
+        id="i",
+        endpoint="https://x/api/v1.0",
         choices_base_url="/custom/path",
     )
     assert cfg.choices_base_url == "/custom/path"

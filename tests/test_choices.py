@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import dataclasses
+from unittest.mock import MagicMock
+
 import pytest
 
 from er_smart_sync.choices import (
@@ -46,6 +49,7 @@ def test_derive_choice_field_event_type_scoped():
 
 def test_derive_choice_field_matches_word_pattern():
     import re
+
     field = derive_choice_field("ca-uuid_path_with_dashes", "attr-key.with.dots")
     assert re.match(r"^\w+$", field), f"field {field!r} contains non-word chars"
 
@@ -104,7 +108,7 @@ def test_choice_option_frozen():
     from er_smart_sync.choices import ChoiceOption
 
     opt = ChoiceOption(value="lion", display="Lion", is_active=True)
-    with pytest.raises(Exception):  # frozen dataclass
+    with pytest.raises(dataclasses.FrozenInstanceError):
         opt.value = "tiger"
 
 
@@ -165,8 +169,15 @@ def _option(key, display=None, is_active=True):
     return {"key": key, "display": display or key, "isActive": is_active}
 
 
-def _category(path, *, display=None, attributes=None,
-              is_active=True, is_multiple=False, hkey_path=None):
+def _category(
+    path,
+    *,
+    display=None,
+    attributes=None,
+    is_active=True,
+    is_multiple=False,
+    hkey_path=None,
+):
     return {
         "path": path,
         "hkeyPath": hkey_path or path,
@@ -215,7 +226,9 @@ def test_build_choice_sets_single_list_attribute():
         "categories": [_category("wildlife", attributes=[_cat_attr("species")])],
         "attributes": [
             _attr(
-                "species", "LIST", display="Species",
+                "species",
+                "LIST",
+                display="Species",
                 options=[
                     _option("lion", "Lion"),
                     _option("zebra", "Zebra"),
@@ -228,7 +241,9 @@ def test_build_choice_sets_single_list_attribute():
     assert len(result) == 1
     cs = result[0]
     expected_etvalue = event_type_value_for(
-        category_path="wildlife", ca_uuid=CA_UUID, cm=None,
+        category_path="wildlife",
+        ca_uuid=CA_UUID,
+        cm=None,
     )
     expected_field = derive_choice_field(expected_etvalue, "species")
     assert cs.field == expected_field
@@ -259,7 +274,8 @@ def test_build_choice_sets_cm_filters_active_options():
         "categories": [_category("c", attributes=[_cat_attr("color")])],
         "attributes": [
             _attr(
-                "color", "LIST",
+                "color",
+                "LIST",
                 options=[
                     _option("red"),
                     _option("blue"),
@@ -301,7 +317,8 @@ def test_build_choice_sets_cm_omits_option_entirely():
         "categories": [_category("c", attributes=[_cat_attr("color")])],
         "attributes": [
             _attr(
-                "color", "LIST",
+                "color",
+                "LIST",
                 options=[_option("red"), _option("blue"), _option("legacy")],
             )
         ],
@@ -330,7 +347,8 @@ def test_build_choice_sets_tree_flattens_to_leaves():
         "categories": [_category("c", attributes=[_cat_attr("region")])],
         "attributes": [
             _attr(
-                "region", "TREE",
+                "region",
+                "TREE",
                 options=[
                     _option("africa"),
                     _option("africa.kenya"),
@@ -342,7 +360,8 @@ def test_build_choice_sets_tree_flattens_to_leaves():
     }
     result = build_choice_sets(dm=dm, cm=None, ca_uuid=CA_UUID)
     values = {o.value for o in result[0].options}
-    # Only leaves: africa.kenya.nairobi → africa_kenya_nairobi, africa.tanzania → africa_tanzania
+    # Only leaves: africa.kenya.nairobi → africa_kenya_nairobi,
+    # africa.tanzania → africa_tanzania
     assert values == {"africa_kenya_nairobi", "africa_tanzania"}
 
 
@@ -362,7 +381,7 @@ def test_build_choice_sets_skips_inactive_categories_without_cm():
 
 
 def test_build_choice_sets_two_categories_distinct_fields():
-    """Same attribute referenced from two leaf categories → two distinct field hashes."""
+    """Same attribute in two leaf categories → two distinct field hashes."""
     from er_smart_sync.choices import build_choice_sets
 
     dm = {
@@ -380,9 +399,6 @@ def test_build_choice_sets_two_categories_distinct_fields():
 
 
 # ── upsert_choices ─────────────────────────────────────────────
-
-
-from unittest.mock import MagicMock
 
 
 def _mock_er_client_for_choices(
@@ -406,7 +422,6 @@ def test_upsert_choices_creates_new_options():
     from er_smart_sync.choices import (
         ChoiceOption,
         ChoiceSet,
-        ChoicesStats,
         upsert_choices,
     )
 
@@ -454,9 +469,7 @@ def test_upsert_choices_fetches_existing_with_correct_params():
         choice_sets=[
             ChoiceSet(
                 field="etxxx_color",
-                options=(
-                    ChoiceOption(value="red", display="Red", is_active=True),
-                ),
+                options=(ChoiceOption(value="red", display="Red", is_active=True),),
             )
         ],
     )
@@ -477,12 +490,17 @@ def test_upsert_choices_unchanged_no_writes():
 
     client = _mock_er_client_for_choices(
         existing_results={
-            "count": 1, "next": None,
+            "count": 1,
+            "next": None,
             "results": [
                 {
-                    "id": "uuid-1", "model": "activity.event",
-                    "field": "etxxx_color", "value": "red",
-                    "display": "Red", "ordernum": 0, "is_active": True,
+                    "id": "uuid-1",
+                    "model": "activity.event",
+                    "field": "etxxx_color",
+                    "value": "red",
+                    "display": "Red",
+                    "ordernum": 0,
+                    "is_active": True,
                 }
             ],
         },
@@ -492,9 +510,7 @@ def test_upsert_choices_unchanged_no_writes():
         choice_sets=[
             ChoiceSet(
                 field="etxxx_color",
-                options=(
-                    ChoiceOption(value="red", display="Red", is_active=True),
-                ),
+                options=(ChoiceOption(value="red", display="Red", is_active=True),),
             )
         ],
     )
@@ -510,12 +526,17 @@ def test_upsert_choices_patches_drifted_display():
 
     client = _mock_er_client_for_choices(
         existing_results={
-            "count": 1, "next": None,
+            "count": 1,
+            "next": None,
             "results": [
                 {
-                    "id": "uuid-1", "model": "activity.event",
-                    "field": "etxxx_color", "value": "red",
-                    "display": "OLD Red", "ordernum": 0, "is_active": True,
+                    "id": "uuid-1",
+                    "model": "activity.event",
+                    "field": "etxxx_color",
+                    "value": "red",
+                    "display": "OLD Red",
+                    "ordernum": 0,
+                    "is_active": True,
                 }
             ],
         },
@@ -525,9 +546,7 @@ def test_upsert_choices_patches_drifted_display():
         choice_sets=[
             ChoiceSet(
                 field="etxxx_color",
-                options=(
-                    ChoiceOption(value="red", display="Red", is_active=True),
-                ),
+                options=(ChoiceOption(value="red", display="Red", is_active=True),),
             )
         ],
     )
@@ -543,12 +562,17 @@ def test_upsert_choices_reactivates_inactive_record():
 
     client = _mock_er_client_for_choices(
         existing_results={
-            "count": 1, "next": None,
+            "count": 1,
+            "next": None,
             "results": [
                 {
-                    "id": "uuid-1", "model": "activity.event",
-                    "field": "etxxx_color", "value": "red",
-                    "display": "Red", "ordernum": 0, "is_active": False,
+                    "id": "uuid-1",
+                    "model": "activity.event",
+                    "field": "etxxx_color",
+                    "value": "red",
+                    "display": "Red",
+                    "ordernum": 0,
+                    "is_active": False,
                 }
             ],
         },
@@ -558,9 +582,7 @@ def test_upsert_choices_reactivates_inactive_record():
         choice_sets=[
             ChoiceSet(
                 field="etxxx_color",
-                options=(
-                    ChoiceOption(value="red", display="Red", is_active=True),
-                ),
+                options=(ChoiceOption(value="red", display="Red", is_active=True),),
             )
         ],
     )
@@ -573,12 +595,17 @@ def test_upsert_choices_deactivates_when_planned_inactive():
 
     client = _mock_er_client_for_choices(
         existing_results={
-            "count": 1, "next": None,
+            "count": 1,
+            "next": None,
             "results": [
                 {
-                    "id": "uuid-1", "model": "activity.event",
-                    "field": "etxxx_color", "value": "red",
-                    "display": "Red", "ordernum": 0, "is_active": True,
+                    "id": "uuid-1",
+                    "model": "activity.event",
+                    "field": "etxxx_color",
+                    "value": "red",
+                    "display": "Red",
+                    "ordernum": 0,
+                    "is_active": True,
                 }
             ],
         },
@@ -588,9 +615,7 @@ def test_upsert_choices_deactivates_when_planned_inactive():
         choice_sets=[
             ChoiceSet(
                 field="etxxx_color",
-                options=(
-                    ChoiceOption(value="red", display="Red", is_active=False),
-                ),
+                options=(ChoiceOption(value="red", display="Red", is_active=False),),
             )
         ],
     )
@@ -604,17 +629,26 @@ def test_upsert_choices_deactivates_orphans():
 
     client = _mock_er_client_for_choices(
         existing_results={
-            "count": 2, "next": None,
+            "count": 2,
+            "next": None,
             "results": [
                 {
-                    "id": "uuid-r", "model": "activity.event",
-                    "field": "etxxx_color", "value": "red",
-                    "display": "Red", "ordernum": 0, "is_active": True,
+                    "id": "uuid-r",
+                    "model": "activity.event",
+                    "field": "etxxx_color",
+                    "value": "red",
+                    "display": "Red",
+                    "ordernum": 0,
+                    "is_active": True,
                 },
                 {
-                    "id": "uuid-l", "model": "activity.event",
-                    "field": "etxxx_color", "value": "legacy",
-                    "display": "Legacy", "ordernum": 1, "is_active": True,
+                    "id": "uuid-l",
+                    "model": "activity.event",
+                    "field": "etxxx_color",
+                    "value": "legacy",
+                    "display": "Legacy",
+                    "ordernum": 1,
+                    "is_active": True,
                 },
             ],
         },
@@ -624,9 +658,7 @@ def test_upsert_choices_deactivates_orphans():
         choice_sets=[
             ChoiceSet(
                 field="etxxx_color",
-                options=(
-                    ChoiceOption(value="red", display="Red", is_active=True),
-                ),
+                options=(ChoiceOption(value="red", display="Red", is_active=True),),
             )
         ],
     )
@@ -644,12 +676,17 @@ def test_upsert_choices_does_not_deactivate_already_inactive_orphans():
 
     client = _mock_er_client_for_choices(
         existing_results={
-            "count": 1, "next": None,
+            "count": 1,
+            "next": None,
             "results": [
                 {
-                    "id": "uuid-l", "model": "activity.event",
-                    "field": "etxxx_color", "value": "legacy",
-                    "display": "Legacy", "ordernum": 0, "is_active": False,
+                    "id": "uuid-l",
+                    "model": "activity.event",
+                    "field": "etxxx_color",
+                    "value": "legacy",
+                    "display": "Legacy",
+                    "ordernum": 0,
+                    "is_active": False,
                 },
             ],
         },
@@ -659,9 +696,7 @@ def test_upsert_choices_does_not_deactivate_already_inactive_orphans():
         choice_sets=[
             ChoiceSet(
                 field="etxxx_color",
-                options=(
-                    ChoiceOption(value="red", display="Red", is_active=True),
-                ),
+                options=(ChoiceOption(value="red", display="Red", is_active=True),),
             )
         ],
     )
@@ -697,9 +732,7 @@ def test_upsert_choices_duplicate_field_different_options_raises():
             choice_sets=[
                 ChoiceSet(
                     field="etxxx_color",
-                    options=(
-                        ChoiceOption(value="red", display="Red", is_active=True),
-                    ),
+                    options=(ChoiceOption(value="red", display="Red", is_active=True),),
                 ),
                 ChoiceSet(
                     field="etxxx_color",
