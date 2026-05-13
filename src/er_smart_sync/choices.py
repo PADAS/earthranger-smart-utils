@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from dataclasses import dataclass
 
 
 def sanitize_choice_value(option_key: str) -> str:
@@ -69,3 +70,31 @@ def event_type_value_for(
     else:
         value = f"{ca_uuid}_{path_underscored}"
     return value.lower()
+
+
+@dataclass(frozen=True)
+class ChoiceOption:
+    """A single option in a choice set, with its activity flag."""
+
+    value: str
+    display: str
+    is_active: bool = True
+
+
+@dataclass(frozen=True)
+class ChoiceSet:
+    """The plan for one ER ``Choice.field`` worth of records."""
+
+    field: str
+    options: tuple[ChoiceOption, ...]
+
+
+@dataclass
+class ChoicesStats:
+    """Per-run counters for the choices upsert phase."""
+
+    created: int = 0
+    updated: int = 0
+    unchanged: int = 0
+    deactivated: int = 0
+    errored: int = 0

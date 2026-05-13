@@ -95,3 +95,51 @@ def test_event_type_value_for_with_cm_uses_hkey_path():
         cm={"cm_uuid": "cm-1", "categories": [], "attributes": []},
     )
     assert value == "ca-1_cm-1_some_hkey_path"
+
+
+# ── dataclasses ────────────────────────────────────────────────
+
+
+def test_choice_option_frozen():
+    from er_smart_sync.choices import ChoiceOption
+
+    opt = ChoiceOption(value="lion", display="Lion", is_active=True)
+    with pytest.raises(Exception):  # frozen dataclass
+        opt.value = "tiger"
+
+
+def test_choice_set_hashable():
+    """ChoiceSet is frozen + options is a tuple, so it should hash."""
+    from er_smart_sync.choices import ChoiceOption, ChoiceSet
+
+    cs = ChoiceSet(
+        field="etabcdef12_species",
+        options=(
+            ChoiceOption(value="lion", display="Lion", is_active=True),
+            ChoiceOption(value="zebra", display="Zebra", is_active=True),
+        ),
+    )
+    assert hash(cs)  # doesn't raise
+    assert cs.field == "etabcdef12_species"
+    assert len(cs.options) == 2
+
+
+def test_choices_stats_default():
+    from er_smart_sync.choices import ChoicesStats
+
+    stats = ChoicesStats()
+    assert stats.created == 0
+    assert stats.updated == 0
+    assert stats.unchanged == 0
+    assert stats.deactivated == 0
+    assert stats.errored == 0
+
+
+def test_choices_stats_mutable():
+    from er_smart_sync.choices import ChoicesStats
+
+    stats = ChoicesStats()
+    stats.created += 1
+    stats.errored += 2
+    assert stats.created == 1
+    assert stats.errored == 2
