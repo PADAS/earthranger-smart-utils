@@ -269,7 +269,10 @@ def upsert_choices(
     stats = ChoicesStats()
     seen_fields: dict[str, ChoiceSet] = {}
 
-    for cs in choice_sets:
+    total = len(choice_sets)
+    logger.info("Upserting %d choice set(s)", total)
+
+    for idx, cs in enumerate(choice_sets, start=1):
         # Deduplicate: same field, identical options is fine; same field,
         # different options is a builder bug.
         if cs.field in seen_fields:
@@ -278,9 +281,17 @@ def upsert_choices(
                     f"ChoiceSet field {cs.field!r} appears twice with "
                     f"different options; this is a builder bug."
                 )
+            logger.debug(
+                "Choice set %d/%d field=%s (duplicate, skipping)",
+                idx, total, cs.field,
+            )
             continue
         seen_fields[cs.field] = cs
 
+        logger.info(
+            "Choice set %d/%d field=%s (%d options)",
+            idx, total, cs.field, len(cs.options),
+        )
         try:
             _upsert_one_set(er_client=er_client, cs=cs, stats=stats)
         except Exception:
@@ -290,6 +301,12 @@ def upsert_choices(
             )
             stats.errored += len(cs.options)
 
+    logger.info(
+        "Choices done: created=%d updated=%d unchanged=%d "
+        "deactivated=%d errored=%d",
+        stats.created, stats.updated, stats.unchanged,
+        stats.deactivated, stats.errored,
+    )
     return stats
 
 
