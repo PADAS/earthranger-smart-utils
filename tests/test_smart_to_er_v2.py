@@ -431,3 +431,56 @@ def test_build_event_types_v2_choices_base_url_defaults():
         dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID,
     )
     assert len(result) == 1
+
+
+def test_ui_envelope_has_required_keys():
+    """ui must have fields, headers, order, sections per the v2 meta-schema."""
+    dm = {
+        "categories": [_category("c", attributes=[_cat_attr("a")])],
+        "attributes": [_attr("a", "TEXT")],
+    }
+    schema = build_event_types_v2(
+        dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID
+    )[0].event_schema
+
+    ui = schema["ui"]
+    assert "fields" in ui
+    assert ui["headers"] == {}
+    assert ui["order"] == ["section-1"]
+    assert "sections" in ui
+
+
+def test_ui_section_has_required_keys():
+    """section-1 must have columns, isActive, leftColumn, rightColumn."""
+    dm = {
+        "categories": [_category("c", attributes=[_cat_attr("a")])],
+        "attributes": [_attr("a", "TEXT")],
+    }
+    schema = build_event_types_v2(
+        dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID
+    )[0].event_schema
+
+    section = schema["ui"]["sections"]["section-1"]
+    assert section["columns"] == 1
+    assert section["isActive"] is True
+    assert isinstance(section["leftColumn"], list)
+    assert section["rightColumn"] == []
+
+
+def test_ui_field_has_parent():
+    """Every ui field block must have parent='section-1'."""
+    dm = {
+        "categories": [_category("c", attributes=[_cat_attr("a"), _cat_attr("b")])],
+        "attributes": [
+            _attr("a", "TEXT"),
+            _attr("b", "NUMERIC"),
+        ],
+    }
+    schema = build_event_types_v2(
+        dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID
+    )[0].event_schema
+
+    for field_name, field_block in schema["ui"]["fields"].items():
+        assert field_block.get("parent") == "section-1", (
+            f"ui.fields[{field_name}] missing parent='section-1'"
+        )
