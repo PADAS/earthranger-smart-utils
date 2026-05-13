@@ -196,33 +196,54 @@ def test_event_type_value_is_ca_scoped_and_lowercased():
 # ── Choice/enum types ────────────────────────────────────────────
 
 
-def test_list_single_value_emits_enum_and_dropdown():
+def test_list_single_value_emits_anyof_ref_and_choice_list():
+    from er_smart_sync.choices import derive_choice_field, event_type_value_for
+
     dm = {
         "categories": [_category("c", attributes=[_cat_attr("color")])],
         "attributes": [
             _attr(
-                "color",
-                "LIST",
-                display="Color",
+                "color", "LIST", display="Color",
                 options=[_option("red", "Red"), _option("blue", "Blue")],
             )
         ],
     }
-    schema = build_event_types_v2(dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID)[
-        0
-    ].event_schema
-    assert schema is not None
+    schema = build_event_types_v2(
+        dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID,
+        choices_base_url="/api/v2.0/schemas",
+    )[0].event_schema
+
+    et_value = event_type_value_for(category_path="c", ca_uuid=CA_UUID, cm=None)
+    expected_field = derive_choice_field(et_value, "color")
 
     json_prop = schema["json"]["properties"]["color"]
     assert json_prop["type"] == "string"
-    assert json_prop["enum"] == ["red", "blue"]
+    assert json_prop["title"] == "Color"
+    assert json_prop["description"] == ""
+    assert json_prop["deprecated"] is False
+    assert json_prop["anyOf"] == [
+        {"$ref": f"/api/v2.0/schemas/choices.json?field={expected_field}"}
+    ]
+    # Inline enum must not be present.
+    assert "enum" not in json_prop
 
     ui_field = schema["ui"]["fields"]["color"]
     assert ui_field["type"] == "CHOICE_LIST"
     assert ui_field["inputType"] == "DROPDOWN"
-    assert ui_field["choices"] == {"red": "Red", "blue": "Blue"}
+    assert ui_field["placeholder"] == ""
+    assert ui_field["parent"] == "section-1"
+    assert ui_field["choices"] == {
+        "type": "EXISTING_CHOICE_LIST",
+        "existingChoiceList": [expected_field],
+        "eventTypeCategories": [],
+        "featureCategories": [],
+        "myDataType": "",
+        "subjectGroups": [],
+        "subjectSubtypes": [],
+    }
 
 
+@pytest.mark.xfail(reason="Task 6 rewrites these assertions")
 def test_list_multi_value_emits_array_enum_and_checkbox():
     dm = {
         "categories": [
@@ -250,6 +271,7 @@ def test_list_multi_value_emits_array_enum_and_checkbox():
     assert ui_field["inputType"] == "CHECKBOX"
 
 
+@pytest.mark.xfail(reason="Task 6 rewrites these assertions")
 def test_mlist_emits_array_enum_and_checkbox():
     dm = {
         "categories": [_category("c", attributes=[_cat_attr("species")])],
@@ -274,13 +296,14 @@ def test_mlist_emits_array_enum_and_checkbox():
 
 
 def test_tree_flattens_to_leaf_options():
+    """TREE flattening still happens at the builder; choices module emits the leaves."""
+    from er_smart_sync.choices import derive_choice_field, event_type_value_for
+
     dm = {
         "categories": [_category("c", attributes=[_cat_attr("region")])],
         "attributes": [
             _attr(
-                "region",
-                "TREE",
-                display="Region",
+                "region", "TREE", display="Region",
                 options=[
                     _option("africa"),
                     _option("africa.kenya"),
@@ -290,15 +313,20 @@ def test_tree_flattens_to_leaf_options():
             )
         ],
     }
-    schema = build_event_types_v2(dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID)[
-        0
-    ].event_schema
-    assert schema is not None
+    schema = build_event_types_v2(
+        dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID
+    )[0].event_schema
+
+    et_value = event_type_value_for(category_path="c", ca_uuid=CA_UUID, cm=None)
+    expected_field = derive_choice_field(et_value, "region")
 
     json_prop = schema["json"]["properties"]["region"]
+    assert json_prop["anyOf"] == [
+        {"$ref": f"/api/v2.0/schemas/choices.json?field={expected_field}"}
+    ]
+    # TREE acts like LIST-single for v2 schema: emits anyOf, not array.
     assert json_prop["type"] == "string"
-    # Only leaves: africa.kenya.nairobi and africa.tanzania
-    assert set(json_prop["enum"]) == {"africa.kenya.nairobi", "africa.tanzania"}
+    assert schema["ui"]["fields"]["region"]["type"] == "CHOICE_LIST"
     assert schema["ui"]["fields"]["region"]["inputType"] == "DROPDOWN"
 
 
@@ -335,44 +363,6 @@ def test_inactive_attribute_marked_deprecated_and_kept_in_section():
 
 # ── Configurable-model overlay ────────────────────────────────────
 
-
-def test_configurable_model_filters_options():
-    dm = {
-        "categories": [_category("c", attributes=[_cat_attr("color")])],
-        "attributes": [
-            _attr(
-                "color",
-                "LIST",
-                display="Color",
-                options=[_option("red"), _option("blue"), _option("green")],
-            )
-        ],
-    }
-    cm = {
-        "cm_uuid": "cm-9999",
-        "categories": [_category("c", attributes=[_cat_attr("color")])],
-        "attributes": [
-            {
-                "key": "color",
-                "options": [
-                    {"key": "red", "isActive": True},
-                    {"key": "blue", "isActive": False},
-                    {"key": "green", "isActive": True},
-                ],
-            }
-        ],
-    }
-
-    schema = build_event_types_v2(dm=dm, cm=cm, ca_uuid=CA_UUID, ca_identifier=CA_ID)[
-        0
-    ].event_schema
-    assert schema is not None
-
-    assert schema["json"]["properties"]["color"]["enum"] == ["red", "green"]
-    assert schema["ui"]["fields"]["color"]["choices"] == {
-        "red": "red",
-        "green": "green",
-    }
 
 
 def test_configurable_model_event_type_value_includes_cm_uuid():

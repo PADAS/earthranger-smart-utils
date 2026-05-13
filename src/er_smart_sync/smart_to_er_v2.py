@@ -19,6 +19,8 @@ import pydantic
 from pydantic import BaseModel, Field, parse_obj_as
 from smartconnect.models import Attribute, Category, CategoryAttribute
 
+from .choices import derive_choice_field
+
 logger = logging.getLogger(__name__)
 
 
@@ -124,6 +126,10 @@ def _build_one(
         value = f"{ca_uuid}_{value_suffix}"
     value = value.lower()
 
+    # Pass event_type_value down so choice properties can derive their
+    # Choice.field $ref URL.
+    et_value = value
+
     et = ERV2EventType(value=value, display=cat.display, is_active=bool(is_active))
     if not is_active:
         return et
@@ -144,6 +150,7 @@ def _build_one(
         is_multiple=bool(cat.is_multiple),
         attribute_configs=attribute_configs,
         choices_base_url=choices_base_url,
+        event_type_value=et_value,
     )
     if not properties:
         logger.warning(
@@ -185,6 +192,7 @@ def _build_field_blocks(
     is_multiple: bool,
     attribute_configs: list | None,
     choices_base_url: str = "/api/v2.0/schemas",
+    event_type_value: str = "",
 ) -> tuple[dict, dict, list[str]]:
     """Return (json.properties, ui.fields, field_order_for_section)."""
     properties: dict[str, dict] = {}
@@ -214,7 +222,9 @@ def _build_field_blocks(
             display=attribute.display,
             options=options,
             is_multiple=is_multiple,
+            attr_key=cat_attr.key,
             choices_base_url=choices_base_url,
+            event_type_value=event_type_value,
         )
         if json_prop is None or ui_field is None:
             continue
@@ -234,7 +244,9 @@ def _build_property_pair(
     display: str,
     options: list,
     is_multiple: bool,
+    attr_key: str = "",
     choices_base_url: str = "/api/v2.0/schemas",
+    event_type_value: str = "",
 ) -> tuple[dict | None, dict | None]:
     """Return (json_property, ui_field) or (None, None) to skip."""
     if smart_type in SCALAR_JSON and not options:
@@ -246,43 +258,62 @@ def _build_property_pair(
     if not options:
         if smart_type in {"LIST", "MLIST", "TREE"}:
             logger.warning(
-                "All options filtered out for %r choice; emitting string",
+                "All options filtered out for %r choice attribute; "
+                "emitting plain string",
                 smart_type,
             )
         else:
             logger.warning("Unknown SMART type %r; emitting string", smart_type)
         return (
-            {"type": "string", "title": display},
+            {
+                "type": "string",
+                "title": display,
+                "description": "",
+                "deprecated": False,
+            },
             {"type": "TEXT", "inputType": "SHORT_TEXT", "parent": "section-1"},
         )
 
-    keys = [o.key for o in options]
-    choices = {o.key: o.display for o in options}
+    field_name = derive_choice_field(event_type_value, attr_key)
+    ref_url = f"{choices_base_url}/choices.json?field={field_name}"
     is_array = smart_type == "MLIST" or (smart_type == "LIST" and is_multiple)
+
+    choices_block = {
+        "type": "EXISTING_CHOICE_LIST",
+        "existingChoiceList": [field_name],
+        "eventTypeCategories": [],
+        "featureCategories": [],
+        "myDataType": "",
+        "subjectGroups": [],
+        "subjectSubtypes": [],
+    }
+    ui_field = {
+        "type": "CHOICE_LIST",
+        "inputType": "DROPDOWN",
+        "placeholder": "",
+        "choices": choices_block,
+        "parent": "section-1",
+    }
 
     if is_array:
         json_prop = {
             "type": "array",
             "title": display,
-            "items": {"type": "string", "enum": keys},
-        }
-        ui_field = {
-            "type": "CHOICE_LIST",
-            "inputType": "CHECKBOX",
-            "choices": choices,
-            "parent": "section-1",
+            "description": "",
+            "deprecated": False,
+            "uniqueItems": True,
+            "items": {
+                "type": "string",
+                "anyOf": [{"$ref": ref_url}],
+            },
         }
     else:
         json_prop = {
             "type": "string",
             "title": display,
-            "enum": keys,
-        }
-        ui_field = {
-            "type": "CHOICE_LIST",
-            "inputType": "DROPDOWN",
-            "choices": choices,
-            "parent": "section-1",
+            "description": "",
+            "deprecated": False,
+            "anyOf": [{"$ref": ref_url}],
         }
     return json_prop, ui_field
 
