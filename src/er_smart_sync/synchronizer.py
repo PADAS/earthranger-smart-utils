@@ -111,6 +111,7 @@ class ERSmartSynchronizer:
         # Datamodel-sync mode: "both", "create-only", or "update-only".
         # Drives whether create_or_update_er_event_types skips creates or updates.
         self.sync_mode: str = "both"
+        self.skip_choices: bool = False
         self._event_type_version: str = config.earthranger.event_type_version
         if self._event_type_version == "v2":
             logger.warning(
@@ -255,7 +256,7 @@ class ERSmartSynchronizer:
 
         ca_identifier = self.get_identifier_from_ca_label(ca_label)
 
-        if self._event_type_version == "v2":
+        if self._event_type_version == "v2" and not self.skip_choices:
             choice_sets = build_choice_sets(
                 dm=dm_dict, cm=cdm_dict, ca_uuid=smart_ca_uuid,
             )

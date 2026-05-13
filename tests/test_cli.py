@@ -900,3 +900,58 @@ def test_choices_subcommand_exits_nonzero_on_errors(tmp_path, monkeypatch):
         ],
     )
     assert result.exit_code != 0
+
+
+def test_datamodel_skip_choices_flag(tmp_path, monkeypatch):
+    """--skip-choices makes the synchronizer skip the choices phase even on v2."""
+    from click.testing import CliRunner
+
+    from er_smart_sync.cli import main
+
+    captured = {}
+
+    def fake_make_sync(config, ctx=None):
+        from er_smart_sync.synchronizer import ERSmartSynchronizer
+        sync = ERSmartSynchronizer.__new__(ERSmartSynchronizer)
+        sync._event_type_version = config.earthranger.event_type_version
+        sync.sync_mode = "both"
+        sync.skip_choices = False
+        sync.datamodel_stats = {
+            "categories_created": 0, "categories_existing": 0,
+            "event_types_created": 0, "event_types_updated": 0,
+            "event_types_unchanged": 0, "event_types_skipped_by_mode": 0,
+            "event_types_skipped_by_conflict": 0,
+            "event_types_errored": 0,
+            "choices_created": 0, "choices_updated": 0,
+            "choices_unchanged": 0, "choices_deactivated": 0,
+            "choices_errored": 0,
+        }
+        sync.push_smart_ca_datamodel_to_earthranger = lambda **kwargs: None
+        sync.synchronize_datamodel = lambda: None
+        captured["sync"] = sync
+        return sync
+
+    monkeypatch.setattr("er_smart_sync.cli._make_synchronizer", fake_make_sync)
+    monkeypatch.setattr(
+        "smartconnect.SmartClient.load_datamodel",
+        lambda self, filename: MagicMock(),
+    )
+
+    dm_file = tmp_path / "dm.xml"
+    dm_file.write_text("<datamodel/>")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "datamodel",
+            "--from-file", str(dm_file),
+            "--er-endpoint", "https://x/api/v1.0",
+            "--er-token", "t",
+            "--er-id", "i",
+            "--event-type-version", "v2",
+            "--skip-choices",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["sync"].skip_choices is True

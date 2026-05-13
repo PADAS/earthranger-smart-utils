@@ -1113,3 +1113,33 @@ class TestEventTypeVersionWiring:
         assert sync.datamodel_stats["choices_unchanged"] == 5
         assert sync.datamodel_stats["choices_deactivated"] == 2
         assert sync.datamodel_stats["choices_errored"] == 0
+
+    def test_v2_skip_choices_bypasses_choices_phase(
+        self, sync_config_v2, mock_er_client
+    ):
+        mock_er_client.get_event_categories.return_value = []
+        mock_er_client.get_event_types.return_value = []
+
+        dm = MagicMock()
+        dm.export_as_dict.return_value = {"categories": []}
+
+        with patch(
+            "er_smart_sync.synchronizer.build_choice_sets",
+        ) as build_choices, patch(
+            "er_smart_sync.synchronizer.upsert_choices",
+        ) as upsert, patch(
+            "er_smart_sync.synchronizer.build_event_types_v2",
+            return_value=[],
+        ):
+            sync = ERSmartSynchronizer(
+                config=sync_config_v2,
+                er_client=mock_er_client,
+                smart_client=MagicMock(),
+            )
+            sync.skip_choices = True
+            sync.push_smart_ca_datamodel_to_earthranger(
+                dm=dm, smart_ca_uuid="ca-1", ca_label="[TEST]"
+            )
+
+        build_choices.assert_not_called()
+        upsert.assert_not_called()
