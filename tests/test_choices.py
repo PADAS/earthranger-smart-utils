@@ -824,3 +824,69 @@ def test_upsert_choices_patches_drifted_ordernum():
     patch_payloads = [c.kwargs["payload"] for c in client._patch.call_args_list]
     assert any(p.get("ordernum") == 0 for p in patch_payloads)
     assert any(p.get("ordernum") == 1 for p in patch_payloads)
+
+
+def test_upsert_choices_handles_missing_field_filter_400():
+    """Fresh tenants have no Choice records for our derived field names yet.
+    ER's AllValuesMultipleFilter returns 400 for those GETs. We must
+    interpret that 400 as 'no existing records' and proceed to POST."""
+    from erclient.er_errors import ERClientException
+
+    from er_smart_sync.choices import (
+        ChoiceOption,
+        ChoiceSet,
+        upsert_choices,
+    )
+
+    inner = MagicMock()
+    inner._get.side_effect = ERClientException(
+        "Failed to <bound method ...> to ER web service. "
+        "400 from ER. Message: unknown reason "
+        '{"field":["Select a valid choice. etxxx_color is not one of '
+        'the available choices."]}'
+    )
+    inner._post.return_value = {"id": "new-uuid"}
+
+    stats = upsert_choices(
+        er_client=inner,
+        choice_sets=[
+            ChoiceSet(
+                field="etxxx_color",
+                options=(ChoiceOption(value="red", display="Red", is_active=True),),
+            )
+        ],
+    )
+    assert stats.created == 1
+    assert stats.errored == 0
+    inner._post.assert_called_once()
+
+
+def test_upsert_choices_propagates_other_400_errors():
+    """Only the specific AllValuesMultipleFilter 400 is treated as empty.
+    Other 400s (auth issues, malformed payload, etc.) must propagate."""
+    from erclient.er_errors import ERClientException
+
+    from er_smart_sync.choices import (
+        ChoiceOption,
+        ChoiceSet,
+        upsert_choices,
+    )
+
+    inner = MagicMock()
+    inner._get.side_effect = ERClientException(
+        "Failed... 400 ... unrelated authentication failure"
+    )
+
+    stats = upsert_choices(
+        er_client=inner,
+        choice_sets=[
+            ChoiceSet(
+                field="etxxx_color",
+                options=(ChoiceOption(value="red", display="Red", is_active=True),),
+            )
+        ],
+    )
+    # The exception bubbles to upsert_choices' outer try/except, which
+    # counts it as errored.
+    assert stats.errored == 1
+    inner._post.assert_not_called()
