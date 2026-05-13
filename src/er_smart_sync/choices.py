@@ -307,8 +307,13 @@ def _upsert_one_set(*, er_client, cs: ChoiceSet, stats: ChoicesStats) -> None:
                 stats=stats,
             )
         else:
-            # Update logic added in Task 6.
-            stats.unchanged += 1
+            _maybe_patch_choice(
+                er_client=er_client,
+                existing=existing_record,
+                planned=planned,
+                ordernum=ordernum,
+                stats=stats,
+            )
 
 
 def _fetch_existing(*, er_client, field: str) -> list[dict]:
@@ -364,3 +369,46 @@ def _create_choice(
             extra=dict(field=cs_field, value=option.value, error=str(e)),
         )
         stats.errored += 1
+
+
+def _maybe_patch_choice(
+    *,
+    er_client,
+    existing: dict,
+    planned: ChoiceOption,
+    ordernum: int,
+    stats: ChoicesStats,
+) -> None:
+    changes: dict = {}
+    if existing.get("display") != planned.display:
+        changes["display"] = planned.display
+    if existing.get("ordernum") != ordernum:
+        changes["ordernum"] = ordernum
+    if existing.get("is_active") != planned.is_active:
+        changes["is_active"] = planned.is_active
+
+    if not changes:
+        stats.unchanged += 1
+        return
+
+    is_deactivation = (
+        "is_active" in changes
+        and existing.get("is_active") is True
+        and planned.is_active is False
+    )
+
+    path = f"{_CHOICES_PATH}/{existing['id']}"
+    try:
+        er_client._patch(path=path, payload=changes)
+    except Exception as e:
+        logger.exception(
+            "Failed to PATCH choice",
+            extra=dict(id=existing.get("id"), error=str(e)),
+        )
+        stats.errored += 1
+        return
+
+    if is_deactivation:
+        stats.deactivated += 1
+    else:
+        stats.updated += 1

@@ -470,3 +470,129 @@ def test_upsert_choices_fetches_existing_with_correct_params():
     assert params.get("field") == "etxxx_color"
     assert params.get("include_inactive") is True
     assert params.get("model") == "activity.event"
+
+
+def test_upsert_choices_unchanged_no_writes():
+    from er_smart_sync.choices import ChoiceOption, ChoiceSet, upsert_choices
+
+    client = _mock_er_client_for_choices(
+        existing_results={
+            "count": 1, "next": None,
+            "results": [
+                {
+                    "id": "uuid-1", "model": "activity.event",
+                    "field": "etxxx_color", "value": "red",
+                    "display": "Red", "ordernum": 0, "is_active": True,
+                }
+            ],
+        },
+    )
+    stats = upsert_choices(
+        er_client=client,
+        choice_sets=[
+            ChoiceSet(
+                field="etxxx_color",
+                options=(
+                    ChoiceOption(value="red", display="Red", is_active=True),
+                ),
+            )
+        ],
+    )
+    assert stats.unchanged == 1
+    assert stats.created == 0
+    assert stats.updated == 0
+    client._post.assert_not_called()
+    client._patch.assert_not_called()
+
+
+def test_upsert_choices_patches_drifted_display():
+    from er_smart_sync.choices import ChoiceOption, ChoiceSet, upsert_choices
+
+    client = _mock_er_client_for_choices(
+        existing_results={
+            "count": 1, "next": None,
+            "results": [
+                {
+                    "id": "uuid-1", "model": "activity.event",
+                    "field": "etxxx_color", "value": "red",
+                    "display": "OLD Red", "ordernum": 0, "is_active": True,
+                }
+            ],
+        },
+    )
+    stats = upsert_choices(
+        er_client=client,
+        choice_sets=[
+            ChoiceSet(
+                field="etxxx_color",
+                options=(
+                    ChoiceOption(value="red", display="Red", is_active=True),
+                ),
+            )
+        ],
+    )
+    assert stats.updated == 1
+    assert stats.unchanged == 0
+    patch_call = client._patch.call_args
+    assert "choices/uuid-1" in patch_call.kwargs["path"]
+    assert patch_call.kwargs["payload"]["display"] == "Red"
+
+
+def test_upsert_choices_reactivates_inactive_record():
+    from er_smart_sync.choices import ChoiceOption, ChoiceSet, upsert_choices
+
+    client = _mock_er_client_for_choices(
+        existing_results={
+            "count": 1, "next": None,
+            "results": [
+                {
+                    "id": "uuid-1", "model": "activity.event",
+                    "field": "etxxx_color", "value": "red",
+                    "display": "Red", "ordernum": 0, "is_active": False,
+                }
+            ],
+        },
+    )
+    stats = upsert_choices(
+        er_client=client,
+        choice_sets=[
+            ChoiceSet(
+                field="etxxx_color",
+                options=(
+                    ChoiceOption(value="red", display="Red", is_active=True),
+                ),
+            )
+        ],
+    )
+    assert stats.updated == 1
+    assert client._patch.call_args.kwargs["payload"]["is_active"] is True
+
+
+def test_upsert_choices_deactivates_when_planned_inactive():
+    from er_smart_sync.choices import ChoiceOption, ChoiceSet, upsert_choices
+
+    client = _mock_er_client_for_choices(
+        existing_results={
+            "count": 1, "next": None,
+            "results": [
+                {
+                    "id": "uuid-1", "model": "activity.event",
+                    "field": "etxxx_color", "value": "red",
+                    "display": "Red", "ordernum": 0, "is_active": True,
+                }
+            ],
+        },
+    )
+    stats = upsert_choices(
+        er_client=client,
+        choice_sets=[
+            ChoiceSet(
+                field="etxxx_color",
+                options=(
+                    ChoiceOption(value="red", display="Red", is_active=False),
+                ),
+            )
+        ],
+    )
+    assert stats.deactivated == 1
+    assert client._patch.call_args.kwargs["payload"]["is_active"] is False
