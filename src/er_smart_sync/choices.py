@@ -343,24 +343,43 @@ def _upsert_one_set(*, er_client, cs: ChoiceSet, stats: ChoicesStats) -> None:
 
 def _fetch_existing(*, er_client, field: str) -> list[dict]:
     """List all existing Choice records for (model=activity.event, field=...).
-    Follows pagination via the DRF `next` URL."""
+
+    ER's choices endpoint uses django-filter's ``AllValuesMultipleFilter`` on
+    ``field=``, which validates the value against the set of `field` values
+    that already exist in the database. On a fresh tenant where no Choice
+    has our derived field name yet, the filter returns 400 — we interpret
+    that as "no existing records for this field" and return an empty list.
+
+    Also passes ``max_retries=0`` to skip ERClient's default 5-retry loop;
+    400s from missing-field filtering don't fix themselves on retry, and
+    upserts have their own _retry wrapper for transient failures.
+    """
+    from erclient.er_errors import ERClientException
+
+    try:
+        page = er_client._get(
+            path=_CHOICES_PATH,
+            params={
+                "model": _CHOICE_MODEL,
+                "field": field,
+                "include_inactive": True,
+                "page_size": 200,
+            },
+            max_retries=0,
+        )
+    except ERClientException as e:
+        if "is not one of the available choices" in str(e):
+            return []
+        raise
+
     results: list[dict] = []
-    page = er_client._get(
-        path=_CHOICES_PATH,
-        params={
-            "model": _CHOICE_MODEL,
-            "field": field,
-            "include_inactive": True,
-            "page_size": 200,
-        },
-    )
     while True:
         if isinstance(page, dict) and "results" in page:
             results.extend(page["results"])
             next_url = page.get("next")
             if not next_url:
                 break
-            page = er_client._get(path=next_url)
+            page = er_client._get(path=next_url, max_retries=0)
         elif isinstance(page, list):
             results.extend(page)
             break
