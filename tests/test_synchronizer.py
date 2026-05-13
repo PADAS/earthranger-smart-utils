@@ -949,3 +949,126 @@ class TestEventTypeVersionWiring:
             "schema": {"json": {"a": 1}, "ui": {}},
         }
         assert sync._event_type_needs_update(et, existing) is True
+
+    def test_v2_runs_choices_phase_before_event_types(
+        self, sync_config_v2, mock_er_client
+    ):
+        """build_choice_sets and upsert_choices called BEFORE post_event_type."""
+
+        mock_er_client.get_event_categories.return_value = []
+        mock_er_client.get_event_types.return_value = []
+
+        dm = MagicMock()
+        dm.export_as_dict.return_value = {"categories": []}
+
+        order = []
+
+        def fake_build_choice_sets(**kwargs):
+            order.append("build_choice_sets")
+            return []
+
+        def fake_upsert_choices(**kwargs):
+            from er_smart_sync.choices import ChoicesStats
+            order.append("upsert_choices")
+            return ChoicesStats()
+
+        def fake_build_event_types(**kwargs):
+            order.append("build_event_types_v2")
+            return []
+
+        with patch(
+            "er_smart_sync.synchronizer.build_choice_sets",
+            side_effect=fake_build_choice_sets,
+        ), patch(
+            "er_smart_sync.synchronizer.upsert_choices",
+            side_effect=fake_upsert_choices,
+        ), patch(
+            "er_smart_sync.synchronizer.build_event_types_v2",
+            side_effect=fake_build_event_types,
+        ):
+            sync = ERSmartSynchronizer(
+                config=sync_config_v2,
+                er_client=mock_er_client,
+                smart_client=MagicMock(),
+            )
+            sync.push_smart_ca_datamodel_to_earthranger(
+                dm=dm, smart_ca_uuid="ca-1", ca_label="[TEST]"
+            )
+
+        assert order == [
+            "build_choice_sets",
+            "upsert_choices",
+            "build_event_types_v2",
+        ]
+
+    def test_v1_path_does_not_call_choices(
+        self, sync_config, mock_er_client
+    ):
+        """v1 path is untouched — no build_choice_sets, no upsert_choices."""
+        mock_er_client.get_event_categories.return_value = []
+        mock_er_client.get_event_types.return_value = []
+
+        dm = MagicMock()
+        dm.export_as_dict.return_value = {"categories": []}
+
+        with patch(
+            "er_smart_sync.synchronizer.build_choice_sets",
+            return_value=[],
+        ) as build_choices, patch(
+            "er_smart_sync.synchronizer.upsert_choices",
+        ) as upsert, patch(
+            "er_smart_sync.synchronizer.build_event_types",
+            return_value=[],
+        ):
+            sync = ERSmartSynchronizer(
+                config=sync_config,
+                er_client=mock_er_client,
+                smart_client=MagicMock(),
+            )
+            sync.push_smart_ca_datamodel_to_earthranger(
+                dm=dm, smart_ca_uuid="ca-1", ca_label="[TEST]"
+            )
+
+        build_choices.assert_not_called()
+        upsert.assert_not_called()
+
+
+    def test_v2_choice_stats_merge_into_datamodel_stats(
+        self, sync_config_v2, mock_er_client
+    ):
+        """The five new counters are populated from upsert_choices' return value."""
+        from er_smart_sync.choices import ChoicesStats
+
+        mock_er_client.get_event_categories.return_value = []
+        mock_er_client.get_event_types.return_value = []
+
+        dm = MagicMock()
+        dm.export_as_dict.return_value = {"categories": []}
+
+        stats = ChoicesStats(created=3, updated=1, unchanged=5,
+                             deactivated=2, errored=0)
+
+        with patch(
+            "er_smart_sync.synchronizer.build_choice_sets",
+            return_value=[],
+        ), patch(
+            "er_smart_sync.synchronizer.upsert_choices",
+            return_value=stats,
+        ), patch(
+            "er_smart_sync.synchronizer.build_event_types_v2",
+            return_value=[],
+        ):
+            sync = ERSmartSynchronizer(
+                config=sync_config_v2,
+                er_client=mock_er_client,
+                smart_client=MagicMock(),
+            )
+            sync.push_smart_ca_datamodel_to_earthranger(
+                dm=dm, smart_ca_uuid="ca-1", ca_label="[TEST]"
+            )
+
+        assert sync.datamodel_stats["choices_created"] == 3
+        assert sync.datamodel_stats["choices_updated"] == 1
+        assert sync.datamodel_stats["choices_unchanged"] == 5
+        assert sync.datamodel_stats["choices_deactivated"] == 2
+        assert sync.datamodel_stats["choices_errored"] == 0

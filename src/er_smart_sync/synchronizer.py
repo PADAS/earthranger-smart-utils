@@ -25,6 +25,7 @@ from smartconnect.er_sync_utils import (
     get_subjects_from_patrol_data_model,
 )
 
+from .choices import build_choice_sets, upsert_choices
 from .config import SyncConfig
 from .defaults import (
     JsonFileStateStore,
@@ -130,6 +131,11 @@ class ERSmartSynchronizer:
             "event_types_skipped_by_mode": 0,
             "event_types_skipped_by_conflict": 0,
             "event_types_errored": 0,
+            "choices_created": 0,
+            "choices_updated": 0,
+            "choices_unchanged": 0,
+            "choices_deactivated": 0,
+            "choices_errored": 0,
         }
 
         if er_client:
@@ -248,6 +254,20 @@ class ERSmartSynchronizer:
         cdm_dict = cm.export_as_dict() if cm else None
 
         ca_identifier = self.get_identifier_from_ca_label(ca_label)
+
+        if self._event_type_version == "v2":
+            choice_sets = build_choice_sets(
+                dm=dm_dict, cm=cdm_dict, ca_uuid=smart_ca_uuid,
+            )
+            choices_stats = upsert_choices(
+                er_client=self.er_client, choice_sets=choice_sets,
+            )
+            self.datamodel_stats["choices_created"] += choices_stats.created
+            self.datamodel_stats["choices_updated"] += choices_stats.updated
+            self.datamodel_stats["choices_unchanged"] += choices_stats.unchanged
+            self.datamodel_stats["choices_deactivated"] += choices_stats.deactivated
+            self.datamodel_stats["choices_errored"] += choices_stats.errored
+
         builder = (
             build_event_types_v2
             if self._event_type_version == "v2"
