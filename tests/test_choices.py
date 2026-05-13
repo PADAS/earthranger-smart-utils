@@ -143,3 +143,110 @@ def test_choices_stats_mutable():
     stats.errored += 2
     assert stats.created == 1
     assert stats.errored == 2
+
+
+# ── build_choice_sets ──────────────────────────────────────────
+
+
+CA_UUID = "ca-1234"
+
+
+def _attr(key, type_, *, display=None, options=None):
+    return {
+        "key": key,
+        "type": type_,
+        "isrequired": False,
+        "display": display or key,
+        "options": options,
+    }
+
+
+def _option(key, display=None, is_active=True):
+    return {"key": key, "display": display or key, "isActive": is_active}
+
+
+def _category(path, *, display=None, attributes=None,
+              is_active=True, is_multiple=False, hkey_path=None):
+    return {
+        "path": path,
+        "hkeyPath": hkey_path or path,
+        "display": display or path,
+        "is_multiple": is_multiple,
+        "is_active": is_active,
+        "attributes": attributes or [],
+    }
+
+
+def _cat_attr(key, *, is_active=True):
+    return {"key": key, "is_active": is_active}
+
+
+def test_build_choice_sets_empty_dm():
+    from er_smart_sync.choices import build_choice_sets
+
+    result = build_choice_sets(
+        dm={"categories": [], "attributes": []},
+        cm=None,
+        ca_uuid=CA_UUID,
+    )
+    assert result == []
+
+
+def test_build_choice_sets_scalar_only_dm_yields_nothing():
+    from er_smart_sync.choices import build_choice_sets
+
+    dm = {
+        "categories": [_category("c", attributes=[_cat_attr("title")])],
+        "attributes": [_attr("title", "TEXT")],
+    }
+    result = build_choice_sets(dm=dm, cm=None, ca_uuid=CA_UUID)
+    assert result == []
+
+
+def test_build_choice_sets_single_list_attribute():
+    from er_smart_sync.choices import (
+        ChoiceOption,
+        build_choice_sets,
+        derive_choice_field,
+        event_type_value_for,
+    )
+
+    dm = {
+        "categories": [_category("wildlife", attributes=[_cat_attr("species")])],
+        "attributes": [
+            _attr(
+                "species", "LIST", display="Species",
+                options=[
+                    _option("lion", "Lion"),
+                    _option("zebra", "Zebra"),
+                ],
+            ),
+        ],
+    }
+    result = build_choice_sets(dm=dm, cm=None, ca_uuid=CA_UUID)
+
+    assert len(result) == 1
+    cs = result[0]
+    expected_etvalue = event_type_value_for(
+        category_path="wildlife", ca_uuid=CA_UUID, cm=None,
+    )
+    expected_field = derive_choice_field(expected_etvalue, "species")
+    assert cs.field == expected_field
+    assert cs.options == (
+        ChoiceOption(value="lion", display="Lion", is_active=True),
+        ChoiceOption(value="zebra", display="Zebra", is_active=True),
+    )
+
+
+def test_build_choice_sets_mlist_attribute():
+    from er_smart_sync.choices import build_choice_sets
+
+    dm = {
+        "categories": [_category("incidents", attributes=[_cat_attr("tags")])],
+        "attributes": [
+            _attr("tags", "MLIST", options=[_option("a"), _option("b")]),
+        ],
+    }
+    result = build_choice_sets(dm=dm, cm=None, ca_uuid=CA_UUID)
+    assert len(result) == 1
+    assert tuple(o.value for o in result[0].options) == ("a", "b")
