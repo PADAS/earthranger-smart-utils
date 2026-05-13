@@ -4,6 +4,7 @@ import sys
 import click
 import yaml
 
+from .choices import build_choice_sets, upsert_choices
 from .config import EarthRangerConfig, SmartConnectConfig, SyncConfig
 from .defaults import DryRunERClient, JsonFileStateStore, NullPublisher
 from .synchronizer import ERSmartSynchronizer
@@ -349,6 +350,122 @@ def datamodel(
         sync.synchronize_datamodel()
 
     _print_datamodel_summary(sync)
+
+
+# ── choices subcommand ─────────────────────────────────────────
+
+
+@main.command()
+@click.option(
+    "--config", "config_file", type=click.Path(exists=True), help="YAML config file"
+)
+@smart_options
+@er_options
+@click.option(
+    "--smart-ca-uuid", multiple=True, help="Conservation area UUID(s) to sync"
+)
+@click.option(
+    "--from-file",
+    "datamodel_file",
+    type=click.Path(exists=True),
+    help="Load data model from local XML file instead of SMART API",
+)
+@click.option(
+    "--cm-from-file",
+    "cm_file",
+    type=click.Path(exists=True),
+    help="Load configurable model from local XML file (used with --from-file)",
+)
+@click.option(
+    "--cm-uuid",
+    "cm_uuid",
+    default=None,
+    help="Configurable-model UUID. Defaults to the zero UUID.",
+)
+@click.pass_context
+def choices(
+    ctx,
+    config_file,
+    smart_api,
+    smart_username,
+    smart_password,
+    smart_version,
+    smart_language,
+    er_endpoint,
+    er_token,
+    er_username,
+    er_password,
+    er_id,
+    smart_ca_uuid,
+    datamodel_file,
+    cm_file,
+    cm_uuid,
+):
+    """Upsert SMART option sets as EarthRanger Choice records.
+
+    Required before pushing v2 event types; v2 event-type schemas reference
+    choices via $ref, and the referenced records must exist first.
+    """
+    config = _build_config(
+        config_file=config_file,
+        smart_api=smart_api,
+        smart_username=smart_username,
+        smart_password=smart_password,
+        smart_version=smart_version,
+        smart_language=smart_language,
+        er_endpoint=er_endpoint,
+        er_token=er_token,
+        er_username=er_username,
+        er_password=er_password,
+        er_id=er_id,
+        smart_ca_uuids=smart_ca_uuid,
+    )
+
+    if cm_file and not datamodel_file:
+        raise click.UsageError("--cm-from-file requires --from-file")
+    if cm_uuid and not cm_file:
+        raise click.UsageError("--cm-uuid requires --cm-from-file")
+    resolved_cm_uuid = _resolve_cm_uuid(cm_uuid) if cm_file else None
+
+    sync = _make_synchronizer(config, ctx=ctx)
+
+    if datamodel_file:
+        from smartconnect import ConfigurableDataModel, SmartClient
+
+        sclient = SmartClient(
+            api="https://tempuri.org/",
+            username="",
+            password="",
+            use_language_code=smart_language,
+        )
+        dm = sclient.load_datamodel(filename=datamodel_file)
+        cm = None
+        if cm_file:
+            cm = ConfigurableDataModel(
+                use_language_code=smart_language,
+                cm_uuid=resolved_cm_uuid,
+            )
+            with open(cm_file) as f:
+                cm.load(f.read())
+        choice_sets = build_choice_sets(
+            dm=dm.export_as_dict(),
+            cm=cm.export_as_dict() if cm else None,
+            ca_uuid="smart-ca-import",
+        )
+    else:
+        raise click.UsageError(
+            "API-based choices sync is not yet supported. "
+            "Use --from-file with --cm-from-file for now."
+        )
+
+    stats = upsert_choices(er_client=sync.er_client, choice_sets=choice_sets)
+    click.echo(
+        f"Choices: created={stats.created} updated={stats.updated} "
+        f"unchanged={stats.unchanged} deactivated={stats.deactivated} "
+        f"errored={stats.errored}"
+    )
+    if stats.errored > 0:
+        raise click.ClickException(f"{stats.errored} choice operations failed")
 
 
 # ── events subcommand ───────────────────────────────────────────

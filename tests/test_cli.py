@@ -808,3 +808,95 @@ def test_config_template_mentions_event_type_version():
     assert result.exit_code == 0, result.output
     assert "event_type_version" in result.output
     assert "v2" in result.output
+
+
+def test_choices_subcommand_runs_upsert(tmp_path, monkeypatch):
+    """`er-smart-sync choices --from-file` invokes build_choice_sets + upsert_choices."""
+    from click.testing import CliRunner
+
+    from er_smart_sync.cli import main
+
+    captured = {}
+
+    def fake_build_choice_sets(**kwargs):
+        from er_smart_sync.choices import ChoiceOption, ChoiceSet
+        captured["build_called"] = True
+        return [
+            ChoiceSet(
+                field="etxxx_color",
+                options=(ChoiceOption(value="red", display="Red", is_active=True),),
+            )
+        ]
+
+    def fake_upsert_choices(*, er_client, choice_sets):
+        from er_smart_sync.choices import ChoicesStats
+        captured["upsert_called"] = True
+        captured["choice_sets"] = choice_sets
+        return ChoicesStats(created=1)
+
+    monkeypatch.setattr(
+        "er_smart_sync.cli.build_choice_sets", fake_build_choice_sets,
+    )
+    monkeypatch.setattr(
+        "er_smart_sync.cli.upsert_choices", fake_upsert_choices,
+    )
+    monkeypatch.setattr(
+        "smartconnect.SmartClient.load_datamodel",
+        lambda self, filename: MagicMock(export_as_dict=lambda: {"categories": []}),
+    )
+
+    dm_file = tmp_path / "dm.xml"
+    dm_file.write_text("<datamodel/>")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "choices",
+            "--from-file", str(dm_file),
+            "--er-endpoint", "https://x/api/v1.0",
+            "--er-token", "t",
+            "--er-id", "i",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured.get("build_called") is True
+    assert captured.get("upsert_called") is True
+    assert "created=1" in result.output or "Created: 1" in result.output
+
+
+def test_choices_subcommand_exits_nonzero_on_errors(tmp_path, monkeypatch):
+    from click.testing import CliRunner
+
+    from er_smart_sync.cli import main
+
+    monkeypatch.setattr(
+        "er_smart_sync.cli.build_choice_sets",
+        lambda **kw: [],
+    )
+
+    def fake_upsert(**kw):
+        from er_smart_sync.choices import ChoicesStats
+        return ChoicesStats(errored=1)
+
+    monkeypatch.setattr("er_smart_sync.cli.upsert_choices", fake_upsert)
+    monkeypatch.setattr(
+        "smartconnect.SmartClient.load_datamodel",
+        lambda self, filename: MagicMock(export_as_dict=lambda: {"categories": []}),
+    )
+
+    dm_file = tmp_path / "dm.xml"
+    dm_file.write_text("<datamodel/>")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "choices",
+            "--from-file", str(dm_file),
+            "--er-endpoint", "https://x/api/v1.0",
+            "--er-token", "t",
+            "--er-id", "i",
+        ],
+    )
+    assert result.exit_code != 0
