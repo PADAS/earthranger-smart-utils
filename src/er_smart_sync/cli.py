@@ -242,6 +242,16 @@ def _validate_config(config: SyncConfig) -> None:
         "v2 is experimental and currently fails ER's v2 meta-schema validation."
     ),
 )
+@click.option(
+    "--skip-choices",
+    "skip_choices",
+    is_flag=True,
+    default=False,
+    help=(
+        "Skip the choices upsert phase (v2 only). "
+        "Use if you've already run `er-smart-sync choices` separately."
+    ),
+)
 @click.pass_context
 def datamodel(
     ctx,
@@ -264,6 +274,7 @@ def datamodel(
     ca_label,
     mode,
     event_type_version,
+    skip_choices,
 ):
     """Sync SMART data models to EarthRanger as event categories/types."""
     config = _build_config(
@@ -320,6 +331,7 @@ def datamodel(
 
         sync = _make_synchronizer(config, ctx=ctx)
         sync.sync_mode = mode
+        sync.skip_choices = skip_choices
 
         # Without a CM: just push the base data model (single call).
         # With a CM + --include-base-datamodel: push the base DM as its own
@@ -347,6 +359,7 @@ def datamodel(
             )
         sync = _make_synchronizer(config, ctx=ctx)
         sync.sync_mode = mode
+        sync.skip_choices = skip_choices
         sync.synchronize_datamodel()
 
     _print_datamodel_summary(sync)
