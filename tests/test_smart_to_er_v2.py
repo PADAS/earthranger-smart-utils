@@ -178,7 +178,8 @@ def test_envelope_top_level_keys():
     assert schema is not None
     assert schema["json"]["$schema"] == "https://json-schema.org/draft/2020-12/schema"
     assert schema["json"]["type"] == "object"
-    assert schema["json"]["additionalProperties"] is False
+    assert schema["json"]["unevaluatedProperties"] is False
+    assert "additionalProperties" not in schema["json"]
     assert schema["json"]["required"] == []
 
 
