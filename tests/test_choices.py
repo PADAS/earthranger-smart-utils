@@ -742,3 +742,85 @@ def test_upsert_choices_duplicate_field_different_options_raises():
                 ),
             ],
         )
+
+
+def test_dry_run_er_client_intercepts_choices_writes():
+    """DryRunERClient must catch _post and _patch calls used by upsert_choices."""
+    from unittest.mock import MagicMock
+
+    from er_smart_sync.choices import (
+        ChoiceOption,
+        ChoiceSet,
+        upsert_choices,
+    )
+    from er_smart_sync.defaults import DryRunERClient
+
+    inner = MagicMock()
+    inner._get.return_value = {"count": 0, "next": None, "results": []}
+    inner._post = MagicMock()  # Real ERClient would have this attr
+    inner._patch = MagicMock()
+
+    dry = DryRunERClient(inner)
+
+    stats = upsert_choices(
+        er_client=dry,
+        choice_sets=[
+            ChoiceSet(
+                field="etxxx_color",
+                options=(ChoiceOption(value="red", display="Red", is_active=True),),
+            )
+        ],
+    )
+
+    # Stats should still record the would-be operation.
+    assert stats.created == 1
+    # Real inner._post / _patch must NOT have been called.
+    inner._post.assert_not_called()
+    inner._patch.assert_not_called()
+    # DryRun should have recorded the call in self.calls.
+    assert any("_post" in c[0] for c in dry.calls)
+
+
+def test_upsert_choices_patches_drifted_ordernum():
+    """Ordernum drift triggers a PATCH (preserves dropdown order in ER UI)."""
+    from er_smart_sync.choices import ChoiceOption, ChoiceSet, upsert_choices
+
+    client = _mock_er_client_for_choices(
+        existing_results={
+            "count": 2, "next": None,
+            "results": [
+                {
+                    "id": "uuid-r", "model": "activity.event",
+                    "field": "etxxx_color", "value": "red",
+                    "display": "Red", "ordernum": 1,  # was second
+                    "is_active": True,
+                },
+                {
+                    "id": "uuid-b", "model": "activity.event",
+                    "field": "etxxx_color", "value": "blue",
+                    "display": "Blue", "ordernum": 0,  # was first
+                    "is_active": True,
+                },
+            ],
+        },
+    )
+    # Plan reverses the order: red first, blue second.
+    stats = upsert_choices(
+        er_client=client,
+        choice_sets=[
+            ChoiceSet(
+                field="etxxx_color",
+                options=(
+                    ChoiceOption(value="red", display="Red", is_active=True),
+                    ChoiceOption(value="blue", display="Blue", is_active=True),
+                ),
+            )
+        ],
+    )
+    # Both records had their ordernum flipped → both PATCHed.
+    assert stats.updated == 2
+    # Two PATCH calls, each with ordernum in payload.
+    assert client._patch.call_count == 2
+    patch_payloads = [c.kwargs["payload"] for c in client._patch.call_args_list]
+    assert any(p.get("ordernum") == 0 for p in patch_payloads)
+    assert any(p.get("ordernum") == 1 for p in patch_payloads)

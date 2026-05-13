@@ -325,7 +325,10 @@ def _upsert_one_set(*, er_client, cs: ChoiceSet, stats: ChoicesStats) -> None:
         if not record.get("is_active"):
             continue
         try:
-            er_client._patch(
+            from .synchronizer import _retry  # local import avoids circular dependency
+
+            _retry(
+                er_client._patch,
                 path=f"{_CHOICES_PATH}/{record['id']}",
                 payload={"is_active": False},
             )
@@ -383,7 +386,13 @@ def _create_choice(
         "is_active": option.is_active,
     }
     try:
-        er_client._post(path=_CHOICES_PATH, payload=payload)
+        from .synchronizer import _retry  # local import avoids circular dependency
+
+        _retry(
+            er_client._post,
+            path=_CHOICES_PATH,
+            payload=payload,
+        )
         stats.created += 1
     except Exception as e:
         logger.exception(
@@ -421,7 +430,13 @@ def _maybe_patch_choice(
 
     path = f"{_CHOICES_PATH}/{existing['id']}"
     try:
-        er_client._patch(path=path, payload=changes)
+        from .synchronizer import _retry  # local import avoids circular dependency
+
+        _retry(
+            er_client._patch,
+            path=path,
+            payload=changes,
+        )
     except Exception as e:
         logger.exception(
             "Failed to PATCH choice",
