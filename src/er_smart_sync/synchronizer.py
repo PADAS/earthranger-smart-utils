@@ -258,10 +258,13 @@ class ERSmartSynchronizer:
 
         if self._event_type_version == "v2" and not self.skip_choices:
             choice_sets = build_choice_sets(
-                dm=dm_dict, cm=cdm_dict, ca_uuid=smart_ca_uuid,
+                dm=dm_dict,
+                cm=cdm_dict,
+                ca_uuid=smart_ca_uuid,
             )
             choices_stats = upsert_choices(
-                er_client=self.er_client, choice_sets=choice_sets,
+                er_client=self.er_client,
+                choice_sets=choice_sets,
             )
             self.datamodel_stats["choices_created"] += choices_stats.created
             self.datamodel_stats["choices_updated"] += choices_stats.updated

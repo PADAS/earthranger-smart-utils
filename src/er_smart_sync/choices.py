@@ -139,7 +139,9 @@ def build_choice_sets(
         # Compute the same event_type_value the v2 builder will use.
         path_for_value = cat.hkeyPath if cm else cat.path
         et_value = event_type_value_for(
-            category_path=path_for_value, ca_uuid=ca_uuid, cm=cm,
+            category_path=path_for_value,
+            ca_uuid=ca_uuid,
+            cm=cm,
         )
 
         # Collect attributes from this category plus inherited (non-CM only).
@@ -152,7 +154,8 @@ def build_choice_sets(
 
         for cat_attr in leaf_attrs:
             attribute = next(
-                (a for a in attributes if a.key == cat_attr.key), None,
+                (a for a in attributes if a.key == cat_attr.key),
+                None,
             )
             if attribute is None or attribute.type not in _CHOICE_TYPES:
                 continue
@@ -206,9 +209,7 @@ def _inherited_attributes(
     return inherited
 
 
-def _options_config_for(
-    attribute_configs: list | None, key: str
-) -> list | None:
+def _options_config_for(attribute_configs: list | None, key: str) -> list | None:
     if not attribute_configs:
         return None
     cfg = next((c for c in attribute_configs if c.get("key") == key), None)

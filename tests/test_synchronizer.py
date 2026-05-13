@@ -969,6 +969,7 @@ class TestEventTypeVersionWiring:
 
         def fake_upsert_choices(**kwargs):
             from er_smart_sync.choices import ChoicesStats
+
             order.append("upsert_choices")
             return ChoicesStats()
 
@@ -976,15 +977,19 @@ class TestEventTypeVersionWiring:
             order.append("build_event_types_v2")
             return []
 
-        with patch(
-            "er_smart_sync.synchronizer.build_choice_sets",
-            side_effect=fake_build_choice_sets,
-        ), patch(
-            "er_smart_sync.synchronizer.upsert_choices",
-            side_effect=fake_upsert_choices,
-        ), patch(
-            "er_smart_sync.synchronizer.build_event_types_v2",
-            side_effect=fake_build_event_types,
+        with (
+            patch(
+                "er_smart_sync.synchronizer.build_choice_sets",
+                side_effect=fake_build_choice_sets,
+            ),
+            patch(
+                "er_smart_sync.synchronizer.upsert_choices",
+                side_effect=fake_upsert_choices,
+            ),
+            patch(
+                "er_smart_sync.synchronizer.build_event_types_v2",
+                side_effect=fake_build_event_types,
+            ),
         ):
             sync = ERSmartSynchronizer(
                 config=sync_config_v2,
@@ -1001,9 +1006,7 @@ class TestEventTypeVersionWiring:
             "build_event_types_v2",
         ]
 
-    def test_v1_path_does_not_call_choices(
-        self, sync_config, mock_er_client
-    ):
+    def test_v1_path_does_not_call_choices(self, sync_config, mock_er_client):
         """v1 path is untouched — no build_choice_sets, no upsert_choices."""
         mock_er_client.get_event_categories.return_value = []
         mock_er_client.get_event_types.return_value = []
@@ -1011,14 +1014,18 @@ class TestEventTypeVersionWiring:
         dm = MagicMock()
         dm.export_as_dict.return_value = {"categories": []}
 
-        with patch(
-            "er_smart_sync.synchronizer.build_choice_sets",
-            return_value=[],
-        ) as build_choices, patch(
-            "er_smart_sync.synchronizer.upsert_choices",
-        ) as upsert, patch(
-            "er_smart_sync.synchronizer.build_event_types",
-            return_value=[],
+        with (
+            patch(
+                "er_smart_sync.synchronizer.build_choice_sets",
+                return_value=[],
+            ) as build_choices,
+            patch(
+                "er_smart_sync.synchronizer.upsert_choices",
+            ) as upsert,
+            patch(
+                "er_smart_sync.synchronizer.build_event_types",
+                return_value=[],
+            ),
         ):
             sync = ERSmartSynchronizer(
                 config=sync_config,
@@ -1031,7 +1038,6 @@ class TestEventTypeVersionWiring:
 
         build_choices.assert_not_called()
         upsert.assert_not_called()
-
 
     def test_v2_abort_event_types_when_choices_errored(
         self, sync_config_v2, mock_er_client, caplog
@@ -1046,15 +1052,19 @@ class TestEventTypeVersionWiring:
 
         stats = ChoicesStats(errored=2)
 
-        with patch(
-            "er_smart_sync.synchronizer.build_choice_sets",
-            return_value=[],
-        ), patch(
-            "er_smart_sync.synchronizer.upsert_choices",
-            return_value=stats,
-        ), patch(
-            "er_smart_sync.synchronizer.build_event_types_v2",
-        ) as build_types:
+        with (
+            patch(
+                "er_smart_sync.synchronizer.build_choice_sets",
+                return_value=[],
+            ),
+            patch(
+                "er_smart_sync.synchronizer.upsert_choices",
+                return_value=stats,
+            ),
+            patch(
+                "er_smart_sync.synchronizer.build_event_types_v2",
+            ) as build_types,
+        ):
             sync = ERSmartSynchronizer(
                 config=sync_config_v2,
                 er_client=mock_er_client,
@@ -1069,10 +1079,7 @@ class TestEventTypeVersionWiring:
         build_types.assert_not_called()
         mock_er_client.post_event_type.assert_not_called()
         # Clear warning log.
-        assert any(
-            "Aborting event-type push" in r.message
-            for r in caplog.records
-        )
+        assert any("Aborting event-type push" in r.message for r in caplog.records)
 
     def test_v2_choice_stats_merge_into_datamodel_stats(
         self, sync_config_v2, mock_er_client
@@ -1086,18 +1093,23 @@ class TestEventTypeVersionWiring:
         dm = MagicMock()
         dm.export_as_dict.return_value = {"categories": []}
 
-        stats = ChoicesStats(created=3, updated=1, unchanged=5,
-                             deactivated=2, errored=0)
+        stats = ChoicesStats(
+            created=3, updated=1, unchanged=5, deactivated=2, errored=0
+        )
 
-        with patch(
-            "er_smart_sync.synchronizer.build_choice_sets",
-            return_value=[],
-        ), patch(
-            "er_smart_sync.synchronizer.upsert_choices",
-            return_value=stats,
-        ), patch(
-            "er_smart_sync.synchronizer.build_event_types_v2",
-            return_value=[],
+        with (
+            patch(
+                "er_smart_sync.synchronizer.build_choice_sets",
+                return_value=[],
+            ),
+            patch(
+                "er_smart_sync.synchronizer.upsert_choices",
+                return_value=stats,
+            ),
+            patch(
+                "er_smart_sync.synchronizer.build_event_types_v2",
+                return_value=[],
+            ),
         ):
             sync = ERSmartSynchronizer(
                 config=sync_config_v2,
@@ -1123,13 +1135,17 @@ class TestEventTypeVersionWiring:
         dm = MagicMock()
         dm.export_as_dict.return_value = {"categories": []}
 
-        with patch(
-            "er_smart_sync.synchronizer.build_choice_sets",
-        ) as build_choices, patch(
-            "er_smart_sync.synchronizer.upsert_choices",
-        ) as upsert, patch(
-            "er_smart_sync.synchronizer.build_event_types_v2",
-            return_value=[],
+        with (
+            patch(
+                "er_smart_sync.synchronizer.build_choice_sets",
+            ) as build_choices,
+            patch(
+                "er_smart_sync.synchronizer.upsert_choices",
+            ) as upsert,
+            patch(
+                "er_smart_sync.synchronizer.build_event_types_v2",
+                return_value=[],
+            ),
         ):
             sync = ERSmartSynchronizer(
                 config=sync_config_v2,
