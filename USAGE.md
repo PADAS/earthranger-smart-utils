@@ -199,6 +199,31 @@ v2 will log a warning at startup; do not use it against a production tenant
 until the v2 work is properly rebuilt against the real ER meta-schema (see
 `docs/superpowers/specs/`).
 
+### Choices: a v2 prerequisite
+
+ER's v2 event-type meta-schema rejects inline `enum`. Dropdowns must
+reference a separate `Choice` record set via `$ref`. `er-smart-sync` handles
+this for you in two ways:
+
+**Inline (default for v2):** running `er-smart-sync datamodel
+--event-type-version v2 ...` upserts choices automatically before POSTing
+event types. The summary line shows `choices_created`, `choices_updated`,
+`choices_unchanged`, `choices_deactivated`, `choices_errored` counters
+alongside the event-type counters.
+
+**Standalone:** run `er-smart-sync choices --from-file dm.xml --cm-from-file
+cm.xml --er-endpoint ... --er-token ...` to upsert choices only, without
+touching event types. Useful for debugging or pre-warming a tenant.
+
+If any choice operation errors, the synchronizer **aborts the event-type
+POST phase for that CA** — broken `$ref`s would produce empty dropdowns,
+which is worse than skipping the push. Investigate the choice errors and
+re-run.
+
+The `--skip-choices` flag on `datamodel` bypasses the choices phase even
+when v2 is selected. Use it when you've already run `er-smart-sync choices`
+separately and want to push event types without re-upserting.
+
 ---
 
 ## Polling events from EarthRanger
