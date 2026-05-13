@@ -501,3 +501,104 @@ def test_build_event_types_v2_skips_inactive_non_cm_categories():
         dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID,
     )
     assert result == []
+
+
+def test_snapshot_full_mix_of_types():
+    """Single event type with every supported SMART attribute type."""
+    from er_smart_sync.choices import derive_choice_field, event_type_value_for
+
+    dm = {
+        "categories": [
+            _category("incidents", attributes=[
+                _cat_attr("title"),
+                _cat_attr("count"),
+                _cat_attr("confirmed"),
+                _cat_attr("when_date"),
+                _cat_attr("photo"),
+                _cat_attr("species"),
+                _cat_attr("tags"),
+                _cat_attr("legacy_field", is_active=False),
+            ]),
+        ],
+        "attributes": [
+            _attr("title", "TEXT", display="Title"),
+            _attr("count", "NUMERIC", display="Count"),
+            _attr("confirmed", "BOOLEAN", display="Confirmed"),
+            _attr("when_date", "DATE", display="When"),
+            _attr("photo", "ATTACHMENT", display="Photo"),
+            _attr("species", "LIST", display="Species",
+                  options=[_option("lion", "Lion"), _option("zebra", "Zebra")]),
+            _attr("tags", "MLIST", display="Tags",
+                  options=[_option("a"), _option("b")]),
+            _attr("legacy_field", "TEXT", display="Legacy"),
+        ],
+    }
+    result = build_event_types_v2(
+        dm=dm, cm=None, ca_uuid="ca-snap", ca_identifier="SNAP",
+        choices_base_url="/api/v2.0/schemas",
+    )
+
+    assert len(result) == 1
+    schema = result[0].event_schema
+
+    # Top-level json envelope
+    assert schema["json"]["$schema"] == "https://json-schema.org/draft/2020-12/schema"
+    assert schema["json"]["type"] == "object"
+    assert schema["json"]["unevaluatedProperties"] is False
+    assert schema["json"]["required"] == []
+
+    # Top-level ui envelope
+    assert schema["ui"]["headers"] == {}
+    assert schema["ui"]["order"] == ["section-1"]
+    section = schema["ui"]["sections"]["section-1"]
+    assert section["columns"] == 1
+    assert section["isActive"] is True
+    assert section["rightColumn"] == []
+    # All 8 fields appear in leftColumn
+    leftcol_names = [item["name"] for item in section["leftColumn"]]
+    for k in ("title", "count", "confirmed", "when_date", "photo",
+              "species", "tags", "legacy_field"):
+        assert k in leftcol_names
+
+    # Spot-check every property carries description + deprecated.
+    for key, prop in schema["json"]["properties"].items():
+        assert "description" in prop, f"{key} missing description"
+        assert "deprecated" in prop, f"{key} missing deprecated"
+
+    # Specific shape checks
+    assert schema["json"]["properties"]["title"]["type"] == "string"
+    assert schema["json"]["properties"]["count"]["type"] == "number"
+    assert schema["json"]["properties"]["confirmed"]["type"] == "boolean"
+    assert schema["json"]["properties"]["when_date"]["format"] == "date"
+    assert schema["json"]["properties"]["photo"]["format"] == "uri"
+    assert schema["json"]["properties"]["legacy_field"]["deprecated"] is True
+
+    # Choice attribute uses anyOf $ref
+    et_value = event_type_value_for(
+        category_path="incidents", ca_uuid="ca-snap", cm=None,
+    )
+    expected_species_field = derive_choice_field(et_value, "species")
+    expected_tags_field = derive_choice_field(et_value, "tags")
+    assert schema["json"]["properties"]["species"]["anyOf"] == [
+        {"$ref": f"/api/v2.0/schemas/choices.json?field={expected_species_field}"}
+    ]
+    assert schema["json"]["properties"]["tags"]["type"] == "array"
+    assert schema["json"]["properties"]["tags"]["uniqueItems"] is True
+    assert schema["json"]["properties"]["tags"]["items"]["anyOf"] == [
+        {"$ref": f"/api/v2.0/schemas/choices.json?field={expected_tags_field}"}
+    ]
+
+    # All ui fields have parent
+    for key, ui_block in schema["ui"]["fields"].items():
+        assert ui_block.get("parent") == "section-1", (
+            f"ui.fields[{key}] missing parent"
+        )
+
+    # Scalar ui types
+    assert schema["ui"]["fields"]["title"]["type"] == "TEXT"
+    assert schema["ui"]["fields"]["count"]["type"] == "NUMERIC"
+    assert schema["ui"]["fields"]["confirmed"]["type"] == "BOOLEAN"
+    assert schema["ui"]["fields"]["when_date"]["type"] == "DATE_TIME"
+    assert schema["ui"]["fields"]["photo"]["type"] == "ATTACHMENT"
+    assert schema["ui"]["fields"]["species"]["type"] == "CHOICE_LIST"
+    assert schema["ui"]["fields"]["tags"]["type"] == "CHOICE_LIST"
