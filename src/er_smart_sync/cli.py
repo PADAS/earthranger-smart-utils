@@ -981,6 +981,12 @@ def inspect_datamodel_cmd(
             ca_identifier=ca_identifier,
         )
         _print_event_type_summary_v2(event_types, ca_label=ca_label)
+        choice_sets = build_choice_sets(
+            dm=dm.export_as_dict(),
+            cm=cm.export_as_dict() if cm else None,
+            ca_uuid=ca_uuid,
+        )
+        _print_choice_set_summary(choice_sets)
     else:
         from .smart_to_er import build_event_types
 
@@ -1074,3 +1080,16 @@ def _print_event_type_summary_v2(event_types, *, ca_label: str) -> None:
                 extras.append("deprecated")
             extras_str = f" ({', '.join(extras)})" if extras else ""
             click.echo(f"      {key}: {type_part}{extras_str}")
+
+
+def _print_choice_set_summary(choice_sets) -> None:
+    if not choice_sets:
+        return
+    click.echo("")
+    click.echo(f"Choice sets: {len(choice_sets)}")
+    for cs in choice_sets:
+        click.echo(f"- field: {cs.field}")
+        click.echo(f"    options ({len(cs.options)}):")
+        for opt in cs.options:
+            marker = "" if opt.is_active else " [inactive]"
+            click.echo(f"      - {opt.value}: {opt.display}{marker}")
