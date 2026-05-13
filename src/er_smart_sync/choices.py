@@ -148,6 +148,8 @@ def build_choice_sets(
         if not cm:
             leaf_attrs.extend(_inherited_attributes(cats, path_components))
 
+        attribute_configs = cm.get("attributes") if cm else None
+
         for cat_attr in leaf_attrs:
             attribute = next(
                 (a for a in attributes if a.key == cat_attr.key), None,
@@ -157,14 +159,25 @@ def build_choice_sets(
             options = list(attribute.options or [])
             if not options:
                 continue
-            choice_options = tuple(
-                ChoiceOption(
-                    value=sanitize_choice_value(o.key),
-                    display=o.display,
-                    is_active=True,
+
+            options_cfg = _options_config_for(attribute_configs, cat_attr.key)
+            if options_cfg is not None:
+                choice_options = _options_from_cm_config(options, options_cfg)
+            else:
+                if attribute.type == "TREE":
+                    options = _leaf_options(options)
+                choice_options = tuple(
+                    ChoiceOption(
+                        value=sanitize_choice_value(o.key),
+                        display=o.display,
+                        is_active=True,
+                    )
+                    for o in options
                 )
-                for o in options
-            )
+
+            if not choice_options:
+                continue
+
             result.append(
                 ChoiceSet(
                     field=derive_choice_field(et_value, cat_attr.key),
@@ -191,3 +204,43 @@ def _inherited_attributes(
         if parent_cat:
             inherited.extend(parent_cat.attributes)
     return inherited
+
+
+def _options_config_for(
+    attribute_configs: list | None, key: str
+) -> list | None:
+    if not attribute_configs:
+        return None
+    cfg = next((c for c in attribute_configs if c.get("key") == key), None)
+    return cfg.get("options") if cfg else None
+
+
+def _options_from_cm_config(
+    options: list, options_config: list
+) -> tuple[ChoiceOption, ...]:
+    """Build ChoiceOptions in CM order. Options the CM marks isActive=False
+    appear with is_active=False; options the CM omits entirely are dropped."""
+    by_key = {o.key: o for o in options}
+    result: list[ChoiceOption] = []
+    for opt_cfg in options_config:
+        key = opt_cfg.get("key")
+        if not key:
+            continue
+        original = by_key.get(key)
+        if not original:
+            logger.warning("CM references unknown option key %s", key)
+            continue
+        result.append(
+            ChoiceOption(
+                value=sanitize_choice_value(original.key),
+                display=original.display,
+                is_active=bool(opt_cfg.get("isActive")),
+            )
+        )
+    return tuple(result)
+
+
+def _leaf_options(options: list) -> list:
+    """For TREE option sets: keep only leaves (no children)."""
+    keys = [o.key for o in options]
+    return [o for o in options if _is_leaf_node(keys, o.key)]
