@@ -295,8 +295,10 @@ def upsert_choices(
 def _upsert_one_set(*, er_client, cs: ChoiceSet, stats: ChoicesStats) -> None:
     existing = _fetch_existing(er_client=er_client, field=cs.field)
     existing_by_value: dict[str, dict] = {r["value"]: r for r in existing}
+    planned_values: set[str] = set()
 
     for ordernum, planned in enumerate(cs.options):
+        planned_values.add(planned.value)
         existing_record = existing_by_value.get(planned.value)
         if existing_record is None:
             _create_choice(
@@ -314,6 +316,25 @@ def _upsert_one_set(*, er_client, cs: ChoiceSet, stats: ChoicesStats) -> None:
                 ordernum=ordernum,
                 stats=stats,
             )
+
+    # Orphan handling: active records not in the plan get soft-deactivated.
+    for record in existing:
+        if record["value"] in planned_values:
+            continue
+        if not record.get("is_active"):
+            continue
+        try:
+            er_client._patch(
+                path=f"{_CHOICES_PATH}/{record['id']}",
+                payload={"is_active": False},
+            )
+            stats.deactivated += 1
+        except Exception as e:
+            logger.exception(
+                "Failed to deactivate orphan choice",
+                extra=dict(id=record.get("id"), error=str(e)),
+            )
+            stats.errored += 1
 
 
 def _fetch_existing(*, er_client, field: str) -> list[dict]:
