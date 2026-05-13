@@ -787,6 +787,12 @@ class TestEventTypeVersionWiring:
             )
 
         v2_builder.assert_called_once()
+        # Lock the config-to-builder threading: choices_base_url must flow.
+        call_kwargs = v2_builder.call_args.kwargs
+        assert (
+            call_kwargs["choices_base_url"]
+            == sync_config_v2.earthranger.choices_base_url
+        )
         v1_builder.assert_not_called()
 
     def test_push_smart_ca_uses_v1_builder_when_configured(

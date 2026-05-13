@@ -104,7 +104,7 @@ def test_empty_data_model_yields_no_event_types():
             {"type": "string", "format": "uri"},
             {
                 "type": "ATTACHMENT",
-                "allowableFileTypes": ["image", "document", "video", "audio"],
+                "allowableFileTypes": ["audio", "document", "image", "video"],
             },
         ),
     ],
@@ -542,6 +542,7 @@ def test_snapshot_full_mix_of_types():
                     _cat_attr("photo"),
                     _cat_attr("species"),
                     _cat_attr("tags"),
+                    _cat_attr("region"),
                     _cat_attr("legacy_field", is_active=False),
                 ],
             ),
@@ -561,6 +562,13 @@ def test_snapshot_full_mix_of_types():
             _attr(
                 "tags", "MLIST", display="Tags", options=[_option("a"), _option("b")]
             ),
+            _attr("region", "TREE", display="Region",
+                  options=[
+                      _option("africa"),
+                      _option("africa.kenya"),
+                      _option("africa.kenya.nairobi"),
+                      _option("africa.tanzania"),
+                  ]),
             _attr("legacy_field", "TEXT", display="Legacy"),
         ],
     }
@@ -588,18 +596,10 @@ def test_snapshot_full_mix_of_types():
     assert section["columns"] == 1
     assert section["isActive"] is True
     assert section["rightColumn"] == []
-    # All 8 fields appear in leftColumn
+    # All 9 fields appear in leftColumn
     leftcol_names = [item["name"] for item in section["leftColumn"]]
-    for k in (
-        "title",
-        "count",
-        "confirmed",
-        "when_date",
-        "photo",
-        "species",
-        "tags",
-        "legacy_field",
-    ):
+    for k in ("title", "count", "confirmed", "when_date", "photo",
+              "species", "tags", "region", "legacy_field"):
         assert k in leftcol_names
 
     # Spot-check every property carries description + deprecated.
@@ -632,6 +632,14 @@ def test_snapshot_full_mix_of_types():
         {"$ref": f"/api/v2.0/schemas/choices.json?field={expected_tags_field}"}
     ]
 
+    # TREE attribute: flattens to leaves and uses anyOf $ref like LIST single
+    expected_region_field = derive_choice_field(et_value, "region")
+    assert schema["json"]["properties"]["region"]["type"] == "string"
+    assert schema["json"]["properties"]["region"]["anyOf"] == [
+        {"$ref": f"/api/v2.0/schemas/choices.json?field={expected_region_field}"}
+    ]
+    assert schema["ui"]["fields"]["region"]["type"] == "CHOICE_LIST"
+
     # All ui fields have parent
     for key, ui_block in schema["ui"]["fields"].items():
         assert ui_block.get("parent") == "section-1", f"ui.fields[{key}] missing parent"
@@ -644,3 +652,27 @@ def test_snapshot_full_mix_of_types():
     assert schema["ui"]["fields"]["photo"]["type"] == "ATTACHMENT"
     assert schema["ui"]["fields"]["species"]["type"] == "CHOICE_LIST"
     assert schema["ui"]["fields"]["tags"]["type"] == "CHOICE_LIST"
+
+
+def test_inactive_choice_attribute_marked_deprecated():
+    """Inactive LIST attributes get deprecated:True (the choice path's hardcoded
+    False baseline is correctly overwritten by _build_field_blocks)."""
+    dm = {
+        "categories": [_category("c", attributes=[
+            _cat_attr("species", is_active=False),
+        ])],
+        "attributes": [
+            _attr(
+                "species", "LIST", display="Species",
+                options=[_option("lion", "Lion")],
+            ),
+        ],
+    }
+    schema = build_event_types_v2(
+        dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID,
+    )[0].event_schema
+
+    json_prop = schema["json"]["properties"]["species"]
+    assert json_prop["deprecated"] is True
+    # The anyOf $ref is still present (deprecated attr stays in the schema).
+    assert "anyOf" in json_prop

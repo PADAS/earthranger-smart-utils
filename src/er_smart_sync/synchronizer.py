@@ -115,12 +115,11 @@ class ERSmartSynchronizer:
         self._event_type_version: str = config.earthranger.event_type_version
         if self._event_type_version == "v2":
             logger.warning(
-                "event_type_version='v2' selected, but the v2 builder is "
-                "experimental and known to produce schemas that fail ER's v2 "
-                "meta-schema validation (every CHOICE_LIST attribute, every "
-                "field's missing `deprecated` flag, wrong UI types, etc.). "
-                "Expect datamodel sync to fail. See "
-                "docs/superpowers/specs/ for the current state of v2 work."
+                "event_type_version='v2' selected. The v2 builder now emits "
+                "schemas that match ER's v2 meta-schema requirements, but "
+                "this path has not yet been smoke-tested end-to-end against "
+                "a live tenant. Use --dry-run first; report any 400s back to "
+                "the spec maintainer.",
             )
         # Datamodel-sync run summary counters, populated by create_or_update_er_event_types.
         self.datamodel_stats: dict[str, int] = {
