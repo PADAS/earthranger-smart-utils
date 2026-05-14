@@ -1061,6 +1061,55 @@ def test_config_template_mentions_choices_base_url():
     assert "choices_base_url" in result.output
 
 
+def test_ca_identifier_validation_accepts_hyphens_and_underscores(tmp_path, monkeypatch):
+    """Hyphens and underscores are allowed; pure-alphanumeric is not the only valid form."""
+    from click.testing import CliRunner
+
+    from er_smart_sync.cli import main
+
+    dm_file = tmp_path / "dm.xml"
+    dm_file.write_text("<datamodel/>")
+    monkeypatch.setattr(
+        "smartconnect.SmartClient.load_datamodel",
+        lambda self, filename: MagicMock(export_as_dict=lambda: {"categories": []}),
+    )
+
+    def fake_make_sync(config, ctx=None):
+        from er_smart_sync.synchronizer import ERSmartSynchronizer
+        sync = ERSmartSynchronizer.__new__(ERSmartSynchronizer)
+        sync._event_type_version = config.earthranger.event_type_version
+        sync.sync_mode = "both"
+        sync.skip_choices = False
+        sync.datamodel_stats = {
+            "categories_created": 0, "categories_existing": 0,
+            "event_types_created": 0, "event_types_updated": 0,
+            "event_types_unchanged": 0, "event_types_skipped_by_mode": 0,
+            "event_types_skipped_by_conflict": 0, "event_types_errored": 0,
+            "choices_created": 0, "choices_updated": 0,
+            "choices_unchanged": 0, "choices_deactivated": 0, "choices_errored": 0,
+        }
+        sync.push_smart_ca_datamodel_to_earthranger = lambda **kwargs: None
+        sync.synchronize_datamodel = lambda: None
+        return sync
+
+    monkeypatch.setattr("er_smart_sync.cli._make_synchronizer", fake_make_sync)
+
+    runner = CliRunner()
+    for ident in ("smart-import", "smart_import", "FOASF-1", "FOO_BAR_99"):
+        result = runner.invoke(
+            main,
+            [
+                "datamodel",
+                "--from-file", str(dm_file),
+                "--er-endpoint", "https://x/api/v1.0",
+                "--er-token", "t",
+                "--er-id", "i",
+                "--ca-identifier", ident,
+            ],
+        )
+        assert result.exit_code == 0, f"identifier {ident!r} should be accepted; got: {result.output}"
+
+
 def test_ca_identifier_validation_rejects_special_chars(tmp_path, monkeypatch):
     from click.testing import CliRunner
 
@@ -1078,11 +1127,11 @@ def test_ca_identifier_validation_rejects_special_chars(tmp_path, monkeypatch):
             "--er-endpoint", "https://x/api/v1.0",
             "--er-token", "t",
             "--er-id", "i",
-            "--ca-identifier", "has-dash",
+            "--ca-identifier", "has spaces",
         ],
     )
     assert result.exit_code != 0
-    assert "alphanumeric" in result.output.lower() or "2-30" in result.output
+    assert "2-30" in result.output or "characters" in result.output.lower()
 
 
 def test_ca_identifier_required_for_file_based_sync(tmp_path, monkeypatch):
