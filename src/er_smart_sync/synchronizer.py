@@ -496,6 +496,17 @@ class ERSmartSynchronizer:
         ) or event_type.display != existing_er_event_type.get("display"):
             return True
 
+        # v2 has top-level `readonly` and `category` fields outside the schema
+        # blob. The schema comparison below won't catch differences in these,
+        # so re-runs would never PATCH a drift in readonly or category.
+        if self._event_type_version == "v2":
+            new_readonly = bool(getattr(event_type, "readonly", False))
+            existing_readonly = bool(existing_er_event_type.get("readonly", False))
+            if new_readonly != existing_readonly:
+                return True
+            if event_type.category != existing_er_event_type.get("category"):
+                return True
+
         if event_type.is_active and event_type.event_schema:
             if self._event_type_version == "v2":
                 new_schema = event_type.event_schema
@@ -586,6 +597,31 @@ class ERSmartSynchronizer:
                 if existing is not None:
                     self._update_event_type(event_type, existing)
                     return "patched"
+
+                # Not found in v1 records — the conflict may be with a v2
+                # record. ER's value-uniqueness constraint spans v1+v2, so
+                # the colliding record can live in either version.
+                try:
+                    other_records = self.er_client.get_event_types(
+                        include_inactive=True,
+                        include_schema=True,
+                        version="v2",
+                    )
+                except Exception:
+                    other_records = []
+                if any(
+                    r.get("value") == event_type.value for r in other_records or []
+                ):
+                    logger.warning(
+                        "Event type value %r exists in this tenant as v2; "
+                        "skipping the v1 push to avoid cross-version "
+                        "corruption. Convert it via POST "
+                        "/api/v2.0/activity/eventtypes/migrate/ before "
+                        "retrying v1.",
+                        event_type.value,
+                        extra=dict(value=event_type.value),
+                    )
+                    return "skipped"
             logger.exception(
                 "Error occurred during er_client.post_event_type",
                 extra=dict(

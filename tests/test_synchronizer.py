@@ -951,6 +951,8 @@ class TestEventTypeVersionWiring:
             "value": "v",
             "display": "V",
             "is_active": True,
+            "category": "c",
+            "readonly": False,
             "schema": {"json": {"a": 1}, "ui": {}},
         }
         assert sync._event_type_needs_update(et, existing) is False
@@ -975,6 +977,8 @@ class TestEventTypeVersionWiring:
             "value": "v",
             "display": "V",
             "is_active": True,
+            "category": "c",
+            "readonly": False,
             "schema": {"json": {"a": 1}, "ui": {}},
         }
         assert sync._event_type_needs_update(et, existing) is True
@@ -1210,6 +1214,7 @@ class TestEventTypeVersionWiring:
         # ER returns the same content as a JSON string.
         existing = {
             "value": "v", "display": "V", "is_active": True,
+            "category": "c", "readonly": False,
             "schema": json.dumps(schema_dict),
         }
         assert sync._event_type_needs_update(et, existing) is False
@@ -1232,6 +1237,96 @@ class TestEventTypeVersionWiring:
         )
         existing = {
             "value": "v", "display": "V", "is_active": True,
+            "category": "c", "readonly": False,
             "schema": json.dumps({"json": {"a": 1}, "ui": {}}),
         }
         assert sync._event_type_needs_update(et, existing) is True
+
+    def test_event_type_needs_update_v2_readonly_drift(
+        self, sync_config_v2, mock_er_client
+    ):
+        """v2 has a top-level `readonly` field outside the schema. If ER's
+        existing record has readonly=True and we POST readonly=False (or
+        vice versa), the synchronizer must detect this and PATCH."""
+        from er_smart_sync.smart_to_er_v2 import ERV2EventType
+
+        sync = ERSmartSynchronizer(
+            config=sync_config_v2, er_client=mock_er_client,
+            smart_client=MagicMock(),
+        )
+        schema_dict = {"json": {"a": 1}, "ui": {}}
+        et = ERV2EventType(
+            value="v", display="V", category="c",
+            readonly=False,
+            event_schema=schema_dict,
+        )
+        existing = {
+            "value": "v", "display": "V", "is_active": True,
+            "category": "c", "readonly": True,
+            "schema": schema_dict,
+        }
+        assert sync._event_type_needs_update(et, existing) is True
+
+    def test_event_type_needs_update_v2_category_drift(
+        self, sync_config_v2, mock_er_client
+    ):
+        """v2 has a top-level `category` field outside the schema. If ER's
+        existing record points at a different category, the synchronizer
+        must detect and PATCH so the event type moves under the right one."""
+        from er_smart_sync.smart_to_er_v2 import ERV2EventType
+
+        sync = ERSmartSynchronizer(
+            config=sync_config_v2, er_client=mock_er_client,
+            smart_client=MagicMock(),
+        )
+        schema_dict = {"json": {"a": 1}, "ui": {}}
+        et = ERV2EventType(
+            value="v", display="V", category="new_category",
+            event_schema=schema_dict,
+        )
+        existing = {
+            "value": "v", "display": "V", "is_active": True,
+            "category": "old_category", "readonly": False,
+            "schema": schema_dict,
+        }
+        assert sync._event_type_needs_update(et, existing) is True
+
+    def test_v1_duplicate_key_detects_cross_version_v2_record(
+        self, sync_config, mock_er_client, caplog
+    ):
+        """When pushing v1 and the duplicate-key conflict is actually a v2
+        record (uniqueness spans both versions), the v1 lookup won't find
+        it and we'd surface a confusing generic error. Instead, detect the
+        cross-version collision and log-and-skip with a clear message."""
+        from smartconnect.er_sync_utils import EREventType
+
+        mock_er_client.get_event_categories.return_value = []
+        mock_er_client.get_event_types.return_value = []
+        mock_er_client.post_event_type.side_effect = Exception(
+            "duplicate key value violates unique constraint"
+        )
+
+        # The conflicting record IS in v2 records.
+        def get_event_types_by_version(*, version, **kwargs):
+            if version == "v2":
+                return [{"value": "v", "id": "v2-uuid"}]
+            return []
+
+        mock_er_client.get_event_types.side_effect = get_event_types_by_version
+
+        sync = ERSmartSynchronizer(
+            config=sync_config, er_client=mock_er_client,
+            smart_client=MagicMock(),
+        )
+        et = EREventType(value="v", display="V", is_active=True)
+        with caplog.at_level("WARNING"):
+            outcome = sync._create_event_type(et)
+
+        assert outcome == "skipped"
+        # No v1 PATCH attempted.
+        mock_er_client.patch_event_type.assert_not_called()
+        # The warning should mention the cross-version situation.
+        assert any(
+            "v2" in r.message and "exists" in r.message.lower()
+            for r in caplog.records
+        )
