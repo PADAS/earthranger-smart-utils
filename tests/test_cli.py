@@ -1054,6 +1054,78 @@ def test_inspect_datamodel_v2_prints_choice_sets(tmp_path, monkeypatch):
     assert "blue" in result.output
 
 
+def test_inspect_datamodel_respects_config_event_type_version(tmp_path, monkeypatch):
+    """When --event-type-version is not passed, fall back to the config value
+    instead of hardcoding v2. Otherwise a config that sets event_type_version: v1
+    would still get v2 output."""
+    from click.testing import CliRunner
+
+    from er_smart_sync.cli import main
+
+    dm_mock = MagicMock()
+    dm_mock.export_as_dict.return_value = {
+        "categories": [
+            {
+                "path": "incidents",
+                "hkeyPath": "incidents",
+                "display": "Incidents",
+                "is_multiple": False,
+                "is_active": True,
+                "attributes": [{"key": "color", "is_active": True}],
+            }
+        ],
+        "attributes": [
+            {
+                "key": "color",
+                "type": "LIST",
+                "isrequired": False,
+                "display": "Color",
+                "options": [
+                    {"key": "red", "display": "Red", "isActive": True},
+                ],
+            }
+        ],
+    }
+    monkeypatch.setattr(
+        "smartconnect.SmartClient.load_datamodel",
+        lambda self, filename: dm_mock,
+    )
+
+    dm_file = tmp_path / "dm.xml"
+    dm_file.write_text("<datamodel/>")
+
+    # Write a YAML config that pins v1.
+    config_file = tmp_path / "sync.yaml"
+    config_file.write_text(
+        "smart:\n"
+        "  endpoint: ''\n"
+        "  login: ''\n"
+        "  password: ''\n"
+        "earthranger:\n"
+        "  id: i\n"
+        "  endpoint: https://er.example.com/api/v1.0\n"
+        "  token: t\n"
+        "  event_type_version: v1\n"
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "inspect-datamodel",
+            "--config", str(config_file),
+            "--from-file", str(dm_file),
+            "--ca-identifier", "FOASF",
+            # Note: no --event-type-version; should pick up v1 from config.
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    # v1 printer emits inline enums; v2 printer prints "CHOICE_LIST" / "DROPDOWN".
+    # Confirm we got v1 output by asserting v2-only markers are absent.
+    assert "CHOICE_LIST" not in result.output
+    assert "DROPDOWN" not in result.output
+
+
 def test_config_template_mentions_choices_base_url():
     runner = CliRunner()
     result = runner.invoke(main, ["config-template"])

@@ -941,8 +941,8 @@ def _extract_id(label: str) -> str:
 @click.option(
     "--event-type-version",
     type=click.Choice(["v1", "v2"]),
-    default="v2",
-    help="Which event-type schema shape to print. Default: v2.",
+    default=None,
+    help="Which event-type schema shape to print. Overrides --config or the default (v2).",
 )
 def inspect_datamodel_cmd(
     config_file,
@@ -982,6 +982,10 @@ def inspect_datamodel_cmd(
         er_id=er_id,
         smart_ca_uuids=[smart_ca_uuid] if smart_ca_uuid else None,
     )
+
+    # CLI flag overrides config; otherwise inherit from config.
+    if event_type_version is None:
+        event_type_version = config.earthranger.event_type_version
 
     from smartconnect import ConfigurableDataModel, SmartClient
 
