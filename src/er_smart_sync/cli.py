@@ -22,16 +22,16 @@ logger = logging.getLogger(__name__)
 # event-type values don't collide.
 _DEFAULT_FILE_CM_UUID = "00000000-0000-0000-0000-000000000000"
 
-_CA_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9]{2,30}$")
+_CA_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9_-]{2,30}$")
 
 
 def _validate_ca_identifier(ctx, param, value):
-    """Click callback: enforce 2-30 alphanumeric chars on --ca-identifier."""
+    """Click callback: enforce 2-30 chars (alphanumeric, hyphen, underscore) on --ca-identifier."""
     if value is None:
         return None
     if not _CA_IDENTIFIER_RE.match(value):
         raise click.BadParameter(
-            f"{value!r}: must be 2-30 alphanumeric characters (A-Z, a-z, 0-9)"
+            f"{value!r}: must be 2-30 characters (A-Z, a-z, 0-9, hyphen, underscore)"
         )
     return value
 
@@ -258,9 +258,9 @@ def _validate_config(config: SyncConfig) -> None:
     default=None,
     callback=_validate_ca_identifier,
     help=(
-        "Short alphanumeric code (2-30 chars, A-Z/a-z/0-9) used as the ER "
-        "event-category identifier. Required when --from-file is used. "
-        "Ignored when syncing from the SMART API (the identifier is "
+        "Short code (2-30 chars; letters, digits, hyphens, underscores) used "
+        "as the ER event-category identifier. Required when --from-file is "
+        "used. Ignored when syncing from the SMART API (the identifier is "
         "extracted from the CA label in that case)."
     ),
 )
@@ -933,9 +933,9 @@ def _extract_id(label: str) -> str:
     default=None,
     callback=_validate_ca_identifier,
     help=(
-        "Short alphanumeric code (2-30 chars, A-Z/a-z/0-9) used as the ER "
-        "event-category identifier when --from-file is used. Ignored when "
-        "--smart-ca-uuid is given (identifier extracted from CA label)."
+        "Short code (2-30 chars; letters, digits, hyphens, underscores) used "
+        "as the ER event-category identifier when --from-file is used. Ignored "
+        "when --smart-ca-uuid is given (identifier extracted from CA label)."
     ),
 )
 @click.option(
