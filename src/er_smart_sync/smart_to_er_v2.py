@@ -197,7 +197,14 @@ def _build_field_blocks(
     choices_base_url: str = "/api/v2.0/schemas",
     event_type_value: str = "",
 ) -> tuple[dict, dict, list[str]]:
-    """Return (json.properties, ui.fields, field_order_for_section)."""
+    """Return (json.properties, ui.fields, field_order_for_section).
+
+    Note: ``attribute_configs`` is accepted but no longer consulted here.
+    The choices module owns CM-overlay handling (filtering, deactivation,
+    TREE flattening); the v2 builder emits CHOICE_LIST schemas keyed on
+    the SMART type alone and references the choices via ``$ref``.
+    """
+    del attribute_configs  # CM overlay is the choices module's concern
     properties: dict[str, dict] = {}
     ui_fields: dict[str, dict] = {}
     order: list[str] = []
@@ -209,21 +216,9 @@ def _build_field_blocks(
             logger.warning("Attribute %s not found in dm.attributes", key)
             continue
 
-        smart_type = attribute.type
-        options = list(attribute.options or [])
-        options_cfg = _options_config_for(attribute_configs, key)
-
-        if options:
-            if options_cfg is not None:
-                options = _filter_options_by_config(options, options_cfg)
-            elif smart_type == "TREE":
-                options = _leaf_options(options)
-            # else: keep all options as-is for LIST/MLIST
-
         json_prop, ui_field = _build_property_pair(
-            smart_type=smart_type,
+            smart_type=attribute.type,
             display=attribute.display,
-            options=options,
             is_multiple=is_multiple,
             attr_key=cat_attr.key,
             choices_base_url=choices_base_url,
@@ -245,38 +240,61 @@ def _build_property_pair(
     *,
     smart_type: str,
     display: str,
-    options: list,
     is_multiple: bool,
     attr_key: str = "",
     choices_base_url: str = "/api/v2.0/schemas",
     event_type_value: str = "",
 ) -> tuple[dict | None, dict | None]:
-    """Return (json_property, ui_field) or (None, None) to skip."""
-    if smart_type in SCALAR_JSON and not options:
+    """Return (json_property, ui_field) or (None, None) to skip.
+
+    Discriminates on ``smart_type`` alone, not on options content. Choice-
+    bearing SMART types (LIST/MLIST/TREE) always emit a ``CHOICE_LIST`` with
+    a ``$ref`` URL — even if the CM has deactivated all options. The
+    referenced Choice records (upserted by the choices module) include the
+    deactivated entries with ``is_active=False``, so ER renders an empty
+    dropdown until the CM re-activates them. Falling back to a plain TEXT
+    field would change the field's wire type and break tenants that have
+    historical events stored under the choice schema.
+    """
+    if smart_type in {"LIST", "MLIST", "TREE"}:
+        return _build_choice_property_pair(
+            smart_type=smart_type,
+            display=display,
+            is_multiple=is_multiple,
+            attr_key=attr_key,
+            choices_base_url=choices_base_url,
+            event_type_value=event_type_value,
+        )
+
+    if smart_type in SCALAR_JSON:
         return (
             {**copy.deepcopy(SCALAR_JSON[smart_type]), "title": display},
             copy.deepcopy(SCALAR_UI[smart_type]),
         )
 
-    if not options:
-        if smart_type in {"LIST", "MLIST", "TREE"}:
-            logger.warning(
-                "All options filtered out for %r choice attribute; "
-                "emitting plain string",
-                smart_type,
-            )
-        else:
-            logger.warning("Unknown SMART type %r; emitting string", smart_type)
-        return (
-            {
-                "type": "string",
-                "title": display,
-                "description": "",
-                "deprecated": False,
-            },
-            {"type": "TEXT", "inputType": "SHORT_TEXT", "parent": "section-1"},
-        )
+    logger.warning("Unknown SMART type %r; emitting string", smart_type)
+    return (
+        {
+            "type": "string",
+            "title": display,
+            "description": "",
+            "deprecated": False,
+        },
+        {"type": "TEXT", "inputType": "SHORT_TEXT", "parent": "section-1"},
+    )
 
+
+def _build_choice_property_pair(
+    *,
+    smart_type: str,
+    display: str,
+    is_multiple: bool,
+    attr_key: str,
+    choices_base_url: str,
+    event_type_value: str,
+) -> tuple[dict, dict]:
+    """Emit the (json, ui) pair for a LIST/MLIST/TREE attribute as a
+    CHOICE_LIST referencing the choices module's ``$ref`` URL."""
     field_name = derive_choice_field(event_type_value, attr_key)
     ref_url = f"{choices_base_url}/choices.json?field={field_name}"
     is_array = smart_type == "MLIST" or (smart_type == "LIST" and is_multiple)
@@ -319,34 +337,6 @@ def _build_property_pair(
             "anyOf": [{"$ref": ref_url}],
         }
     return json_prop, ui_field
-
-
-def _options_config_for(attribute_configs: list | None, key: str) -> list | None:
-    if not attribute_configs:
-        return None
-    cfg = next((c for c in attribute_configs if c.get("key") == key), None)
-    return cfg.get("options") if cfg else None
-
-
-def _filter_options_by_config(options: list, options_config: list) -> list:
-    """Keep options the configurable-model overlay marks active, preserving CM order."""
-    kept = []
-    for opt_cfg in options_config:
-        key = opt_cfg.get("key")
-        if not key or not opt_cfg.get("isActive"):
-            continue
-        match = next((o for o in options if o.key == key), None)
-        if match:
-            kept.append(match)
-        else:
-            logger.warning("No option found for config key %s", key)
-    return kept
-
-
-def _leaf_options(options: list) -> list:
-    """Filter to leaf options only (for TREE-shaped option sets)."""
-    keys = [o.key for o in options]
-    return [o for o in options if _is_leaf_node(keys, o.key)]
 
 
 def _is_leaf_node(node_paths: list[str], cur_node: str) -> bool:
