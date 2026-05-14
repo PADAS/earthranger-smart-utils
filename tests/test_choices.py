@@ -890,3 +890,40 @@ def test_upsert_choices_propagates_other_400_errors():
     # counts it as errored.
     assert stats.errored == 1
     inner._post.assert_not_called()
+
+
+def test_upsert_choices_counts_one_error_per_failed_set_not_per_option():
+    """When _upsert_one_set raises catastrophically (e.g. an unhandled
+    error in _fetch_existing), the outer handler counts that as ONE
+    failed set, not as len(cs.options) errors. Per-option HTTP errors
+    have their own counting inside _create_choice / _maybe_patch_choice."""
+    from erclient.er_errors import ERClientException
+
+    from er_smart_sync.choices import (
+        ChoiceOption,
+        ChoiceSet,
+        upsert_choices,
+    )
+
+    inner = MagicMock()
+    inner._get.side_effect = ERClientException(
+        "Failed... 500 ... internal server error"
+    )
+
+    stats = upsert_choices(
+        er_client=inner,
+        choice_sets=[
+            ChoiceSet(
+                field="etxxx_color",
+                options=(
+                    ChoiceOption(value="red", display="Red", is_active=True),
+                    ChoiceOption(value="blue", display="Blue", is_active=True),
+                    ChoiceOption(value="green", display="Green", is_active=True),
+                    ChoiceOption(value="yellow", display="Yellow", is_active=True),
+                ),
+            )
+        ],
+    )
+    # ONE failed set → errored == 1 (not 4).
+    assert stats.errored == 1
+    assert stats.created == 0

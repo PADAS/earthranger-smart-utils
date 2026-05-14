@@ -262,9 +262,14 @@ def upsert_choices(
 ) -> ChoicesStats:
     """Upsert each ChoiceSet against ER's Choices API.
 
-    Returns a ChoicesStats counter dataclass; failures are logged and
-    counted but do not raise. Per-set processing is independent; an error
-    in one ChoiceSet does not block subsequent sets.
+    Returns a ChoicesStats counter dataclass. Per-option HTTP failures are
+    logged and counted (no raise) — per-set processing is independent, an
+    error in one ChoiceSet does not block subsequent sets.
+
+    Raises:
+        ValueError: when the same ``ChoiceSet.field`` appears twice in
+            ``choice_sets`` with different options. This is a builder bug;
+            two ChoiceSets with the same field MUST have identical options.
     """
     stats = ChoicesStats()
     seen_fields: dict[str, ChoiceSet] = {}
@@ -274,7 +279,7 @@ def upsert_choices(
 
     for idx, cs in enumerate(choice_sets, start=1):
         # Deduplicate: same field, identical options is fine; same field,
-        # different options is a builder bug.
+        # different options is a builder bug (raises ValueError, see docstring).
         if cs.field in seen_fields:
             if seen_fields[cs.field].options != cs.options:
                 raise ValueError(
@@ -295,11 +300,16 @@ def upsert_choices(
         try:
             _upsert_one_set(er_client=er_client, cs=cs, stats=stats)
         except Exception:
+            # Unexpected error escaping _upsert_one_set (per-option HTTP errors
+            # are already caught and counted inside it). Count as one failed
+            # set rather than len(cs.options): the per-option counters may
+            # already reflect some succeeded options before the catastrophic
+            # exception, so adding len(options) would over-count.
             logger.exception(
                 "Failed to upsert ChoiceSet",
                 extra=dict(field=cs.field),
             )
-            stats.errored += len(cs.options)
+            stats.errored += 1
 
     logger.info(
         "Choices done: created=%d updated=%d unchanged=%d "
