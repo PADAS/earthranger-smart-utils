@@ -1018,6 +1018,17 @@ def inspect_datamodel_cmd(
         dm = sclient.get_data_model(ca_uuid=smart_ca_uuid)
         ca = sclient.get_conservation_area(ca_uuid=smart_ca_uuid)
         ca_identifier = ERSmartSynchronizer.get_identifier_from_ca_label(ca.label)
+        if not ca_identifier:
+            # Match the runtime sync behavior (push_smart_datamodel_to_earthranger
+            # raises on the same condition) — fail with the same actionable message
+            # rather than silently rendering "CA: " with a blank identifier.
+            raise click.ClickException(
+                f"Could not extract a CA identifier from SMART label "
+                f"{ca.label!r} (ca_uuid={smart_ca_uuid}). The label must "
+                f"contain a bracketed short code, e.g. 'Foasf Reserve [FOASF]'. "
+                f"Fix the label in SMART Connect, or use --from-file with "
+                f"an explicit --ca-identifier."
+            )
     else:
         raise click.UsageError("Either --from-file or --smart-ca-uuid is required.")
 
@@ -1043,6 +1054,7 @@ def inspect_datamodel_cmd(
             cm=cm.export_as_dict() if cm else None,
             ca_uuid=ca_uuid,
             ca_identifier=ca_identifier,
+            choices_base_url=config.earthranger.choices_base_url,
         )
         _print_event_type_summary_v2(event_types, ca_identifier=ca_identifier)
         choice_sets = build_choice_sets(

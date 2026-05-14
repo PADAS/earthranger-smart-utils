@@ -1054,6 +1054,103 @@ def test_inspect_datamodel_v2_prints_choice_sets(tmp_path, monkeypatch):
     assert "blue" in result.output
 
 
+def test_inspect_datamodel_api_path_fails_on_unbracketed_label(tmp_path, monkeypatch):
+    """API-path inspect should fail with an actionable message when the
+    SMART CA label has no bracketed identifier — matches the runtime sync
+    behavior in push_smart_datamodel_to_earthranger."""
+    from click.testing import CliRunner
+
+    from er_smart_sync.cli import main
+
+    dm_mock = MagicMock()
+    dm_mock.export_as_dict.return_value = {"categories": [], "attributes": []}
+    ca_mock = MagicMock()
+    ca_mock.label = "Conservation Area Without Brackets"
+
+    monkeypatch.setattr(
+        "smartconnect.SmartClient.get_data_model",
+        lambda self, ca_uuid: dm_mock,
+    )
+    monkeypatch.setattr(
+        "smartconnect.SmartClient.get_conservation_area",
+        lambda self, ca_uuid: ca_mock,
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "inspect-datamodel",
+            "--smart-api", "https://smart.example.com",
+            "--smart-username", "u",
+            "--smart-password", "p",
+            "--smart-ca-uuid", "some-ca-uuid",
+            "--er-endpoint", "https://er.example.com/api/v1.0",
+            "--er-token", "x",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "Conservation Area Without Brackets" in result.output
+    assert "bracketed" in result.output.lower() or "[" in result.output
+    assert "some-ca-uuid" in result.output
+
+
+def test_inspect_datamodel_v2_passes_config_choices_base_url(tmp_path, monkeypatch):
+    """The v2 inspect path must thread choices_base_url from config into
+    build_event_types_v2 — otherwise previewed $ref URLs use the hardcoded
+    default and don't match what the real sync would emit."""
+    from click.testing import CliRunner
+
+    from er_smart_sync.cli import main
+
+    dm_mock = MagicMock()
+    dm_mock.export_as_dict.return_value = {"categories": [], "attributes": []}
+    monkeypatch.setattr(
+        "smartconnect.SmartClient.load_datamodel",
+        lambda self, filename: dm_mock,
+    )
+
+    captured: dict = {}
+
+    def fake_build_v2(**kwargs):
+        captured["choices_base_url"] = kwargs.get("choices_base_url")
+        return []
+
+    monkeypatch.setattr(
+        "er_smart_sync.smart_to_er_v2.build_event_types_v2", fake_build_v2,
+    )
+
+    dm_file = tmp_path / "dm.xml"
+    dm_file.write_text("<datamodel/>")
+
+    config_file = tmp_path / "sync.yaml"
+    config_file.write_text(
+        "smart:\n"
+        "  endpoint: ''\n"
+        "  login: ''\n"
+        "  password: ''\n"
+        "earthranger:\n"
+        "  id: i\n"
+        "  endpoint: https://er.example.com/api/v1.0\n"
+        "  token: t\n"
+        "  event_type_version: v2\n"
+        "  choices_base_url: /custom/schemas/prefix\n"
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "inspect-datamodel",
+            "--config", str(config_file),
+            "--from-file", str(dm_file),
+            "--ca-identifier", "FOASF",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["choices_base_url"] == "/custom/schemas/prefix"
+
+
 def test_inspect_datamodel_respects_config_event_type_version(tmp_path, monkeypatch):
     """When --event-type-version is not passed, fall back to the config value
     instead of hardcoding v2. Otherwise a config that sets event_type_version: v1
