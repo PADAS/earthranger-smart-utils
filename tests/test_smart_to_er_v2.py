@@ -362,6 +362,61 @@ def test_tree_flattens_to_leaf_options():
     assert schema["ui"]["fields"]["region"]["inputType"] == "DROPDOWN"
 
 
+def test_cm_deactivates_all_options_still_emits_choice_list():
+    """When a CM marks every option of a LIST attribute as inactive,
+    the v2 builder must still emit a CHOICE_LIST referencing the
+    choices via $ref. Falling back to plain TEXT would change the
+    field's wire type and break tenants that have historical events
+    stored under the choice schema. Inactive options remain in the
+    choices module's upsert (with is_active=False)."""
+    from er_smart_sync.choices import derive_choice_field, event_type_value_for
+
+    dm = {
+        "categories": [_category("c", attributes=[_cat_attr("color")])],
+        "attributes": [
+            _attr(
+                "color",
+                "LIST",
+                display="Color",
+                options=[
+                    _option("red"),
+                    _option("blue"),
+                ],
+            )
+        ],
+    }
+    cm = {
+        "cm_uuid": "cm-1",
+        "categories": [_category("c", attributes=[_cat_attr("color")])],
+        "attributes": [
+            {
+                "key": "color",
+                "options": [
+                    {"key": "red", "isActive": False},
+                    {"key": "blue", "isActive": False},
+                ],
+            }
+        ],
+    }
+    schema = build_event_types_v2(dm=dm, cm=cm, ca_uuid=CA_UUID, ca_identifier=CA_ID)[
+        0
+    ].event_schema
+
+    et_value = event_type_value_for(category_path="c", ca_uuid=CA_UUID, cm=cm)
+    expected_field = derive_choice_field(et_value, "color")
+
+    json_prop = schema["json"]["properties"]["color"]
+    # Still CHOICE_LIST with anyOf $ref — NOT a plain string/TEXT fallback.
+    assert json_prop["type"] == "string"
+    assert json_prop["anyOf"] == [
+        {"$ref": f"/api/v2.0/schemas/choices.json?field={expected_field}"}
+    ]
+    ui_field = schema["ui"]["fields"]["color"]
+    assert ui_field["type"] == "CHOICE_LIST"
+    assert ui_field["inputType"] == "DROPDOWN"
+    assert ui_field["choices"]["existingChoiceList"] == [expected_field]
+
+
 def test_inactive_attribute_marked_deprecated_and_kept_in_section():
     dm = {
         "categories": [
