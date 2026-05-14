@@ -22,6 +22,13 @@ logger = logging.getLogger(__name__)
 # event-type values don't collide.
 _DEFAULT_FILE_CM_UUID = "00000000-0000-0000-0000-000000000000"
 
+# Synthetic CA UUID used for file-based syncs (no real CA UUID is known when
+# loading from a local XML file). Must be the same string in every file-based
+# code path so inspect-datamodel previews match what `datamodel --from-file`
+# would actually POST — the event-type value prefix and Choice.field hashes
+# both depend on this UUID.
+_FILE_BASED_CA_UUID = "smart-ca-import"
+
 _CA_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9_-]{2,30}$")
 
 
@@ -380,13 +387,13 @@ def datamodel(
         if cm and include_base_datamodel:
             sync.push_smart_ca_datamodel_to_earthranger(
                 dm=dm,
-                smart_ca_uuid="smart-ca-import",
+                smart_ca_uuid=_FILE_BASED_CA_UUID,
                 ca_identifier=ca_identifier,
                 cm=None,
             )
         sync.push_smart_ca_datamodel_to_earthranger(
             dm=dm,
-            smart_ca_uuid="smart-ca-import",
+            smart_ca_uuid=_FILE_BASED_CA_UUID,
             ca_identifier=ca_identifier,
             cm=cm,
         )
@@ -508,7 +515,7 @@ def choices(
         choice_sets = build_choice_sets(
             dm=dm.export_as_dict(),
             cm=cm.export_as_dict() if cm else None,
-            ca_uuid="smart-ca-import",
+            ca_uuid=_FILE_BASED_CA_UUID,
         )
     else:
         raise click.UsageError(
@@ -1044,7 +1051,10 @@ def inspect_datamodel_cmd(
         with open(cm_file) as f:
             cm.load(f.read())
 
-    ca_uuid = smart_ca_uuid or "ca-uuid-placeholder"
+    # For file-based runs, use the same synthetic UUID `datamodel --from-file`
+    # uses, so inspect-datamodel previews match the actual sync output
+    # (event-type value prefixes and Choice.field $ref URLs both depend on it).
+    ca_uuid = smart_ca_uuid or _FILE_BASED_CA_UUID
 
     if event_type_version == "v2":
         from .smart_to_er_v2 import build_event_types_v2
