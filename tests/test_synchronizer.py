@@ -77,6 +77,28 @@ class TestDatamodelSync:
                 dm=None, smart_ca_uuid="uuid", ca_identifier="TEST"
             )
 
+    def test_push_smart_datamodel_to_earthranger_unbracketed_label_raises(
+        self, sync_config, mock_er_client
+    ):
+        """API-path runs against a CA whose label has no [CODE] bracket should
+        raise a clear, actionable error naming the label and the fix."""
+        sync = ERSmartSynchronizer(
+            config=sync_config, er_client=mock_er_client, smart_client=MagicMock()
+        )
+        sync.smart_client.get_data_model.return_value = MagicMock()
+        ca = MagicMock()
+        ca.label = "Conservation Area Without Brackets"
+
+        with pytest.raises(ValueError) as excinfo:
+            sync.push_smart_datamodel_to_earthranger(
+                smart_ca_uuid="some-ca-uuid", ca=ca,
+            )
+
+        message = str(excinfo.value)
+        assert "Conservation Area Without Brackets" in message
+        assert "bracketed" in message.lower() or "[" in message
+        assert "some-ca-uuid" in message
+
     def test_creates_event_category_when_missing(self, sync_config, mock_er_client):
         mock_er_client.get_event_categories.return_value = []
 

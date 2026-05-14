@@ -266,10 +266,20 @@ class ERSmartSynchronizer:
         else:
             cm = None
 
+        ca_identifier = self.get_identifier_from_ca_label(ca.label)
+        if not ca_identifier:
+            raise ValueError(
+                f"Could not extract a CA identifier from SMART label "
+                f"{ca.label!r} (ca_uuid={smart_ca_uuid}). The label must "
+                f"contain a bracketed short code, e.g. 'Foasf Reserve [FOASF]'. "
+                f"Fix the label in SMART Connect, or use --from-file with "
+                f"an explicit --ca-identifier."
+            )
+
         return self.push_smart_ca_datamodel_to_earthranger(
             dm=dm,
             smart_ca_uuid=smart_ca_uuid,
-            ca_identifier=self.get_identifier_from_ca_label(ca.label),
+            ca_identifier=ca_identifier,
             cm=cm,
         )
 
