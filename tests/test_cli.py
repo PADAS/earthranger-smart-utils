@@ -1054,6 +1054,53 @@ def test_inspect_datamodel_v2_prints_choice_sets(tmp_path, monkeypatch):
     assert "blue" in result.output
 
 
+def test_inspect_datamodel_file_based_uses_same_ca_uuid_as_datamodel_push(
+    tmp_path, monkeypatch
+):
+    """Inspect preview's ca_uuid must match what `datamodel --from-file`
+    actually POSTs. Otherwise derive_choice_field(...) hashes and the
+    resulting $ref URLs would differ between preview and sync — i.e.,
+    the preview would lie."""
+    from click.testing import CliRunner
+
+    from er_smart_sync.cli import _FILE_BASED_CA_UUID, main
+
+    dm_mock = MagicMock()
+    dm_mock.export_as_dict.return_value = {"categories": [], "attributes": []}
+    monkeypatch.setattr(
+        "smartconnect.SmartClient.load_datamodel",
+        lambda self, filename: dm_mock,
+    )
+
+    captured: dict = {}
+
+    def fake_build_v2(**kwargs):
+        captured["ca_uuid"] = kwargs.get("ca_uuid")
+        return []
+
+    monkeypatch.setattr(
+        "er_smart_sync.smart_to_er_v2.build_event_types_v2", fake_build_v2,
+    )
+
+    dm_file = tmp_path / "dm.xml"
+    dm_file.write_text("<datamodel/>")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "inspect-datamodel",
+            "--from-file", str(dm_file),
+            "--ca-identifier", "FOASF",
+            "--event-type-version", "v2",
+            "--er-endpoint", "https://er.example.com/api/v1.0",
+            "--er-token", "x",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["ca_uuid"] == _FILE_BASED_CA_UUID
+
+
 def test_inspect_datamodel_api_path_fails_on_unbracketed_label(tmp_path, monkeypatch):
     """API-path inspect should fail with an actionable message when the
     SMART CA label has no bracketed identifier — matches the runtime sync
