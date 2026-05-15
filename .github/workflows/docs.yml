@@ -1,0 +1,53 @@
+name: docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - docs/**
+      - mkdocs.yml
+      - pyproject.toml
+      - .github/workflows/docs.yml
+  # Allow manual triggers from the Actions UI.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Serialize deploys so two pushes to main in quick succession don't race
+# on gh-deploy --force and clobber each other (or fail mid-push to gh-pages).
+concurrency:
+  group: docs-deploy
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # gh-deploy needs full history to commit to gh-pages.
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install docs dependencies
+        # Use the [docs] extras declared in pyproject.toml so CI and local
+        # installs stay in sync.
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[docs]"
+
+      # --strict catches broken internal links, missing nav targets, and
+      # missing image files. The screenshot placeholders under docs/images/
+      # ship as 1×1 transparent PNGs so --strict passes; replace them with
+      # real screenshots when ready (docs/images/README.md tracks the slots).
+      - name: Build site
+        run: mkdocs build --strict
+
+      - name: Deploy to gh-pages
+        run: mkdocs gh-deploy --force

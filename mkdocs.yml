@@ -1,0 +1,96 @@
+site_name: er-smart-sync
+site_description: SMART Connect ↔ EarthRanger sync CLI for support staff
+site_url: https://padas.github.io/earthranger-smart-utils/
+repo_url: https://github.com/PADAS/earthranger-smart-utils
+repo_name: PADAS/earthranger-smart-utils
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.path
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+    - content.action.edit
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+plugins:
+  - search
+  - exclude:
+      glob:
+        - "superpowers/**"
+        - "images/README.md"
+        - "images/.gitkeep"
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
+nav:
+  - Home: index.md
+  - Getting started:
+    - Installation: getting-started/install.md
+    - First run: getting-started/first-run.md
+    - Configuration: getting-started/config.md
+  - Workflows:
+    - Push a data model: workflows/push-datamodel.md
+    - Populate choices: workflows/populate-choices.md
+    - Inspect a data model: workflows/inspect-datamodel.md
+    - Sync events: workflows/sync-events.md
+    - Sync patrols: workflows/sync-patrols.md
+  - CLI reference:
+    - Overview: cli-reference/overview.md
+    - datamodel: cli-reference/datamodel.md
+    - choices: cli-reference/choices.md
+    - inspect-datamodel: cli-reference/inspect-datamodel.md
+    - events: cli-reference/events.md
+    - patrols: cli-reference/patrols.md
+    - validate-config: cli-reference/validate-config.md
+    - list-cas: cli-reference/list-cas.md
+    - config-template: cli-reference/config-template.md
+  - Concepts:
+    - CA identifier: concepts/ca-identifier.md
+    - Event-type version: concepts/event-type-version.md
+    - Choices: concepts/choices.md
+  - Troubleshooting: troubleshooting.md
+  - Changelog: changelog.md
