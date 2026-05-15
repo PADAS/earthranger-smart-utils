@@ -40,6 +40,7 @@ plugins:
   - exclude:
       glob:
         - "superpowers/**"
+        - "images/README.md"
 
 markdown_extensions:
   - admonition

@@ -2491,7 +2491,7 @@ one-year lifespan.
   (datamodel, choices, inspect-datamodel, config-template). Skeleton stubs
   for events, patrols, validate-config, list-cas.
 - **Concepts** — CA identifier, event-type version, choices
-- **Troubleshooting** — 6 known errors with diagnosis and fix
+- **Troubleshooting** — 7 known errors with diagnosis and fix
 - **Mermaid diagrams** in the workflows and CA-identifier pages
 - **Screenshot placeholder slots** at four high-value spots (see
   `docs/images/README.md` for capture instructions)
