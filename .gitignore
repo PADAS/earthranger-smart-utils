@@ -11,6 +11,9 @@ __pycache__/
 build/
 dist/
 
+# setuptools-scm generated version file
+src/er_smart_sync/_version.py
+
 # Tooling caches
 .pytest_cache/
 .ruff_cache/
