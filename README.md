@@ -35,8 +35,8 @@ for prerequisites, optional extras, and verification steps.
 
 Working on the codebase itself? Start with:
 
-- **[USAGE.md](USAGE.md)** — developer-oriented CLI reference, architecture notes, Pydantic v1 conventions, ER version-gating details, and the bracketed-CA-label convention as it affects the codebase.
-- **[CLAUDE.md](CLAUDE.md)** — codebase guidance for Claude Code sessions.
+- **[CLAUDE.md](CLAUDE.md)** — codebase conventions: Pydantic v1 API, SMART version-gating (<7.5.3 needs `smart_observation_uuid` patching), the bracketed-CA-label convention, and the protocol-based dependency-injection pattern.
+- **[USAGE.md](USAGE.md)** — developer-oriented CLI reference and the bracketed-CA-label convention as it affects the codebase.
 - **[docs/superpowers/specs/](docs/superpowers/specs/)** — design specs for non-trivial features (v2 event types, choices population, etc.).
 - **[docs/superpowers/plans/](docs/superpowers/plans/)** — implementation plans for recent feature work.
 

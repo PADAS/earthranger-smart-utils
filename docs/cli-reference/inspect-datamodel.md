@@ -21,7 +21,6 @@ er-smart-sync inspect-datamodel [OPTIONS]
 | `--cm-from-file PATH` | — | Configurable model overlay. |
 | `--cm-uuid UUID` | zero UUID | CM UUID. |
 | `--ca-identifier ID` | required for `--from-file` | 2–30 alphanumeric/dash/underscore. |
-| `--ca-label LABEL` | `[INSPECT]` | Used in the printed "CA:" header. |
 | `--smart-ca-uuid UUID` | — | Triggers API-based inspect. |
 | `--event-type-version {v1,v2}` | from config or v2 | Which schema shape to print. |
 | `--smart-*` | from config | SMART credentials for API-based inspect. |

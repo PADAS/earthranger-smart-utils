@@ -76,9 +76,15 @@ or updated, then a summary like:
 
 ```
 Datamodel sync summary:
-  categories_created: 0  (would: 1)
+  categories created: 1
+  event types created: 12
+  event types unchanged: 0
+  choices created: 47
   ...
 ```
+
+Under `--dry-run` the counters reflect what *would* have been written; nothing
+actually changes on the server.
 
 ## 6. The real run (when you're ready)
 
