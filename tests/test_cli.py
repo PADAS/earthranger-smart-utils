@@ -923,6 +923,66 @@ def test_choices_subcommand_exits_nonzero_on_errors(tmp_path, monkeypatch):
     assert result.exit_code != 0
 
 
+def test_choices_subcommand_without_from_file_fails_fast_with_clear_message():
+    """choices currently requires --from-file. Without it, the command must
+    fail immediately with a message that names the unsupported flags rather
+    than letting the user discover the limitation after a long config build."""
+    from click.testing import CliRunner
+
+    from er_smart_sync.cli import main
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "choices",
+            "--smart-api", "https://smart.example.com",
+            "--smart-username", "u",
+            "--smart-password", "p",
+            "--smart-ca-uuid", "some-ca-uuid",
+            "--er-endpoint", "https://x/api/v1.0",
+            "--er-token", "t",
+            "--er-id", "i",
+        ],
+    )
+    assert result.exit_code != 0
+    # Should mention --from-file and the unsupported API flags explicitly.
+    assert "--from-file" in result.output
+    assert (
+        "API" in result.output
+        or "smart-api" in result.output.lower()
+        or "ignored" in result.output.lower()
+    )
+
+
+def test_network_timeout_flag_is_configurable(tmp_path, monkeypatch):
+    """--network-timeout overrides the process-wide socket timeout default
+    (and 0 disables the override entirely so SMART/etc. own timeouts apply)."""
+    from click.testing import CliRunner
+
+    from er_smart_sync.cli import main
+
+    timeouts: list = []
+
+    def fake_set(seconds):
+        timeouts.append(seconds)
+
+    monkeypatch.setattr("er_smart_sync.cli._set_network_timeout", fake_set)
+
+    runner = CliRunner()
+    # Explicit value passed through.
+    result = runner.invoke(main, ["--network-timeout", "45", "config-template"])
+    assert result.exit_code == 0, result.output
+    assert timeouts[-1] == 45.0
+
+    # 0 disables (the _set_network_timeout body short-circuits, but we
+    # at minimum verify the value flows through).
+    timeouts.clear()
+    result = runner.invoke(main, ["--network-timeout", "0", "config-template"])
+    assert result.exit_code == 0, result.output
+    assert timeouts[-1] == 0.0
+
+
 def test_datamodel_skip_choices_flag(tmp_path, monkeypatch):
     """--skip-choices makes the synchronizer skip the choices phase even on v2."""
     from click.testing import CliRunner
