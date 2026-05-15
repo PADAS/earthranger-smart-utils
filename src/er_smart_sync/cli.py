@@ -113,7 +113,7 @@ def _load_config_from_file(path: str) -> SyncConfig:
 @click.option(
     "--dry-run",
     is_flag=True,
-    help="Log intended writes (event types, observations) without contacting ER or the message broker.",
+    help="Log intended writes without sending them to ER or the message broker.",
 )
 @click.option(
     "--network-timeout",

@@ -382,7 +382,15 @@ class ERSmartSynchronizer:
                 value=event_category_value, display=event_category_display
             )
             try:
-                _retry(self.er_client.post_event_category, data=event_category)
+                posted = _retry(
+                    self.er_client.post_event_category, data=event_category
+                )
+                # ER assigns the category's UUID server-side; merge it back
+                # so downstream v1 event-type POSTs can reference the
+                # category by its `id` (v1 expects a UUID FK; v2 uses the
+                # `value` slug).
+                if isinstance(posted, dict) and posted.get("id"):
+                    event_category["id"] = posted["id"]
                 logger.info(
                     "Successfully created event category",
                     extra=dict(
@@ -697,7 +705,12 @@ class ERSmartSynchronizer:
 
         for event_type in event_types or []:
             try:
-                event_type.category = event_category.get("value")
+                # v1's event-type payload uses `category` as a UUID FK;
+                # v2's uses the category `value` slug. Assign the right one.
+                if self._event_type_version == "v1":
+                    event_type.category = event_category.get("id")
+                else:
+                    event_type.category = event_category.get("value")
                 logger.debug(
                     "Checking event type %r (%s)",
                     event_type.display,
