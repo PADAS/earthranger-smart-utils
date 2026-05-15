@@ -66,3 +66,29 @@ markdown_extensions:
 
 nav:
   - Home: index.md
+  - Getting started:
+    - Installation: getting-started/install.md
+    - First run: getting-started/first-run.md
+    - Configuration: getting-started/config.md
+  - Workflows:
+    - Push a data model: workflows/push-datamodel.md
+    - Populate choices: workflows/populate-choices.md
+    - Inspect a data model: workflows/inspect-datamodel.md
+    - Sync events: workflows/sync-events.md
+    - Sync patrols: workflows/sync-patrols.md
+  - CLI reference:
+    - Overview: cli-reference/overview.md
+    - datamodel: cli-reference/datamodel.md
+    - choices: cli-reference/choices.md
+    - inspect-datamodel: cli-reference/inspect-datamodel.md
+    - events: cli-reference/events.md
+    - patrols: cli-reference/patrols.md
+    - validate-config: cli-reference/validate-config.md
+    - list-cas: cli-reference/list-cas.md
+    - config-template: cli-reference/config-template.md
+  - Concepts:
+    - CA identifier: concepts/ca-identifier.md
+    - Event-type version: concepts/event-type-version.md
+    - Choices: concepts/choices.md
+  - Troubleshooting: troubleshooting.md
+  - Changelog: changelog.md
