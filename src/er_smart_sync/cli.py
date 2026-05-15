@@ -58,15 +58,27 @@ def _resolve_cm_uuid(cm_uuid: str | None) -> str:
     return cm_uuid
 
 
-def _set_network_timeout(seconds: float = 120.0) -> None:
+_DEFAULT_NETWORK_TIMEOUT_SECONDS = 600.0
+
+
+def _set_network_timeout(seconds: float | None) -> None:
     """Bound every TCP read/connect so a stalled ER request can't hang the run.
 
     ERClient (sync) doesn't expose a constructor-level network timeout; it
-    uses `requests.{get,post,patch}` directly without a `timeout=` kwarg.
-    Setting socket.setdefaulttimeout enforces a process-wide ceiling on every
-    blocking socket operation, after which requests raises and our _retry
-    wrapper kicks in.
+    uses ``requests.{get,post,patch}`` directly without a ``timeout=`` kwarg.
+    Setting ``socket.setdefaulttimeout`` enforces a **process-wide** ceiling on
+    every blocking socket operation, after which ``requests`` raises and our
+    ``_retry`` wrapper kicks in.
+
+    Notes:
+    - Default ceiling is ``_DEFAULT_NETWORK_TIMEOUT_SECONDS`` (10 minutes).
+      That's deliberately higher than SmartClient's own ``read_timeout=300``
+      so SMART's library-level timeout fires first on slow SMART calls.
+    - Pass ``None`` (e.g. via ``--network-timeout 0``) to skip the override
+      entirely and rely on each library's own timeouts.
     """
+    if seconds is None or seconds <= 0:
+        return
     import socket
     socket.setdefaulttimeout(seconds)
 
@@ -79,7 +91,6 @@ def _setup_logging(verbose: bool) -> None:
     keeping noisy underlying libraries (requests, urllib3, smartconnect's
     auth chatter) at WARNING so the output stays readable.
     """
-    _set_network_timeout()
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -104,10 +115,28 @@ def _load_config_from_file(path: str) -> SyncConfig:
     is_flag=True,
     help="Log intended writes (event types, observations) without contacting ER or the message broker.",
 )
+@click.option(
+    "--network-timeout",
+    type=float,
+    default=None,
+    envvar="ER_SMART_SYNC_NETWORK_TIMEOUT",
+    help=(
+        "Process-wide ceiling (seconds) on blocking socket operations. "
+        "Affects every HTTP request in the process (ER, SMART, anything else). "
+        "Default 600s. Pass 0 to disable and rely on each library's own timeouts. "
+        "Also configurable via the ER_SMART_SYNC_NETWORK_TIMEOUT env var."
+    ),
+)
 @click.pass_context
-def main(ctx, verbose, dry_run):
+def main(ctx, verbose, dry_run, network_timeout):
     """Synchronize SMART Connect data models, events, and patrols with EarthRanger."""
     _setup_logging(verbose)
+    timeout = (
+        network_timeout
+        if network_timeout is not None
+        else _DEFAULT_NETWORK_TIMEOUT_SECONDS
+    )
+    _set_network_timeout(timeout)
     ctx.ensure_object(dict)
     ctx.obj["dry_run"] = dry_run
 
@@ -470,7 +499,34 @@ def choices(
 
     Required before pushing v2 event types; v2 event-type schemas reference
     choices via $ref, and the referenced records must exist first.
+
+    **Currently only --from-file is supported.** The SMART API flags
+    (--smart-api / --smart-username / --smart-password / --smart-version /
+    --smart-ca-uuid) are accepted on the command line for symmetry with
+    other subcommands but are not used by `choices`; --smart-language is
+    consulted for parsing the XML file.
     """
+    # Fail fast before doing any config work or constructing clients. The
+    # SMART API flags advertised by `@smart_options` aren't wired into this
+    # subcommand yet — being explicit avoids a confusing late error.
+    if not datamodel_file:
+        raise click.UsageError(
+            "The `choices` subcommand currently requires --from-file. "
+            "API-based choices sync (via --smart-api/--smart-ca-uuid) is "
+            "not yet implemented; the SMART API flags are accepted but "
+            "ignored. Use --from-file with --cm-from-file for now."
+        )
+    if cm_file and not datamodel_file:
+        raise click.UsageError("--cm-from-file requires --from-file")
+    if cm_uuid and not cm_file:
+        raise click.UsageError("--cm-uuid requires --cm-from-file")
+    if smart_api or smart_username or smart_password or smart_ca_uuid:
+        logger.warning(
+            "SMART API flags (--smart-api, --smart-username, --smart-password, "
+            "--smart-ca-uuid) are not used by `choices` and will be ignored. "
+            "Only --smart-language is consulted for file parsing."
+        )
+
     config = _build_config(
         config_file=config_file,
         smart_api=smart_api,
@@ -486,42 +542,32 @@ def choices(
         smart_ca_uuids=smart_ca_uuid,
     )
 
-    if cm_file and not datamodel_file:
-        raise click.UsageError("--cm-from-file requires --from-file")
-    if cm_uuid and not cm_file:
-        raise click.UsageError("--cm-uuid requires --cm-from-file")
     resolved_cm_uuid = _resolve_cm_uuid(cm_uuid) if cm_file else None
 
     sync = _make_synchronizer(config, ctx=ctx)
 
-    if datamodel_file:
-        from smartconnect import ConfigurableDataModel, SmartClient
+    from smartconnect import ConfigurableDataModel, SmartClient
 
-        sclient = SmartClient(
-            api="https://tempuri.org/",
-            username="",
-            password="",
+    sclient = SmartClient(
+        api="https://tempuri.org/",
+        username="",
+        password="",
+        use_language_code=smart_language,
+    )
+    dm = sclient.load_datamodel(filename=datamodel_file)
+    cm = None
+    if cm_file:
+        cm = ConfigurableDataModel(
             use_language_code=smart_language,
+            cm_uuid=resolved_cm_uuid,
         )
-        dm = sclient.load_datamodel(filename=datamodel_file)
-        cm = None
-        if cm_file:
-            cm = ConfigurableDataModel(
-                use_language_code=smart_language,
-                cm_uuid=resolved_cm_uuid,
-            )
-            with open(cm_file) as f:
-                cm.load(f.read())
-        choice_sets = build_choice_sets(
-            dm=dm.export_as_dict(),
-            cm=cm.export_as_dict() if cm else None,
-            ca_uuid=_FILE_BASED_CA_UUID,
-        )
-    else:
-        raise click.UsageError(
-            "API-based choices sync is not yet supported. "
-            "Use --from-file with --cm-from-file for now."
-        )
+        with open(cm_file) as f:
+            cm.load(f.read())
+    choice_sets = build_choice_sets(
+        dm=dm.export_as_dict(),
+        cm=cm.export_as_dict() if cm else None,
+        ca_uuid=_FILE_BASED_CA_UUID,
+    )
 
     stats = upsert_choices(er_client=sync.er_client, choice_sets=choice_sets)
     click.echo(
