@@ -24,10 +24,19 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install build tooling
+      - name: Install package + build + test tooling
+        # Install the package with the [dev] extras so we can run the test
+        # suite as a gate before the release is published.
         run: |
           python -m pip install --upgrade pip
+          pip install -e ".[dev]"
           pip install build
+
+      - name: Run tests
+        # Gate the release on the test suite: a tagged commit must pass
+        # tests before its wheel is uploaded to a GitHub Release. Without
+        # this gate, a broken tag would still ship artifacts.
+        run: pytest -q
 
       - name: Build wheel and sdist
         run: python -m build
