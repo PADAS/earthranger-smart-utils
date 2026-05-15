@@ -6,7 +6,21 @@
 - **`uv`** (recommended) or `pip` for installing the package.
 - **Read access to the `PADAS/earthranger-smart-utils` GitHub repository.**
 
-## Install from the repo
+## Install from a release (recommended for support staff)
+
+Each tagged release attaches a wheel to its GitHub Release page. Pick the
+latest release on the
+[releases page](https://github.com/PADAS/earthranger-smart-utils/releases),
+copy the wheel URL, and install it:
+
+```bash
+uv pip install https://github.com/PADAS/earthranger-smart-utils/releases/download/vX.Y.Z/er_smart_sync-X.Y.Z-py3-none-any.whl
+```
+
+(Replace `vX.Y.Z` / `X.Y.Z` with the actual version.) This pulls in the
+`smartconnect-client` and `earthranger-client` dependencies automatically.
+
+## Install from source (for development)
 
 Clone the repository and install in editable mode:
 
