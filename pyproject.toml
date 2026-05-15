@@ -28,6 +28,10 @@ dev = [
     "ruff",
     "ty",
 ]
+docs = [
+    "mkdocs-material>=9.5",
+    "mkdocs-exclude>=1.0",
+]
 
 [project.scripts]
 er-smart-sync = "er_smart_sync.cli:main"
