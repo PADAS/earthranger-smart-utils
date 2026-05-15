@@ -18,7 +18,7 @@ smart:
   endpoint: https://smart.example.org/server
   login: smart-user
   password: smart-secret
-  version: "7.5.7"
+  version: "7.5.7"          # example; defaults to "7.0" if omitted
   use_language_code: en
   ca_uuids:
     - 00000000-0000-0000-0000-000000000000
