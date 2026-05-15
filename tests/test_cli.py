@@ -223,6 +223,8 @@ def test_inspect_datamodel_with_fixture_xml(tmp_path):
             "x",
             "--from-file",
             str(dm_file),
+            "--ca-identifier",
+            "TEST",
         ],
     )
     if result.exit_code != 0:
@@ -276,8 +278,8 @@ def test_datamodel_dry_run_makes_no_writes(tmp_path):
                 "x",
                 "--from-file",
                 str(dm_file),
-                "--ca-label",
-                "[TEST]",
+                "--ca-identifier",
+                "TEST",
             ],
         )
         if result.exit_code != 0 and result.exception:
@@ -345,8 +347,8 @@ def test_cm_from_file_uses_zero_uuid_in_event_type_value(tmp_path):
                 str(dm_file),
                 "--cm-from-file",
                 str(cm_file),
-                "--ca-label",
-                "[TEST]",
+                "--ca-identifier",
+                "TEST",
             ],
         )
         if result.exit_code != 0 and result.exception:
@@ -429,8 +431,8 @@ def test_cm_uuid_flag_is_used_in_event_type_value(tmp_path):
                 str(cm_file),
                 "--cm-uuid",
                 cm_uuid,
-                "--ca-label",
-                "[TEST]",
+                "--ca-identifier",
+                "TEST",
             ],
         )
         if result.exit_code != 0 and result.exception:
@@ -527,8 +529,8 @@ def test_include_base_datamodel_pushes_both_dm_and_cm(tmp_path):
                 "--cm-from-file",
                 str(cm_file),
                 "--include-base-datamodel",
-                "--ca-label",
-                "[TEST]",
+                "--ca-identifier",
+                "TEST",
             ],
         )
         if result.exit_code != 0 and result.exception:
@@ -581,6 +583,180 @@ def test_cm_uuid_requires_cm_from_file():
     assert "--cm-from-file" in result.output
 
 
+def test_datamodel_event_type_version_v1_flag_overrides_config_default(
+    tmp_path, monkeypatch
+):
+    """--event-type-version v1 should produce a synchronizer with _event_type_version == 'v1'."""
+    captured = {}
+
+    def fake_make_sync(config, ctx=None):
+        from er_smart_sync.synchronizer import ERSmartSynchronizer
+
+        sync = ERSmartSynchronizer.__new__(ERSmartSynchronizer)
+        sync._event_type_version = config.earthranger.event_type_version
+        sync.sync_mode = "both"
+        sync.datamodel_stats = {
+            "categories_created": 0,
+            "categories_existing": 0,
+            "event_types_created": 0,
+            "event_types_updated": 0,
+            "event_types_unchanged": 0,
+            "event_types_skipped_by_mode": 0,
+            "event_types_errored": 0,
+        }
+        # Stub out the network calls the command would make
+        sync.push_smart_ca_datamodel_to_earthranger = lambda **kwargs: None
+        sync.synchronize_datamodel = lambda: None
+        captured["sync"] = sync
+        return sync
+
+    monkeypatch.setattr("er_smart_sync.cli._make_synchronizer", fake_make_sync)
+
+    # Use a dummy XML file (file-based path)
+    dm_file = tmp_path / "dm.xml"
+    dm_file.write_text("<datamodel/>")
+
+    # Patch the SmartClient.load_datamodel so we don't actually parse XML
+    monkeypatch.setattr(
+        "smartconnect.SmartClient.load_datamodel",
+        lambda self, filename: MagicMock(),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "datamodel",
+            "--from-file",
+            str(dm_file),
+            "--er-endpoint",
+            "https://x/api/v1.0",
+            "--er-token",
+            "t",
+            "--er-id",
+            "i",
+            "--ca-identifier",
+            "TEST",
+            "--event-type-version",
+            "v1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["sync"]._event_type_version == "v1"
+
+
+def test_datamodel_event_type_version_defaults_to_v2(tmp_path, monkeypatch):
+    """No --event-type-version flag → uses config default which is v2."""
+    captured = {}
+
+    def fake_make_sync(config, ctx=None):
+        from er_smart_sync.synchronizer import ERSmartSynchronizer
+
+        sync = ERSmartSynchronizer.__new__(ERSmartSynchronizer)
+        sync._event_type_version = config.earthranger.event_type_version
+        sync.sync_mode = "both"
+        sync.datamodel_stats = {
+            "categories_created": 0,
+            "categories_existing": 0,
+            "event_types_created": 0,
+            "event_types_updated": 0,
+            "event_types_unchanged": 0,
+            "event_types_skipped_by_mode": 0,
+            "event_types_errored": 0,
+        }
+        sync.push_smart_ca_datamodel_to_earthranger = lambda **kwargs: None
+        sync.synchronize_datamodel = lambda: None
+        captured["sync"] = sync
+        return sync
+
+    monkeypatch.setattr("er_smart_sync.cli._make_synchronizer", fake_make_sync)
+
+    dm_file = tmp_path / "dm.xml"
+    dm_file.write_text("<datamodel/>")
+
+    monkeypatch.setattr(
+        "smartconnect.SmartClient.load_datamodel",
+        lambda self, filename: MagicMock(),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "datamodel",
+            "--from-file",
+            str(dm_file),
+            "--er-endpoint",
+            "https://x/api/v1.0",
+            "--er-token",
+            "t",
+            "--er-id",
+            "i",
+            "--ca-identifier",
+            "TEST",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["sync"]._event_type_version == "v2"
+
+
+def test_inspect_datamodel_v2_prints_field_types(tmp_path, monkeypatch):
+    dm_mock = MagicMock()
+    dm_mock.export_as_dict.return_value = {
+        "categories": [
+            {
+                "path": "incidents",
+                "hkeyPath": "incidents",
+                "display": "Incidents",
+                "is_multiple": False,
+                "is_active": True,
+                "attributes": [{"key": "color", "is_active": True}],
+            }
+        ],
+        "attributes": [
+            {
+                "key": "color",
+                "type": "LIST",
+                "isrequired": False,
+                "display": "Color",
+                "options": [
+                    {"key": "red", "display": "Red", "isActive": True},
+                    {"key": "blue", "display": "Blue", "isActive": True},
+                ],
+            }
+        ],
+    }
+    monkeypatch.setattr(
+        "smartconnect.SmartClient.load_datamodel",
+        lambda self, filename: dm_mock,
+    )
+
+    dm_file = tmp_path / "dm.xml"
+    dm_file.write_text("<datamodel/>")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "inspect-datamodel",
+            "--er-endpoint",
+            "https://er.example.com/api/v1.0",
+            "--er-token",
+            "x",
+            "--from-file",
+            str(dm_file),
+            "--ca-identifier",
+            "FOASF",
+            "--event-type-version",
+            "v2",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    # v2 printer should mention CHOICE_LIST or DROPDOWN somewhere
+    assert "CHOICE_LIST" in result.output or "DROPDOWN" in result.output
+    assert "color" in result.output
+
+
 def test_datamodel_update_only_skips_creates(tmp_path):
     # With no matching category in ER and --mode update-only, create_or_update
     # should report zero creates and an event_types_skipped_by_mode count of 1.
@@ -618,6 +794,8 @@ def test_datamodel_update_only_skips_creates(tmp_path):
                 "x",
                 "--from-file",
                 str(dm_file),
+                "--ca-identifier",
+                "TEST",
                 "--mode",
                 "update-only",
             ],
@@ -630,3 +808,628 @@ def test_datamodel_update_only_skips_creates(tmp_path):
         # Summary shows the skip (labels render with spaces in stdout).
         assert "event types skipped by mode: 1" in result.output
         assert "categories created: 0" in result.output
+
+
+def test_config_template_mentions_event_type_version():
+    runner = CliRunner()
+    result = runner.invoke(main, ["config-template"])
+    assert result.exit_code == 0, result.output
+    assert "event_type_version" in result.output
+    assert "v2" in result.output
+
+
+def test_choices_subcommand_runs_upsert(tmp_path, monkeypatch):
+    """`er-smart-sync choices --from-file` invokes build_choice_sets + upsert_choices."""
+    from click.testing import CliRunner
+
+    from er_smart_sync.cli import main
+
+    captured = {}
+
+    def fake_build_choice_sets(**kwargs):
+        from er_smart_sync.choices import ChoiceOption, ChoiceSet
+
+        captured["build_called"] = True
+        return [
+            ChoiceSet(
+                field="etxxx_color",
+                options=(ChoiceOption(value="red", display="Red", is_active=True),),
+            )
+        ]
+
+    def fake_upsert_choices(*, er_client, choice_sets):
+        from er_smart_sync.choices import ChoicesStats
+
+        captured["upsert_called"] = True
+        captured["choice_sets"] = choice_sets
+        return ChoicesStats(created=1)
+
+    monkeypatch.setattr(
+        "er_smart_sync.cli.build_choice_sets",
+        fake_build_choice_sets,
+    )
+    monkeypatch.setattr(
+        "er_smart_sync.cli.upsert_choices",
+        fake_upsert_choices,
+    )
+    monkeypatch.setattr(
+        "smartconnect.SmartClient.load_datamodel",
+        lambda self, filename: MagicMock(export_as_dict=lambda: {"categories": []}),
+    )
+
+    dm_file = tmp_path / "dm.xml"
+    dm_file.write_text("<datamodel/>")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "choices",
+            "--from-file",
+            str(dm_file),
+            "--er-endpoint",
+            "https://x/api/v1.0",
+            "--er-token",
+            "t",
+            "--er-id",
+            "i",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured.get("build_called") is True
+    assert captured.get("upsert_called") is True
+    assert "created=1" in result.output or "Created: 1" in result.output
+
+
+def test_choices_subcommand_exits_nonzero_on_errors(tmp_path, monkeypatch):
+    from click.testing import CliRunner
+
+    from er_smart_sync.cli import main
+
+    monkeypatch.setattr(
+        "er_smart_sync.cli.build_choice_sets",
+        lambda **kw: [],
+    )
+
+    def fake_upsert(**kw):
+        from er_smart_sync.choices import ChoicesStats
+
+        return ChoicesStats(errored=1)
+
+    monkeypatch.setattr("er_smart_sync.cli.upsert_choices", fake_upsert)
+    monkeypatch.setattr(
+        "smartconnect.SmartClient.load_datamodel",
+        lambda self, filename: MagicMock(export_as_dict=lambda: {"categories": []}),
+    )
+
+    dm_file = tmp_path / "dm.xml"
+    dm_file.write_text("<datamodel/>")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "choices",
+            "--from-file",
+            str(dm_file),
+            "--er-endpoint",
+            "https://x/api/v1.0",
+            "--er-token",
+            "t",
+            "--er-id",
+            "i",
+        ],
+    )
+    assert result.exit_code != 0
+
+
+def test_choices_subcommand_without_from_file_fails_fast_with_clear_message():
+    """choices currently requires --from-file. Without it, the command must
+    fail immediately with a message that names the unsupported flags rather
+    than letting the user discover the limitation after a long config build."""
+    from click.testing import CliRunner
+
+    from er_smart_sync.cli import main
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "choices",
+            "--smart-api", "https://smart.example.com",
+            "--smart-username", "u",
+            "--smart-password", "p",
+            "--smart-ca-uuid", "some-ca-uuid",
+            "--er-endpoint", "https://x/api/v1.0",
+            "--er-token", "t",
+            "--er-id", "i",
+        ],
+    )
+    assert result.exit_code != 0
+    # Should mention --from-file and the unsupported API flags explicitly.
+    assert "--from-file" in result.output
+    assert (
+        "API" in result.output
+        or "smart-api" in result.output.lower()
+        or "ignored" in result.output.lower()
+    )
+
+
+def test_network_timeout_flag_is_configurable(tmp_path, monkeypatch):
+    """--network-timeout overrides the process-wide socket timeout default
+    (and 0 disables the override entirely so SMART/etc. own timeouts apply)."""
+    from click.testing import CliRunner
+
+    from er_smart_sync.cli import main
+
+    timeouts: list = []
+
+    def fake_set(seconds):
+        timeouts.append(seconds)
+
+    monkeypatch.setattr("er_smart_sync.cli._set_network_timeout", fake_set)
+
+    runner = CliRunner()
+    # Explicit value passed through.
+    result = runner.invoke(main, ["--network-timeout", "45", "config-template"])
+    assert result.exit_code == 0, result.output
+    assert timeouts[-1] == 45.0
+
+    # 0 disables (the _set_network_timeout body short-circuits, but we
+    # at minimum verify the value flows through).
+    timeouts.clear()
+    result = runner.invoke(main, ["--network-timeout", "0", "config-template"])
+    assert result.exit_code == 0, result.output
+    assert timeouts[-1] == 0.0
+
+
+def test_datamodel_skip_choices_flag(tmp_path, monkeypatch):
+    """--skip-choices makes the synchronizer skip the choices phase even on v2."""
+    from click.testing import CliRunner
+
+    from er_smart_sync.cli import main
+
+    captured = {}
+
+    def fake_make_sync(config, ctx=None):
+        from er_smart_sync.synchronizer import ERSmartSynchronizer
+
+        sync = ERSmartSynchronizer.__new__(ERSmartSynchronizer)
+        sync._event_type_version = config.earthranger.event_type_version
+        sync.sync_mode = "both"
+        sync.skip_choices = False
+        sync.datamodel_stats = {
+            "categories_created": 0,
+            "categories_existing": 0,
+            "event_types_created": 0,
+            "event_types_updated": 0,
+            "event_types_unchanged": 0,
+            "event_types_skipped_by_mode": 0,
+            "event_types_skipped_by_conflict": 0,
+            "event_types_errored": 0,
+            "choices_created": 0,
+            "choices_updated": 0,
+            "choices_unchanged": 0,
+            "choices_deactivated": 0,
+            "choices_errored": 0,
+        }
+        sync.push_smart_ca_datamodel_to_earthranger = lambda **kwargs: None
+        sync.synchronize_datamodel = lambda: None
+        captured["sync"] = sync
+        return sync
+
+    monkeypatch.setattr("er_smart_sync.cli._make_synchronizer", fake_make_sync)
+    monkeypatch.setattr(
+        "smartconnect.SmartClient.load_datamodel",
+        lambda self, filename: MagicMock(),
+    )
+
+    dm_file = tmp_path / "dm.xml"
+    dm_file.write_text("<datamodel/>")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "datamodel",
+            "--from-file",
+            str(dm_file),
+            "--er-endpoint",
+            "https://x/api/v1.0",
+            "--er-token",
+            "t",
+            "--er-id",
+            "i",
+            "--ca-identifier",
+            "TEST",
+            "--event-type-version",
+            "v2",
+            "--skip-choices",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["sync"].skip_choices is True
+
+
+def test_inspect_datamodel_v2_prints_choice_sets(tmp_path, monkeypatch):
+    """`inspect-datamodel --event-type-version v2` includes a choices section."""
+    from click.testing import CliRunner
+
+    from er_smart_sync.cli import main
+
+    dm_mock = MagicMock()
+    dm_mock.export_as_dict.return_value = {
+        "categories": [
+            {
+                "path": "incidents",
+                "hkeyPath": "incidents",
+                "display": "Incidents",
+                "is_multiple": False,
+                "is_active": True,
+                "attributes": [{"key": "color", "is_active": True}],
+            }
+        ],
+        "attributes": [
+            {
+                "key": "color",
+                "type": "LIST",
+                "isrequired": False,
+                "display": "Color",
+                "options": [
+                    {"key": "red", "display": "Red", "isActive": True},
+                    {"key": "blue", "display": "Blue", "isActive": True},
+                ],
+            }
+        ],
+    }
+    monkeypatch.setattr(
+        "smartconnect.SmartClient.load_datamodel",
+        lambda self, filename: dm_mock,
+    )
+
+    dm_file = tmp_path / "dm.xml"
+    dm_file.write_text("<datamodel/>")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "inspect-datamodel",
+            "--er-endpoint",
+            "https://er.example.com/api/v1.0",
+            "--er-token",
+            "x",
+            "--from-file",
+            str(dm_file),
+            "--ca-identifier",
+            "FOASF",
+            "--event-type-version",
+            "v2",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    # Output should mention "Choice sets" header and the option keys.
+    assert "Choice" in result.output or "choice" in result.output
+    assert "red" in result.output
+    assert "blue" in result.output
+
+
+def test_inspect_datamodel_file_based_uses_same_ca_uuid_as_datamodel_push(
+    tmp_path, monkeypatch
+):
+    """Inspect preview's ca_uuid must match what `datamodel --from-file`
+    actually POSTs. Otherwise derive_choice_field(...) hashes and the
+    resulting $ref URLs would differ between preview and sync — i.e.,
+    the preview would lie."""
+    from click.testing import CliRunner
+
+    from er_smart_sync.cli import _FILE_BASED_CA_UUID, main
+
+    dm_mock = MagicMock()
+    dm_mock.export_as_dict.return_value = {"categories": [], "attributes": []}
+    monkeypatch.setattr(
+        "smartconnect.SmartClient.load_datamodel",
+        lambda self, filename: dm_mock,
+    )
+
+    captured: dict = {}
+
+    def fake_build_v2(**kwargs):
+        captured["ca_uuid"] = kwargs.get("ca_uuid")
+        return []
+
+    monkeypatch.setattr(
+        "er_smart_sync.smart_to_er_v2.build_event_types_v2", fake_build_v2,
+    )
+
+    dm_file = tmp_path / "dm.xml"
+    dm_file.write_text("<datamodel/>")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "inspect-datamodel",
+            "--from-file", str(dm_file),
+            "--ca-identifier", "FOASF",
+            "--event-type-version", "v2",
+            "--er-endpoint", "https://er.example.com/api/v1.0",
+            "--er-token", "x",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["ca_uuid"] == _FILE_BASED_CA_UUID
+
+
+def test_inspect_datamodel_api_path_fails_on_unbracketed_label(tmp_path, monkeypatch):
+    """API-path inspect should fail with an actionable message when the
+    SMART CA label has no bracketed identifier — matches the runtime sync
+    behavior in push_smart_datamodel_to_earthranger."""
+    from click.testing import CliRunner
+
+    from er_smart_sync.cli import main
+
+    dm_mock = MagicMock()
+    dm_mock.export_as_dict.return_value = {"categories": [], "attributes": []}
+    ca_mock = MagicMock()
+    ca_mock.label = "Conservation Area Without Brackets"
+
+    monkeypatch.setattr(
+        "smartconnect.SmartClient.get_data_model",
+        lambda self, ca_uuid: dm_mock,
+    )
+    monkeypatch.setattr(
+        "smartconnect.SmartClient.get_conservation_area",
+        lambda self, ca_uuid: ca_mock,
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "inspect-datamodel",
+            "--smart-api", "https://smart.example.com",
+            "--smart-username", "u",
+            "--smart-password", "p",
+            "--smart-ca-uuid", "some-ca-uuid",
+            "--er-endpoint", "https://er.example.com/api/v1.0",
+            "--er-token", "x",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "Conservation Area Without Brackets" in result.output
+    assert "bracketed" in result.output.lower() or "[" in result.output
+    assert "some-ca-uuid" in result.output
+
+
+def test_inspect_datamodel_v2_passes_config_choices_base_url(tmp_path, monkeypatch):
+    """The v2 inspect path must thread choices_base_url from config into
+    build_event_types_v2 — otherwise previewed $ref URLs use the hardcoded
+    default and don't match what the real sync would emit."""
+    from click.testing import CliRunner
+
+    from er_smart_sync.cli import main
+
+    dm_mock = MagicMock()
+    dm_mock.export_as_dict.return_value = {"categories": [], "attributes": []}
+    monkeypatch.setattr(
+        "smartconnect.SmartClient.load_datamodel",
+        lambda self, filename: dm_mock,
+    )
+
+    captured: dict = {}
+
+    def fake_build_v2(**kwargs):
+        captured["choices_base_url"] = kwargs.get("choices_base_url")
+        return []
+
+    monkeypatch.setattr(
+        "er_smart_sync.smart_to_er_v2.build_event_types_v2", fake_build_v2,
+    )
+
+    dm_file = tmp_path / "dm.xml"
+    dm_file.write_text("<datamodel/>")
+
+    config_file = tmp_path / "sync.yaml"
+    config_file.write_text(
+        "smart:\n"
+        "  endpoint: ''\n"
+        "  login: ''\n"
+        "  password: ''\n"
+        "earthranger:\n"
+        "  id: i\n"
+        "  endpoint: https://er.example.com/api/v1.0\n"
+        "  token: t\n"
+        "  event_type_version: v2\n"
+        "  choices_base_url: /custom/schemas/prefix\n"
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "inspect-datamodel",
+            "--config", str(config_file),
+            "--from-file", str(dm_file),
+            "--ca-identifier", "FOASF",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["choices_base_url"] == "/custom/schemas/prefix"
+
+
+def test_inspect_datamodel_respects_config_event_type_version(tmp_path, monkeypatch):
+    """When --event-type-version is not passed, fall back to the config value
+    instead of hardcoding v2. Otherwise a config that sets event_type_version: v1
+    would still get v2 output."""
+    from click.testing import CliRunner
+
+    from er_smart_sync.cli import main
+
+    dm_mock = MagicMock()
+    dm_mock.export_as_dict.return_value = {
+        "categories": [
+            {
+                "path": "incidents",
+                "hkeyPath": "incidents",
+                "display": "Incidents",
+                "is_multiple": False,
+                "is_active": True,
+                "attributes": [{"key": "color", "is_active": True}],
+            }
+        ],
+        "attributes": [
+            {
+                "key": "color",
+                "type": "LIST",
+                "isrequired": False,
+                "display": "Color",
+                "options": [
+                    {"key": "red", "display": "Red", "isActive": True},
+                ],
+            }
+        ],
+    }
+    monkeypatch.setattr(
+        "smartconnect.SmartClient.load_datamodel",
+        lambda self, filename: dm_mock,
+    )
+
+    dm_file = tmp_path / "dm.xml"
+    dm_file.write_text("<datamodel/>")
+
+    # Write a YAML config that pins v1.
+    config_file = tmp_path / "sync.yaml"
+    config_file.write_text(
+        "smart:\n"
+        "  endpoint: ''\n"
+        "  login: ''\n"
+        "  password: ''\n"
+        "earthranger:\n"
+        "  id: i\n"
+        "  endpoint: https://er.example.com/api/v1.0\n"
+        "  token: t\n"
+        "  event_type_version: v1\n"
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "inspect-datamodel",
+            "--config", str(config_file),
+            "--from-file", str(dm_file),
+            "--ca-identifier", "FOASF",
+            # Note: no --event-type-version; should pick up v1 from config.
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    # v1 printer emits inline enums; v2 printer prints "CHOICE_LIST" / "DROPDOWN".
+    # Confirm we got v1 output by asserting v2-only markers are absent.
+    assert "CHOICE_LIST" not in result.output
+    assert "DROPDOWN" not in result.output
+
+
+def test_config_template_mentions_choices_base_url():
+    runner = CliRunner()
+    result = runner.invoke(main, ["config-template"])
+    assert result.exit_code == 0, result.output
+    assert "choices_base_url" in result.output
+
+
+def test_ca_identifier_validation_accepts_hyphens_and_underscores(tmp_path, monkeypatch):
+    """Hyphens and underscores are allowed; pure-alphanumeric is not the only valid form."""
+    from click.testing import CliRunner
+
+    from er_smart_sync.cli import main
+
+    dm_file = tmp_path / "dm.xml"
+    dm_file.write_text("<datamodel/>")
+    monkeypatch.setattr(
+        "smartconnect.SmartClient.load_datamodel",
+        lambda self, filename: MagicMock(export_as_dict=lambda: {"categories": []}),
+    )
+
+    def fake_make_sync(config, ctx=None):
+        from er_smart_sync.synchronizer import ERSmartSynchronizer
+        sync = ERSmartSynchronizer.__new__(ERSmartSynchronizer)
+        sync._event_type_version = config.earthranger.event_type_version
+        sync.sync_mode = "both"
+        sync.skip_choices = False
+        sync.datamodel_stats = {
+            "categories_created": 0, "categories_existing": 0,
+            "event_types_created": 0, "event_types_updated": 0,
+            "event_types_unchanged": 0, "event_types_skipped_by_mode": 0,
+            "event_types_skipped_by_conflict": 0, "event_types_errored": 0,
+            "choices_created": 0, "choices_updated": 0,
+            "choices_unchanged": 0, "choices_deactivated": 0, "choices_errored": 0,
+        }
+        sync.push_smart_ca_datamodel_to_earthranger = lambda **kwargs: None
+        sync.synchronize_datamodel = lambda: None
+        return sync
+
+    monkeypatch.setattr("er_smart_sync.cli._make_synchronizer", fake_make_sync)
+
+    runner = CliRunner()
+    for ident in ("smart-import", "smart_import", "FOASF-1", "FOO_BAR_99"):
+        result = runner.invoke(
+            main,
+            [
+                "datamodel",
+                "--from-file", str(dm_file),
+                "--er-endpoint", "https://x/api/v1.0",
+                "--er-token", "t",
+                "--er-id", "i",
+                "--ca-identifier", ident,
+            ],
+        )
+        assert result.exit_code == 0, f"identifier {ident!r} should be accepted; got: {result.output}"
+
+
+def test_ca_identifier_validation_rejects_special_chars(tmp_path, monkeypatch):
+    from click.testing import CliRunner
+
+    from er_smart_sync.cli import main
+
+    dm_file = tmp_path / "dm.xml"
+    dm_file.write_text("<datamodel/>")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "datamodel",
+            "--from-file", str(dm_file),
+            "--er-endpoint", "https://x/api/v1.0",
+            "--er-token", "t",
+            "--er-id", "i",
+            "--ca-identifier", "has spaces",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "2-30" in result.output or "characters" in result.output.lower()
+
+
+def test_ca_identifier_required_for_file_based_sync(tmp_path, monkeypatch):
+    from click.testing import CliRunner
+
+    from er_smart_sync.cli import main
+
+    dm_file = tmp_path / "dm.xml"
+    dm_file.write_text("<datamodel/>")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "datamodel",
+            "--from-file", str(dm_file),
+            "--er-endpoint", "https://x/api/v1.0",
+            "--er-token", "t",
+            "--er-id", "i",
+            # No --ca-identifier
+        ],
+    )
+    assert result.exit_code != 0
+    output = result.output.lower()
+    assert "ca-identifier" in output or "required" in output

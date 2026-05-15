@@ -1,4 +1,5 @@
 import copy
+import json
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
@@ -38,16 +39,19 @@ class TestStaticHelpers:
 
     def test_calculate_event_category_value_special_chars(self):
         result = ERSmartSynchronizer.calculate_event_category_value(
-            ca_label="[Test Area]"
+            ca_label="TestArea"
         )
-        assert result == "test_area"
+        assert result == "testarea"
 
     def test_calculate_event_category_value_empty_raises(self):
         with pytest.raises(ValueError):
             ERSmartSynchronizer.calculate_event_category_value(ca_label="")
 
     def test_get_identifier_from_ca_label(self):
-        assert ERSmartSynchronizer.get_identifier_from_ca_label("Some Name [SONM]") == "SONM"
+        assert (
+            ERSmartSynchronizer.get_identifier_from_ca_label("Some Name [SONM]")
+            == "SONM"
+        )
 
     def test_get_identifier_from_ca_label_no_brackets(self):
         assert ERSmartSynchronizer.get_identifier_from_ca_label("No Brackets") == ""
@@ -70,12 +74,32 @@ class TestDatamodelSync:
         )
         with pytest.raises(ValueError, match="dm is required"):
             sync.push_smart_ca_datamodel_to_earthranger(
-                dm=None, smart_ca_uuid="uuid", ca_label="[TEST]"
+                dm=None, smart_ca_uuid="uuid", ca_identifier="TEST"
             )
 
-    def test_creates_event_category_when_missing(
+    def test_push_smart_datamodel_to_earthranger_unbracketed_label_raises(
         self, sync_config, mock_er_client
     ):
+        """API-path runs against a CA whose label has no [CODE] bracket should
+        raise a clear, actionable error naming the label and the fix."""
+        sync = ERSmartSynchronizer(
+            config=sync_config, er_client=mock_er_client, smart_client=MagicMock()
+        )
+        sync.smart_client.get_data_model.return_value = MagicMock()
+        ca = MagicMock()
+        ca.label = "Conservation Area Without Brackets"
+
+        with pytest.raises(ValueError) as excinfo:
+            sync.push_smart_datamodel_to_earthranger(
+                smart_ca_uuid="some-ca-uuid", ca=ca,
+            )
+
+        message = str(excinfo.value)
+        assert "Conservation Area Without Brackets" in message
+        assert "bracketed" in message.lower() or "[" in message
+        assert "some-ca-uuid" in message
+
+    def test_creates_event_category_when_missing(self, sync_config, mock_er_client):
         mock_er_client.get_event_categories.return_value = []
 
         dm = MagicMock()
@@ -91,12 +115,135 @@ class TestDatamodelSync:
                 smart_client=MagicMock(),
             )
             sync.push_smart_ca_datamodel_to_earthranger(
-                dm=dm, smart_ca_uuid="uuid", ca_label="[TEST]"
+                dm=dm, smart_ca_uuid="uuid", ca_identifier="TEST"
             )
 
         mock_er_client.post_event_category.assert_called_once()
         posted = mock_er_client.post_event_category.call_args.kwargs["data"]
         assert posted["value"] == "test"
+
+    def test_v1_event_type_uses_category_uuid_not_slug(
+        self, sync_config, mock_er_client
+    ):
+        """v1 ER expects event_type.category as a UUID FK to the category,
+        not the category slug. v2 expects the slug. Branch correctly."""
+        from smartconnect.er_sync_utils import EREventType
+
+        category_uuid = "11111111-1111-1111-1111-111111111111"
+        mock_er_client.get_event_categories.return_value = [
+            {"id": category_uuid, "value": "test", "display": "TEST"}
+        ]
+        mock_er_client.get_event_types.return_value = []
+
+        dm = MagicMock()
+        dm.export_as_dict.return_value = {"categories": []}
+
+        et = EREventType(value="some_event", display="Some Event", is_active=True)
+        with patch(
+            "er_smart_sync.synchronizer.build_event_types",
+            return_value=[et],
+        ):
+            # sync_config uses er_config which is pinned to v1.
+            sync = ERSmartSynchronizer(
+                config=sync_config,
+                er_client=mock_er_client,
+                smart_client=MagicMock(),
+            )
+            sync.push_smart_ca_datamodel_to_earthranger(
+                dm=dm, smart_ca_uuid="uuid", ca_identifier="TEST"
+            )
+
+        # Event type was POSTed with category = UUID.
+        mock_er_client.post_event_type.assert_called_once()
+        posted = mock_er_client.post_event_type.call_args.kwargs["event_type"]
+        assert posted["category"] == category_uuid, (
+            f"v1 should POST category as UUID FK; got {posted['category']!r}"
+        )
+
+    def test_v2_event_type_uses_category_slug(
+        self, sync_config_v2, mock_er_client
+    ):
+        """v2 ER expects event_type.category as the category's value (slug)."""
+        from er_smart_sync.smart_to_er_v2 import ERV2EventType
+
+        category_uuid = "22222222-2222-2222-2222-222222222222"
+        mock_er_client.get_event_categories.return_value = [
+            {"id": category_uuid, "value": "test", "display": "TEST"}
+        ]
+        mock_er_client.get_event_types.return_value = []
+
+        dm = MagicMock()
+        dm.export_as_dict.return_value = {"categories": []}
+
+        et = ERV2EventType(value="some_event", display="Some Event")
+        with patch(
+            "er_smart_sync.synchronizer.build_event_types_v2",
+            return_value=[et],
+        ), patch(
+            "er_smart_sync.synchronizer.build_choice_sets",
+            return_value=[],
+        ), patch(
+            "er_smart_sync.synchronizer.upsert_choices",
+            return_value=__import__(
+                "er_smart_sync.choices", fromlist=["ChoicesStats"]
+            ).ChoicesStats(),
+        ):
+            sync = ERSmartSynchronizer(
+                config=sync_config_v2,
+                er_client=mock_er_client,
+                smart_client=MagicMock(),
+            )
+            sync.push_smart_ca_datamodel_to_earthranger(
+                dm=dm, smart_ca_uuid="uuid", ca_identifier="TEST"
+            )
+
+        mock_er_client.post_event_type.assert_called_once()
+        posted = mock_er_client.post_event_type.call_args.kwargs["event_type"]
+        assert posted["category"] == "test", (
+            f"v2 should POST category as slug; got {posted['category']!r}"
+        )
+
+    def test_created_category_preserves_id_for_v1_payload(
+        self, sync_config, mock_er_client
+    ):
+        """When we POST a fresh event category, ER assigns its UUID server-side.
+        We must capture that id and merge it back so v1 event-type POSTs can
+        reference the category by UUID (not just the slug we sent)."""
+        from smartconnect.er_sync_utils import EREventType
+
+        category_uuid = "33333333-3333-3333-3333-333333333333"
+        mock_er_client.get_event_categories.return_value = []
+        # ER returns the assigned UUID in the POST response.
+        mock_er_client.post_event_category.return_value = {
+            "id": category_uuid,
+            "value": "test",
+            "display": "TEST",
+        }
+        mock_er_client.get_event_types.return_value = []
+
+        dm = MagicMock()
+        dm.export_as_dict.return_value = {"categories": []}
+
+        et = EREventType(value="some_event", display="Some Event", is_active=True)
+        with patch(
+            "er_smart_sync.synchronizer.build_event_types",
+            return_value=[et],
+        ):
+            sync = ERSmartSynchronizer(
+                config=sync_config,
+                er_client=mock_er_client,
+                smart_client=MagicMock(),
+            )
+            sync.push_smart_ca_datamodel_to_earthranger(
+                dm=dm, smart_ca_uuid="uuid", ca_identifier="TEST"
+            )
+
+        mock_er_client.post_event_type.assert_called_once()
+        posted = mock_er_client.post_event_type.call_args.kwargs["event_type"]
+        assert posted["category"] == category_uuid, (
+            f"After category creation, v1 POST must use server-assigned "
+            f"UUID; got {posted['category']!r}"
+        )
 
     def test_skips_event_category_creation_when_exists(
         self, sync_config, mock_er_client
@@ -118,7 +265,7 @@ class TestDatamodelSync:
                 smart_client=MagicMock(),
             )
             sync.push_smart_ca_datamodel_to_earthranger(
-                dm=dm, smart_ca_uuid="uuid", ca_label="[TEST]"
+                dm=dm, smart_ca_uuid="uuid", ca_identifier="TEST"
             )
 
         mock_er_client.post_event_category.assert_not_called()
@@ -150,7 +297,7 @@ class TestDatamodelSync:
             )
             # Must not raise; must continue and refetch.
             sync.push_smart_ca_datamodel_to_earthranger(
-                dm=dm, smart_ca_uuid="uuid", ca_label="[TEST]"
+                dm=dm, smart_ca_uuid="uuid", ca_identifier="TEST"
             )
 
         assert mock_er_client.get_event_categories.call_count == 2
@@ -177,7 +324,7 @@ class TestDatamodelSync:
             )
             with pytest.raises(Exception, match="Some other ER error"):
                 sync.push_smart_ca_datamodel_to_earthranger(
-                    dm=dm, smart_ca_uuid="uuid", ca_label="[TEST]"
+                    dm=dm, smart_ca_uuid="uuid", ca_identifier="TEST"
                 )
 
     def test_create_or_update_event_types_handles_none(
@@ -247,7 +394,7 @@ class TestDatamodelSync:
             [existing_in_er],
         ]
         mock_er_client.post_event_type.side_effect = Exception(
-            'duplicate key value violates unique constraint '
+            "duplicate key value violates unique constraint "
             '"activity_eventtype_unique_value_across_tenants"'
         )
 
@@ -275,9 +422,7 @@ class TestDatamodelSync:
         assert sync.datamodel_stats["event_types_created"] == 0
         assert sync.datamodel_stats["event_types_updated"] == 1
 
-    def test_each_event_type_logged_at_debug(
-        self, sync_config, mock_er_client, caplog
-    ):
+    def test_each_event_type_logged_at_debug(self, sync_config, mock_er_client, caplog):
         # With -v on the CLI we route our logger to DEBUG, and each event
         # type should produce a log line — including unchanged ones — so
         # users can see exactly what's being checked.
@@ -528,19 +673,11 @@ class TestPatrolSkip:
         mock_publisher.publish.assert_not_called()
 
     def test_patrol_skip_reason_helper(self):
-        seg_no_start = MagicMock(
-            start_location=None, leader=MagicMock(id="x")
-        )
-        seg_no_leader = MagicMock(
-            start_location=MagicMock(), leader=None
-        )
-        seg_valid = MagicMock(
-            start_location=MagicMock(), leader=MagicMock(id="x")
-        )
+        seg_no_start = MagicMock(start_location=None, leader=MagicMock(id="x"))
+        seg_no_leader = MagicMock(start_location=MagicMock(), leader=None)
+        seg_valid = MagicMock(start_location=MagicMock(), leader=MagicMock(id="x"))
 
-        patrol_missing_start = MagicMock(
-            patrol_segments=[seg_valid, seg_no_start]
-        )
+        patrol_missing_start = MagicMock(patrol_segments=[seg_valid, seg_no_start])
         patrol_missing_leader = MagicMock(patrol_segments=[seg_no_leader])
         patrol_valid = MagicMock(patrol_segments=[seg_valid])
 
@@ -610,8 +747,7 @@ class TestBatchedEventFetch:
         ]
         # get_events returns full event details for all IDs in one call.
         mock_er_client.get_events.return_value = [
-            _event_dict(datetime.fromisoformat(now), serial_number=i)
-            for i in range(3)
+            _event_dict(datetime.fromisoformat(now), serial_number=i) for i in range(3)
         ]
         # Override the IDs so the matching keys line up.
         for i, eid in enumerate(event_ids):
@@ -653,20 +789,16 @@ class TestRetry:
                 smart_client=MagicMock(),
             )
             sync.push_smart_ca_datamodel_to_earthranger(
-                dm=dm, smart_ca_uuid="uuid", ca_label="[TEST]"
+                dm=dm, smart_ca_uuid="uuid", ca_identifier="TEST"
             )
 
         assert mock_er_client.post_event_category.call_count == 2
 
-    def test_retry_does_not_retry_on_bad_credentials(
-        self, sync_config, mock_er_client
-    ):
+    def test_retry_does_not_retry_on_bad_credentials(self, sync_config, mock_er_client):
         from erclient.er_errors import ERClientBadCredentials
 
         mock_er_client.get_event_categories.return_value = []
-        mock_er_client.post_event_category.side_effect = ERClientBadCredentials(
-            "nope"
-        )
+        mock_er_client.post_event_category.side_effect = ERClientBadCredentials("nope")
 
         dm = MagicMock()
         dm.export_as_dict.return_value = {"categories": []}
@@ -682,7 +814,7 @@ class TestRetry:
             )
             with pytest.raises(ERClientBadCredentials):
                 sync.push_smart_ca_datamodel_to_earthranger(
-                    dm=dm, smart_ca_uuid="uuid", ca_label="[TEST]"
+                    dm=dm, smart_ca_uuid="uuid", ca_identifier="TEST"
                 )
 
         # Only one call — no retries on bad credentials.
@@ -729,9 +861,7 @@ class TestJsonFileStateStore:
         from er_smart_sync.defaults import JsonFileStateStore
 
         store = JsonFileStateStore(path=str(tmp_path / "state.json"))
-        state = SyncState(
-            event_last_poll_at=datetime.now(tz=timezone.utc)
-        )
+        state = SyncState(event_last_poll_at=datetime.now(tz=timezone.utc))
         store.set_last_poll("int-1", state)
 
         # Re-read in a fresh store and confirm the saved value comes back.
@@ -745,9 +875,7 @@ class TestJsonFileStateStore:
         store = JsonFileStateStore(path=str(tmp_path / "state.json"))
         store.set_last_poll("int-1", SyncState())
 
-        leftovers = [
-            f for f in tmp_path.iterdir() if f.name.startswith(".")
-        ]
+        leftovers = [f for f in tmp_path.iterdir() if f.name.startswith(".")]
         assert leftovers == []
 
 
@@ -758,3 +886,570 @@ class TestDefaults:
             span.set_attribute("key", "value")
             span.add_event("event")
         assert tracing.build_context_headers() == {}
+
+
+class TestEventTypeVersionWiring:
+    def test_synchronizer_reads_event_type_version_from_config(
+        self, sync_config, mock_er_client
+    ):
+        # sync_config uses er_config which is pinned to v1.
+        sync = ERSmartSynchronizer(
+            config=sync_config, er_client=mock_er_client, smart_client=MagicMock()
+        )
+        assert sync._event_type_version == "v1"
+
+    def test_synchronizer_v2_from_config(self, sync_config_v2, mock_er_client):
+        sync = ERSmartSynchronizer(
+            config=sync_config_v2, er_client=mock_er_client, smart_client=MagicMock()
+        )
+        assert sync._event_type_version == "v2"
+
+    def test_push_smart_ca_uses_v2_builder_when_configured(
+        self, sync_config_v2, mock_er_client
+    ):
+        mock_er_client.get_event_categories.return_value = []
+        mock_er_client.get_event_types.return_value = []
+
+        dm = MagicMock()
+        dm.export_as_dict.return_value = {"categories": []}
+
+        with (
+            patch(
+                "er_smart_sync.synchronizer.build_event_types_v2",
+                return_value=[],
+            ) as v2_builder,
+            patch(
+                "er_smart_sync.synchronizer.build_event_types",
+                return_value=[],
+            ) as v1_builder,
+        ):
+            sync = ERSmartSynchronizer(
+                config=sync_config_v2,
+                er_client=mock_er_client,
+                smart_client=MagicMock(),
+            )
+            sync.push_smart_ca_datamodel_to_earthranger(
+                dm=dm, smart_ca_uuid="uuid", ca_identifier="TEST"
+            )
+
+        v2_builder.assert_called_once()
+        # Lock the config-to-builder threading: choices_base_url must flow.
+        call_kwargs = v2_builder.call_args.kwargs
+        assert (
+            call_kwargs["choices_base_url"]
+            == sync_config_v2.earthranger.choices_base_url
+        )
+        v1_builder.assert_not_called()
+
+    def test_push_smart_ca_uses_v1_builder_when_configured(
+        self, sync_config, mock_er_client
+    ):
+        mock_er_client.get_event_categories.return_value = []
+        mock_er_client.get_event_types.return_value = []
+
+        dm = MagicMock()
+        dm.export_as_dict.return_value = {"categories": []}
+
+        with (
+            patch(
+                "er_smart_sync.synchronizer.build_event_types",
+                return_value=[],
+            ) as v1_builder,
+            patch(
+                "er_smart_sync.synchronizer.build_event_types_v2",
+                return_value=[],
+            ) as v2_builder,
+        ):
+            sync = ERSmartSynchronizer(
+                config=sync_config,
+                er_client=mock_er_client,
+                smart_client=MagicMock(),
+            )
+            sync.push_smart_ca_datamodel_to_earthranger(
+                dm=dm, smart_ca_uuid="uuid", ca_identifier="TEST"
+            )
+
+        v1_builder.assert_called_once()
+        v2_builder.assert_not_called()
+
+    def test_v2_get_event_types_passes_version_kwarg(
+        self, sync_config_v2, mock_er_client
+    ):
+        mock_er_client.get_event_categories.return_value = []
+        mock_er_client.get_event_types.return_value = []
+
+        sync = ERSmartSynchronizer(
+            config=sync_config_v2,
+            er_client=mock_er_client,
+            smart_client=MagicMock(),
+        )
+        sync.config.smart.ca_uuids = []  # no CAs to iterate, snapshot still runs
+        sync.synchronize_datamodel()
+
+        get_calls = mock_er_client.get_event_types.call_args_list
+        # snapshot at top of synchronize_datamodel must pass version="v2"
+        assert any(c.kwargs.get("version") == "v2" for c in get_calls)
+
+    def test_v2_post_event_type_passes_version_kwarg(
+        self, sync_config_v2, mock_er_client
+    ):
+        mock_er_client.get_event_categories.return_value = []
+        mock_er_client.get_event_types.return_value = []
+
+        from er_smart_sync.smart_to_er_v2 import ERV2EventType
+
+        et = ERV2EventType(value="v", display="V", category=None)
+        with patch(
+            "er_smart_sync.synchronizer.build_event_types_v2",
+            return_value=[et],
+        ):
+            dm = MagicMock()
+            dm.export_as_dict.return_value = {"categories": []}
+            sync = ERSmartSynchronizer(
+                config=sync_config_v2,
+                er_client=mock_er_client,
+                smart_client=MagicMock(),
+            )
+            sync.push_smart_ca_datamodel_to_earthranger(
+                dm=dm, smart_ca_uuid="uuid", ca_identifier="TEST"
+            )
+
+        assert mock_er_client.post_event_type.called
+        post_kwargs = mock_er_client.post_event_type.call_args.kwargs
+        assert post_kwargs.get("version") == "v2"
+
+    def test_v2_duplicate_key_logs_and_skips_no_patch(
+        self, sync_config_v2, mock_er_client, caplog
+    ):
+        from er_smart_sync.smart_to_er_v2 import ERV2EventType
+
+        mock_er_client.get_event_categories.return_value = []
+        mock_er_client.get_event_types.return_value = []
+        mock_er_client.post_event_type.side_effect = Exception(
+            "duplicate key value violates unique constraint"
+        )
+
+        et = ERV2EventType(value="v", display="V", category=None)
+        with patch(
+            "er_smart_sync.synchronizer.build_event_types_v2",
+            return_value=[et],
+        ):
+            dm = MagicMock()
+            dm.export_as_dict.return_value = {"categories": []}
+            sync = ERSmartSynchronizer(
+                config=sync_config_v2,
+                er_client=mock_er_client,
+                smart_client=MagicMock(),
+            )
+            with caplog.at_level("WARNING"):
+                sync.push_smart_ca_datamodel_to_earthranger(
+                    dm=dm, smart_ca_uuid="uuid", ca_identifier="TEST"
+                )
+
+        # Post attempted; patch NOT attempted (no auto-recover on v2)
+        assert mock_er_client.post_event_type.called
+        assert not mock_er_client.patch_event_type.called
+        assert any(
+            "exists in v1" in r.message or "duplicate" in r.message.lower()
+            for r in caplog.records
+        )
+
+    def test_event_type_needs_update_v2_dict_equal(
+        self, sync_config_v2, mock_er_client
+    ):
+        from er_smart_sync.smart_to_er_v2 import ERV2EventType
+
+        sync = ERSmartSynchronizer(
+            config=sync_config_v2,
+            er_client=mock_er_client,
+            smart_client=MagicMock(),
+        )
+        et = ERV2EventType(
+            value="v",
+            display="V",
+            category="c",
+            event_schema={"json": {"a": 1}, "ui": {}},  # ty: ignore[unknown-argument]
+        )
+        existing = {
+            "value": "v",
+            "display": "V",
+            "is_active": True,
+            "category": "c",
+            "readonly": False,
+            "schema": {"json": {"a": 1}, "ui": {}},
+        }
+        assert sync._event_type_needs_update(et, existing) is False
+
+    def test_event_type_needs_update_v2_dict_different(
+        self, sync_config_v2, mock_er_client
+    ):
+        from er_smart_sync.smart_to_er_v2 import ERV2EventType
+
+        sync = ERSmartSynchronizer(
+            config=sync_config_v2,
+            er_client=mock_er_client,
+            smart_client=MagicMock(),
+        )
+        et = ERV2EventType(
+            value="v",
+            display="V",
+            category="c",
+            event_schema={"json": {"a": 2}, "ui": {}},  # ty: ignore[unknown-argument]
+        )
+        existing = {
+            "value": "v",
+            "display": "V",
+            "is_active": True,
+            "category": "c",
+            "readonly": False,
+            "schema": {"json": {"a": 1}, "ui": {}},
+        }
+        assert sync._event_type_needs_update(et, existing) is True
+
+    def test_v2_runs_choices_phase_before_event_types(
+        self, sync_config_v2, mock_er_client
+    ):
+        """build_choice_sets and upsert_choices called BEFORE post_event_type."""
+
+        mock_er_client.get_event_categories.return_value = []
+        mock_er_client.get_event_types.return_value = []
+
+        dm = MagicMock()
+        dm.export_as_dict.return_value = {"categories": []}
+
+        order = []
+
+        def fake_build_choice_sets(**kwargs):
+            order.append("build_choice_sets")
+            return []
+
+        def fake_upsert_choices(**kwargs):
+            from er_smart_sync.choices import ChoicesStats
+
+            order.append("upsert_choices")
+            return ChoicesStats()
+
+        def fake_build_event_types(**kwargs):
+            order.append("build_event_types_v2")
+            return []
+
+        with (
+            patch(
+                "er_smart_sync.synchronizer.build_choice_sets",
+                side_effect=fake_build_choice_sets,
+            ),
+            patch(
+                "er_smart_sync.synchronizer.upsert_choices",
+                side_effect=fake_upsert_choices,
+            ),
+            patch(
+                "er_smart_sync.synchronizer.build_event_types_v2",
+                side_effect=fake_build_event_types,
+            ),
+        ):
+            sync = ERSmartSynchronizer(
+                config=sync_config_v2,
+                er_client=mock_er_client,
+                smart_client=MagicMock(),
+            )
+            sync.push_smart_ca_datamodel_to_earthranger(
+                dm=dm, smart_ca_uuid="ca-1", ca_identifier="TEST"
+            )
+
+        assert order == [
+            "build_choice_sets",
+            "upsert_choices",
+            "build_event_types_v2",
+        ]
+
+    def test_v1_path_does_not_call_choices(self, sync_config, mock_er_client):
+        """v1 path is untouched — no build_choice_sets, no upsert_choices."""
+        mock_er_client.get_event_categories.return_value = []
+        mock_er_client.get_event_types.return_value = []
+
+        dm = MagicMock()
+        dm.export_as_dict.return_value = {"categories": []}
+
+        with (
+            patch(
+                "er_smart_sync.synchronizer.build_choice_sets",
+                return_value=[],
+            ) as build_choices,
+            patch(
+                "er_smart_sync.synchronizer.upsert_choices",
+            ) as upsert,
+            patch(
+                "er_smart_sync.synchronizer.build_event_types",
+                return_value=[],
+            ),
+        ):
+            sync = ERSmartSynchronizer(
+                config=sync_config,
+                er_client=mock_er_client,
+                smart_client=MagicMock(),
+            )
+            sync.push_smart_ca_datamodel_to_earthranger(
+                dm=dm, smart_ca_uuid="ca-1", ca_identifier="TEST"
+            )
+
+        build_choices.assert_not_called()
+        upsert.assert_not_called()
+
+    def test_v2_abort_event_types_when_choices_errored(
+        self, sync_config_v2, mock_er_client, caplog
+    ):
+        from er_smart_sync.choices import ChoicesStats
+
+        mock_er_client.get_event_categories.return_value = []
+        mock_er_client.get_event_types.return_value = []
+
+        dm = MagicMock()
+        dm.export_as_dict.return_value = {"categories": []}
+
+        stats = ChoicesStats(errored=2)
+
+        with (
+            patch(
+                "er_smart_sync.synchronizer.build_choice_sets",
+                return_value=[],
+            ),
+            patch(
+                "er_smart_sync.synchronizer.upsert_choices",
+                return_value=stats,
+            ),
+            patch(
+                "er_smart_sync.synchronizer.build_event_types_v2",
+            ) as build_types,
+        ):
+            sync = ERSmartSynchronizer(
+                config=sync_config_v2,
+                er_client=mock_er_client,
+                smart_client=MagicMock(),
+            )
+            with caplog.at_level("WARNING"):
+                sync.push_smart_ca_datamodel_to_earthranger(
+                    dm=dm, smart_ca_uuid="ca-1", ca_identifier="TEST"
+                )
+
+        # build_event_types_v2 never called; no POSTs attempted.
+        build_types.assert_not_called()
+        mock_er_client.post_event_type.assert_not_called()
+        # Clear warning log.
+        assert any("Aborting event-type push" in r.message for r in caplog.records)
+
+    def test_v2_choice_stats_merge_into_datamodel_stats(
+        self, sync_config_v2, mock_er_client
+    ):
+        """The five new counters are populated from upsert_choices' return value."""
+        from er_smart_sync.choices import ChoicesStats
+
+        mock_er_client.get_event_categories.return_value = []
+        mock_er_client.get_event_types.return_value = []
+
+        dm = MagicMock()
+        dm.export_as_dict.return_value = {"categories": []}
+
+        stats = ChoicesStats(
+            created=3, updated=1, unchanged=5, deactivated=2, errored=0
+        )
+
+        with (
+            patch(
+                "er_smart_sync.synchronizer.build_choice_sets",
+                return_value=[],
+            ),
+            patch(
+                "er_smart_sync.synchronizer.upsert_choices",
+                return_value=stats,
+            ),
+            patch(
+                "er_smart_sync.synchronizer.build_event_types_v2",
+                return_value=[],
+            ),
+        ):
+            sync = ERSmartSynchronizer(
+                config=sync_config_v2,
+                er_client=mock_er_client,
+                smart_client=MagicMock(),
+            )
+            sync.push_smart_ca_datamodel_to_earthranger(
+                dm=dm, smart_ca_uuid="ca-1", ca_identifier="TEST"
+            )
+
+        assert sync.datamodel_stats["choices_created"] == 3
+        assert sync.datamodel_stats["choices_updated"] == 1
+        assert sync.datamodel_stats["choices_unchanged"] == 5
+        assert sync.datamodel_stats["choices_deactivated"] == 2
+        assert sync.datamodel_stats["choices_errored"] == 0
+
+    def test_v2_skip_choices_bypasses_choices_phase(
+        self, sync_config_v2, mock_er_client
+    ):
+        mock_er_client.get_event_categories.return_value = []
+        mock_er_client.get_event_types.return_value = []
+
+        dm = MagicMock()
+        dm.export_as_dict.return_value = {"categories": []}
+
+        with (
+            patch(
+                "er_smart_sync.synchronizer.build_choice_sets",
+            ) as build_choices,
+            patch(
+                "er_smart_sync.synchronizer.upsert_choices",
+            ) as upsert,
+            patch(
+                "er_smart_sync.synchronizer.build_event_types_v2",
+                return_value=[],
+            ),
+        ):
+            sync = ERSmartSynchronizer(
+                config=sync_config_v2,
+                er_client=mock_er_client,
+                smart_client=MagicMock(),
+            )
+            sync.skip_choices = True
+            sync.push_smart_ca_datamodel_to_earthranger(
+                dm=dm, smart_ca_uuid="ca-1", ca_identifier="TEST"
+            )
+
+        build_choices.assert_not_called()
+        upsert.assert_not_called()
+
+    def test_event_type_needs_update_v2_existing_string_schema_parses(
+        self, sync_config_v2, mock_er_client
+    ):
+        """ER returns the v2 schema as a JSON string, not a dict.
+        We must parse it before comparing or every re-run patches everything."""
+        from er_smart_sync.smart_to_er_v2 import ERV2EventType
+
+        sync = ERSmartSynchronizer(
+            config=sync_config_v2,
+            er_client=mock_er_client,
+            smart_client=MagicMock(),
+        )
+
+        schema_dict = {"json": {"a": 1}, "ui": {"b": 2}}
+        et = ERV2EventType(
+            value="v", display="V", category="c",
+            event_schema=schema_dict,
+        )
+        # ER returns the same content as a JSON string.
+        existing = {
+            "value": "v", "display": "V", "is_active": True,
+            "category": "c", "readonly": False,
+            "schema": json.dumps(schema_dict),
+        }
+        assert sync._event_type_needs_update(et, existing) is False
+
+    def test_event_type_needs_update_v2_existing_string_schema_diff(
+        self, sync_config_v2, mock_er_client
+    ):
+        """When the stringified schema differs in content, we still detect it."""
+        from er_smart_sync.smart_to_er_v2 import ERV2EventType
+
+        sync = ERSmartSynchronizer(
+            config=sync_config_v2,
+            er_client=mock_er_client,
+            smart_client=MagicMock(),
+        )
+
+        et = ERV2EventType(
+            value="v", display="V", category="c",
+            event_schema={"json": {"a": 2}, "ui": {}},
+        )
+        existing = {
+            "value": "v", "display": "V", "is_active": True,
+            "category": "c", "readonly": False,
+            "schema": json.dumps({"json": {"a": 1}, "ui": {}}),
+        }
+        assert sync._event_type_needs_update(et, existing) is True
+
+    def test_event_type_needs_update_v2_readonly_drift(
+        self, sync_config_v2, mock_er_client
+    ):
+        """v2 has a top-level `readonly` field outside the schema. If ER's
+        existing record has readonly=True and we POST readonly=False (or
+        vice versa), the synchronizer must detect this and PATCH."""
+        from er_smart_sync.smart_to_er_v2 import ERV2EventType
+
+        sync = ERSmartSynchronizer(
+            config=sync_config_v2, er_client=mock_er_client,
+            smart_client=MagicMock(),
+        )
+        schema_dict = {"json": {"a": 1}, "ui": {}}
+        et = ERV2EventType(
+            value="v", display="V", category="c",
+            readonly=False,
+            event_schema=schema_dict,
+        )
+        existing = {
+            "value": "v", "display": "V", "is_active": True,
+            "category": "c", "readonly": True,
+            "schema": schema_dict,
+        }
+        assert sync._event_type_needs_update(et, existing) is True
+
+    def test_event_type_needs_update_v2_category_drift(
+        self, sync_config_v2, mock_er_client
+    ):
+        """v2 has a top-level `category` field outside the schema. If ER's
+        existing record points at a different category, the synchronizer
+        must detect and PATCH so the event type moves under the right one."""
+        from er_smart_sync.smart_to_er_v2 import ERV2EventType
+
+        sync = ERSmartSynchronizer(
+            config=sync_config_v2, er_client=mock_er_client,
+            smart_client=MagicMock(),
+        )
+        schema_dict = {"json": {"a": 1}, "ui": {}}
+        et = ERV2EventType(
+            value="v", display="V", category="new_category",
+            event_schema=schema_dict,
+        )
+        existing = {
+            "value": "v", "display": "V", "is_active": True,
+            "category": "old_category", "readonly": False,
+            "schema": schema_dict,
+        }
+        assert sync._event_type_needs_update(et, existing) is True
+
+    def test_v1_duplicate_key_detects_cross_version_v2_record(
+        self, sync_config, mock_er_client, caplog
+    ):
+        """When pushing v1 and the duplicate-key conflict is actually a v2
+        record (uniqueness spans both versions), the v1 lookup won't find
+        it and we'd surface a confusing generic error. Instead, detect the
+        cross-version collision and log-and-skip with a clear message."""
+        from smartconnect.er_sync_utils import EREventType
+
+        mock_er_client.get_event_categories.return_value = []
+        mock_er_client.get_event_types.return_value = []
+        mock_er_client.post_event_type.side_effect = Exception(
+            "duplicate key value violates unique constraint"
+        )
+
+        # The conflicting record IS in v2 records.
+        def get_event_types_by_version(*, version, **kwargs):
+            if version == "v2":
+                return [{"value": "v", "id": "v2-uuid"}]
+            return []
+
+        mock_er_client.get_event_types.side_effect = get_event_types_by_version
+
+        sync = ERSmartSynchronizer(
+            config=sync_config, er_client=mock_er_client,
+            smart_client=MagicMock(),
+        )
+        et = EREventType(value="v", display="V", is_active=True)
+        with caplog.at_level("WARNING"):
+            outcome = sync._create_event_type(et)
+
+        assert outcome == "skipped"
+        # No v1 PATCH attempted.
+        mock_er_client.patch_event_type.assert_not_called()
+        # The warning should mention the cross-version situation.
+        assert any(
+            "v2" in r.message and "exists" in r.message.lower()
+            for r in caplog.records
+        )

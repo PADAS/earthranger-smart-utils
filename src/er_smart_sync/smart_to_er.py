@@ -129,21 +129,17 @@ def _build_one_event_type(
     # active and leaf.
     is_active = bool(cm) or (cat.is_active and is_leaf)
 
-    path_components = (
-        cat.hkeyPath.split(".") if cm else cat.path.split(".")
-    )
+    path_components = cat.hkeyPath.split(".") if cm else cat.path.split(".")
     value_suffix = "_".join(path_components)
     if cm:
-        value = f'{ca_uuid}_{cm["cm_uuid"]}_{value_suffix}'
+        value = f"{ca_uuid}_{cm['cm_uuid']}_{value_suffix}"
     else:
         value = f"{ca_uuid}_{value_suffix}"
     # ER normalizes event type values to lowercase on write. We do the same
     # on the client so post-and-then-read-back comparisons stay consistent.
     value = value.lower()
 
-    event_type = EREventType(
-        value=value, display=cat.display, is_active=is_active
-    )
+    event_type = EREventType(value=value, display=cat.display, is_active=is_active)
 
     if not is_active:
         # Active=False categories still get registered so ER can show them
@@ -195,14 +191,10 @@ def _build_schema(
         key = cat_attr.key
         attribute = next((a for a in attributes if a.key == key), None)
         if attribute is None:
-            logger.warning(
-                "Attribute not found in data model", extra=dict(key=key)
-            )
+            logger.warning("Attribute not found in data model", extra=dict(key=key))
             continue
 
-        attribute_options_config = _options_config_for(
-            attribute_configs, key
-        )
+        attribute_options_config = _options_config_for(attribute_configs, key)
         try:
             prop = _attribute_property(
                 attribute=attribute,
@@ -211,9 +203,7 @@ def _build_schema(
                 options_config=attribute_options_config,
             )
         except Exception:
-            logger.exception(
-                "Error building schema property for attribute %s", key
-            )
+            logger.exception("Error building schema property for attribute %s", key)
             continue
 
         if prop is None:

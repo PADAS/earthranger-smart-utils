@@ -1,12 +1,16 @@
 import logging
+import re
 import sys
 
 import click
 import yaml
 
+from .choices import build_choice_sets, upsert_choices
 from .config import EarthRangerConfig, SmartConnectConfig, SyncConfig
 from .defaults import DryRunERClient, JsonFileStateStore, NullPublisher
 from .synchronizer import ERSmartSynchronizer
+
+logger = logging.getLogger(__name__)
 
 # Default cm_uuid used when --cm-from-file is given but --cm-uuid is not.
 # The on-server cm_uuid isn't always known in the file-based flow, but
@@ -17,6 +21,26 @@ from .synchronizer import ERSmartSynchronizer
 # ER site, the user must pass --cm-uuid <uuid> for each run so the generated
 # event-type values don't collide.
 _DEFAULT_FILE_CM_UUID = "00000000-0000-0000-0000-000000000000"
+
+# Synthetic CA UUID used for file-based syncs (no real CA UUID is known when
+# loading from a local XML file). Must be the same string in every file-based
+# code path so inspect-datamodel previews match what `datamodel --from-file`
+# would actually POST — the event-type value prefix and Choice.field hashes
+# both depend on this UUID.
+_FILE_BASED_CA_UUID = "smart-ca-import"
+
+_CA_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9_-]{2,30}$")
+
+
+def _validate_ca_identifier(ctx, param, value):
+    """Click callback: enforce 2-30 chars (alphanumeric, hyphen, underscore) on --ca-identifier."""
+    if value is None:
+        return None
+    if not _CA_IDENTIFIER_RE.match(value):
+        raise click.BadParameter(
+            f"{value!r}: must be 2-30 characters (A-Z, a-z, 0-9, hyphen, underscore)"
+        )
+    return value
 
 
 def _resolve_cm_uuid(cm_uuid: str | None) -> str:
@@ -32,6 +56,31 @@ def _resolve_cm_uuid(cm_uuid: str | None) -> str:
             f"--cm-uuid must be a valid UUID, got {cm_uuid!r}"
         ) from e
     return cm_uuid
+
+
+_DEFAULT_NETWORK_TIMEOUT_SECONDS = 600.0
+
+
+def _set_network_timeout(seconds: float | None) -> None:
+    """Bound every TCP read/connect so a stalled ER request can't hang the run.
+
+    ERClient (sync) doesn't expose a constructor-level network timeout; it
+    uses ``requests.{get,post,patch}`` directly without a ``timeout=`` kwarg.
+    Setting ``socket.setdefaulttimeout`` enforces a **process-wide** ceiling on
+    every blocking socket operation, after which ``requests`` raises and our
+    ``_retry`` wrapper kicks in.
+
+    Notes:
+    - Default ceiling is ``_DEFAULT_NETWORK_TIMEOUT_SECONDS`` (10 minutes).
+      That's deliberately higher than SmartClient's own ``read_timeout=300``
+      so SMART's library-level timeout fires first on slow SMART calls.
+    - Pass ``None`` (e.g. via ``--network-timeout 0``) to skip the override
+      entirely and rely on each library's own timeouts.
+    """
+    if seconds is None or seconds <= 0:
+        return
+    import socket
+    socket.setdefaulttimeout(seconds)
 
 
 def _setup_logging(verbose: bool) -> None:
@@ -64,12 +113,30 @@ def _load_config_from_file(path: str) -> SyncConfig:
 @click.option(
     "--dry-run",
     is_flag=True,
-    help="Log intended writes (event types, observations) without contacting ER or the message broker.",
+    help="Log intended writes without sending them to ER or the message broker.",
+)
+@click.option(
+    "--network-timeout",
+    type=float,
+    default=None,
+    envvar="ER_SMART_SYNC_NETWORK_TIMEOUT",
+    help=(
+        "Process-wide ceiling (seconds) on blocking socket operations. "
+        "Affects every HTTP request in the process (ER, SMART, anything else). "
+        "Default 600s. Pass 0 to disable and rely on each library's own timeouts. "
+        "Also configurable via the ER_SMART_SYNC_NETWORK_TIMEOUT env var."
+    ),
 )
 @click.pass_context
-def main(ctx, verbose, dry_run):
+def main(ctx, verbose, dry_run, network_timeout):
     """Synchronize SMART Connect data models, events, and patrols with EarthRanger."""
     _setup_logging(verbose)
+    timeout = (
+        network_timeout
+        if network_timeout is not None
+        else _DEFAULT_NETWORK_TIMEOUT_SECONDS
+    )
+    _set_network_timeout(timeout)
     ctx.ensure_object(dict)
     ctx.obj["dry_run"] = dry_run
 
@@ -88,7 +155,9 @@ def _make_synchronizer(
     if dry_run:
         sync.er_client = DryRunERClient(sync.er_client)
         sync.publisher = NullPublisher()
-        click.echo("Dry run mode: no writes will be sent to ER or to the broker.", err=True)
+        click.echo(
+            "Dry run mode: no writes will be sent to ER or to the broker.", err=True
+        )
     return sync
 
 
@@ -111,7 +180,9 @@ def er_options(f):
     f = click.option("--er-token", help="EarthRanger API token")(f)
     f = click.option("--er-username", default="", help="EarthRanger username")(f)
     f = click.option("--er-password", default="", help="EarthRanger password")(f)
-    f = click.option("--er-id", default="cli", help="Integration ID for state tracking")(f)
+    f = click.option(
+        "--er-id", default="cli", help="Integration ID for state tracking"
+    )(f)
     return f
 
 
@@ -134,9 +205,7 @@ def _build_config(
         config = _load_config_from_file(config_file)
     else:
         if not er_endpoint:
-            raise click.UsageError(
-                "Either --config or --er-endpoint is required."
-            )
+            raise click.UsageError("Either --config or --er-endpoint is required.")
         if not er_token and not (er_username and er_password):
             raise click.UsageError(
                 "EarthRanger auth requires either --er-token or both "
@@ -187,20 +256,71 @@ def _validate_config(config: SyncConfig) -> None:
 
 
 @main.command()
-@click.option("--config", "config_file", type=click.Path(exists=True), help="YAML config file")
+@click.option(
+    "--config", "config_file", type=click.Path(exists=True), help="YAML config file"
+)
 @smart_options
 @er_options
-@click.option("--smart-ca-uuid", multiple=True, help="Conservation area UUID(s) to sync")
-@click.option("--from-file", "datamodel_file", type=click.Path(exists=True), help="Load data model from local XML file instead of SMART API")
-@click.option("--cm-from-file", "cm_file", type=click.Path(exists=True), help="Load configurable model from local XML file (used with --from-file)")
-@click.option("--cm-uuid", "cm_uuid", default=None, help="Configurable-model UUID. Required when loading multiple configurable models for the same SMART CA to avoid event-type value collisions. Defaults to the zero UUID.")
-@click.option("--include-base-datamodel", is_flag=True, default=False, help="Also push the base data model as its own ER event category in addition to the configurable model. No effect unless --cm-from-file is given.")
-@click.option("--ca-label", default="[SMART-IMPORT]", help="Category label (used when --from-file)")
+@click.option(
+    "--smart-ca-uuid", multiple=True, help="Conservation area UUID(s) to sync"
+)
+@click.option(
+    "--from-file",
+    "datamodel_file",
+    type=click.Path(exists=True),
+    help="Load data model from local XML file instead of SMART API",
+)
+@click.option(
+    "--cm-from-file",
+    "cm_file",
+    type=click.Path(exists=True),
+    help="Load configurable model from local XML file (used with --from-file)",
+)
+@click.option(
+    "--cm-uuid",
+    "cm_uuid",
+    default=None,
+    help="Configurable-model UUID. Required when loading multiple configurable models for the same SMART CA to avoid event-type value collisions. Defaults to the zero UUID.",
+)
+@click.option(
+    "--include-base-datamodel",
+    is_flag=True,
+    default=False,
+    help="Also push the base data model as its own ER event category in addition to the configurable model. No effect unless --cm-from-file is given.",
+)
+@click.option(
+    "--ca-identifier",
+    "ca_identifier",
+    default=None,
+    callback=_validate_ca_identifier,
+    help=(
+        "Short code (2-30 chars; letters, digits, hyphens, underscores) used "
+        "as the ER event-category identifier. Required when --from-file is "
+        "used. Ignored when syncing from the SMART API (the identifier is "
+        "extracted from the CA label in that case)."
+    ),
+)
 @click.option(
     "--mode",
     type=click.Choice(["both", "create-only", "update-only"]),
     default="both",
     help="Restrict to creating only new event types, updating only existing ones, or both.",
+)
+@click.option(
+    "--event-type-version",
+    type=click.Choice(["v1", "v2"]),
+    default=None,
+    help="EarthRanger event-type API version. Overrides --config or the default (v2).",
+)
+@click.option(
+    "--skip-choices",
+    "skip_choices",
+    is_flag=True,
+    default=False,
+    help=(
+        "Skip the choices upsert phase (v2 only). "
+        "Use if you've already run `er-smart-sync choices` separately."
+    ),
 )
 @click.pass_context
 def datamodel(
@@ -221,8 +341,10 @@ def datamodel(
     cm_file,
     cm_uuid,
     include_base_datamodel,
-    ca_label,
+    ca_identifier,
     mode,
+    event_type_version,
+    skip_choices,
 ):
     """Sync SMART data models to EarthRanger as event categories/types."""
     config = _build_config(
@@ -240,6 +362,9 @@ def datamodel(
         smart_ca_uuids=smart_ca_uuid,
     )
 
+    if event_type_version:
+        config.earthranger.event_type_version = event_type_version
+
     if cm_file and not datamodel_file:
         raise click.UsageError("--cm-from-file requires --from-file")
     if cm_uuid and not cm_file:
@@ -255,6 +380,11 @@ def datamodel(
 
     if datamodel_file:
         # File-based sync: load XML, push directly to ER
+        if not ca_identifier:
+            raise click.UsageError(
+                "--ca-identifier is required when --from-file is used"
+            )
+
         from smartconnect import ConfigurableDataModel, SmartClient
 
         sclient = SmartClient(
@@ -276,6 +406,7 @@ def datamodel(
 
         sync = _make_synchronizer(config, ctx=ctx)
         sync.sync_mode = mode
+        sync.skip_choices = skip_choices
 
         # Without a CM: just push the base data model (single call).
         # With a CM + --include-base-datamodel: push the base DM as its own
@@ -285,14 +416,14 @@ def datamodel(
         if cm and include_base_datamodel:
             sync.push_smart_ca_datamodel_to_earthranger(
                 dm=dm,
-                smart_ca_uuid="smart-ca-import",
-                ca_label=ca_label,
+                smart_ca_uuid=_FILE_BASED_CA_UUID,
+                ca_identifier=ca_identifier,
                 cm=None,
             )
         sync.push_smart_ca_datamodel_to_earthranger(
             dm=dm,
-            smart_ca_uuid="smart-ca-import",
-            ca_label=ca_label,
+            smart_ca_uuid=_FILE_BASED_CA_UUID,
+            ca_identifier=ca_identifier,
             cm=cm,
         )
     else:
@@ -301,23 +432,167 @@ def datamodel(
             raise click.UsageError(
                 "Either --from-file or --smart-api (with credentials) is required."
             )
+        if ca_identifier:
+            logger.warning(
+                "--ca-identifier %r ignored: identifier will be extracted "
+                "from the conservation-area label fetched from the SMART API.",
+                ca_identifier,
+            )
         sync = _make_synchronizer(config, ctx=ctx)
         sync.sync_mode = mode
+        sync.skip_choices = skip_choices
         sync.synchronize_datamodel()
 
     _print_datamodel_summary(sync)
+
+
+# ── choices subcommand ─────────────────────────────────────────
+
+
+@main.command()
+@click.option(
+    "--config", "config_file", type=click.Path(exists=True), help="YAML config file"
+)
+@smart_options
+@er_options
+@click.option(
+    "--smart-ca-uuid", multiple=True, help="Conservation area UUID(s) to sync"
+)
+@click.option(
+    "--from-file",
+    "datamodel_file",
+    type=click.Path(exists=True),
+    help="Load data model from local XML file instead of SMART API",
+)
+@click.option(
+    "--cm-from-file",
+    "cm_file",
+    type=click.Path(exists=True),
+    help="Load configurable model from local XML file (used with --from-file)",
+)
+@click.option(
+    "--cm-uuid",
+    "cm_uuid",
+    default=None,
+    help="Configurable-model UUID. Defaults to the zero UUID.",
+)
+@click.pass_context
+def choices(
+    ctx,
+    config_file,
+    smart_api,
+    smart_username,
+    smart_password,
+    smart_version,
+    smart_language,
+    er_endpoint,
+    er_token,
+    er_username,
+    er_password,
+    er_id,
+    smart_ca_uuid,
+    datamodel_file,
+    cm_file,
+    cm_uuid,
+):
+    """Upsert SMART option sets as EarthRanger Choice records.
+
+    Required before pushing v2 event types; v2 event-type schemas reference
+    choices via $ref, and the referenced records must exist first.
+
+    **Currently only --from-file is supported.** The SMART API flags
+    (--smart-api / --smart-username / --smart-password / --smart-version /
+    --smart-ca-uuid) are accepted on the command line for symmetry with
+    other subcommands but are not used by `choices`; --smart-language is
+    consulted for parsing the XML file.
+    """
+    # Fail fast before doing any config work or constructing clients. The
+    # SMART API flags advertised by `@smart_options` aren't wired into this
+    # subcommand yet — being explicit avoids a confusing late error.
+    if not datamodel_file:
+        raise click.UsageError(
+            "The `choices` subcommand currently requires --from-file. "
+            "API-based choices sync (via --smart-api/--smart-ca-uuid) is "
+            "not yet implemented; the SMART API flags are accepted but "
+            "ignored. Use --from-file with --cm-from-file for now."
+        )
+    if cm_file and not datamodel_file:
+        raise click.UsageError("--cm-from-file requires --from-file")
+    if cm_uuid and not cm_file:
+        raise click.UsageError("--cm-uuid requires --cm-from-file")
+    if smart_api or smart_username or smart_password or smart_ca_uuid:
+        logger.warning(
+            "SMART API flags (--smart-api, --smart-username, --smart-password, "
+            "--smart-ca-uuid) are not used by `choices` and will be ignored. "
+            "Only --smart-language is consulted for file parsing."
+        )
+
+    config = _build_config(
+        config_file=config_file,
+        smart_api=smart_api,
+        smart_username=smart_username,
+        smart_password=smart_password,
+        smart_version=smart_version,
+        smart_language=smart_language,
+        er_endpoint=er_endpoint,
+        er_token=er_token,
+        er_username=er_username,
+        er_password=er_password,
+        er_id=er_id,
+        smart_ca_uuids=smart_ca_uuid,
+    )
+
+    resolved_cm_uuid = _resolve_cm_uuid(cm_uuid) if cm_file else None
+
+    sync = _make_synchronizer(config, ctx=ctx)
+
+    from smartconnect import ConfigurableDataModel, SmartClient
+
+    sclient = SmartClient(
+        api="https://tempuri.org/",
+        username="",
+        password="",
+        use_language_code=smart_language,
+    )
+    dm = sclient.load_datamodel(filename=datamodel_file)
+    cm = None
+    if cm_file:
+        cm = ConfigurableDataModel(
+            use_language_code=smart_language,
+            cm_uuid=resolved_cm_uuid,
+        )
+        with open(cm_file) as f:
+            cm.load(f.read())
+    choice_sets = build_choice_sets(
+        dm=dm.export_as_dict(),
+        cm=cm.export_as_dict() if cm else None,
+        ca_uuid=_FILE_BASED_CA_UUID,
+    )
+
+    stats = upsert_choices(er_client=sync.er_client, choice_sets=choice_sets)
+    click.echo(
+        f"Choices: created={stats.created} updated={stats.updated} "
+        f"unchanged={stats.unchanged} deactivated={stats.deactivated} "
+        f"errored={stats.errored}"
+    )
+    if stats.errored > 0:
+        raise click.ClickException(f"{stats.errored} choice operations failed")
 
 
 # ── events subcommand ───────────────────────────────────────────
 
 
 @main.command()
-@click.option("--config", "config_file", type=click.Path(exists=True), help="YAML config file")
+@click.option(
+    "--config", "config_file", type=click.Path(exists=True), help="YAML config file"
+)
 @smart_options
 @er_options
 @click.option("--smart-ca-uuid", multiple=True, help="Conservation area UUID(s)")
 @click.option("--topic", default="", help="Pub/Sub topic for publishing events")
-@click.option("--state-file", default="/tmp/er-smart-sync-state.json", help="Path to state file")
+@click.option(
+    "--state-file", default="/tmp/er-smart-sync-state.json", help="Path to state file"
+)
 @click.pass_context
 def events(
     ctx,
@@ -365,12 +640,16 @@ def events(
 
 
 @main.command()
-@click.option("--config", "config_file", type=click.Path(exists=True), help="YAML config file")
+@click.option(
+    "--config", "config_file", type=click.Path(exists=True), help="YAML config file"
+)
 @smart_options
 @er_options
 @click.option("--smart-ca-uuid", multiple=True, help="Conservation area UUID(s)")
 @click.option("--topic", default="", help="Pub/Sub topic for publishing patrols")
-@click.option("--state-file", default="/tmp/er-smart-sync-state.json", help="Path to state file")
+@click.option(
+    "--state-file", default="/tmp/er-smart-sync-state.json", help="Path to state file"
+)
 @click.pass_context
 def patrols(
     ctx,
@@ -500,11 +779,24 @@ earthranger:
   # Optional. OAuth client_id used when authenticating with login/password.
   # Defaults to "das_web_client".
   client_id: das_web_client
+
+  # EarthRanger event-type API version: "v1" or "v2". Default: v2.
+  # v2 is the current EarthRanger event-type shape (JSON Schema 2020-12 +
+  # UI envelope). v1 is the legacy shape and is still supported for tenants
+  # that haven't enabled v2.
+  event_type_version: v2
+
+  # URL prefix used in v2 event-type schema $refs (e.g.
+  # "{choices_base_url}/choices.json?field=<field>"). Default matches ER's
+  # standard /api/v2.0/schemas layout.
+  choices_base_url: /api/v2.0/schemas
 """
 
 
 @main.command("validate-config")
-@click.option("--config", "config_file", type=click.Path(exists=True), help="YAML config file")
+@click.option(
+    "--config", "config_file", type=click.Path(exists=True), help="YAML config file"
+)
 @smart_options
 @er_options
 def validate_config_cmd(
@@ -546,11 +838,13 @@ def validate_config_cmd(
     if config.smart.endpoint:
         # Hitting any cheap SMART endpoint is enough to validate auth.
         smart_ok = _try_call(
-            lambda: list(config.smart.ca_uuids)
-            and sync.smart_client.get_conservation_area(
-                ca_uuid=config.smart.ca_uuids[0]
-            )
-            or sync.smart_client.get_conservation_area(ca_uuid="probe"),
+            lambda: (
+                list(config.smart.ca_uuids)
+                and sync.smart_client.get_conservation_area(
+                    ca_uuid=config.smart.ca_uuids[0]
+                )
+                or sync.smart_client.get_conservation_area(ca_uuid="probe")
+            ),
             label=f"SMART Connect {config.smart.endpoint}",
             allow_404=True,
         )
@@ -579,7 +873,9 @@ def _try_call(fn, *, label: str, allow_404: bool = False) -> bool:
 
 
 @main.command("list-cas")
-@click.option("--config", "config_file", type=click.Path(exists=True), help="YAML config file")
+@click.option(
+    "--config", "config_file", type=click.Path(exists=True), help="YAML config file"
+)
 @smart_options
 @er_options
 def list_cas_cmd(
@@ -660,7 +956,9 @@ def _extract_id(label: str) -> str:
 
 
 @main.command("inspect-datamodel")
-@click.option("--config", "config_file", type=click.Path(exists=True), help="YAML config file")
+@click.option(
+    "--config", "config_file", type=click.Path(exists=True), help="YAML config file"
+)
 @smart_options
 @er_options
 @click.option("--smart-ca-uuid", help="Conservation area UUID to inspect")
@@ -683,9 +981,21 @@ def _extract_id(label: str) -> str:
     help="Configurable-model UUID (used with --cm-from-file). Required when loading multiple configurable models for the same SMART CA to avoid event-type value collisions. Defaults to the zero UUID.",
 )
 @click.option(
-    "--ca-label",
-    default="[INSPECT]",
-    help="CA label, used when --from-file is given",
+    "--ca-identifier",
+    "ca_identifier",
+    default=None,
+    callback=_validate_ca_identifier,
+    help=(
+        "Short code (2-30 chars; letters, digits, hyphens, underscores) used "
+        "as the ER event-category identifier when --from-file is used. Ignored "
+        "when --smart-ca-uuid is given (identifier extracted from CA label)."
+    ),
+)
+@click.option(
+    "--event-type-version",
+    type=click.Choice(["v1", "v2"]),
+    default=None,
+    help="Which event-type schema shape to print. Overrides --config or the default (v2).",
 )
 def inspect_datamodel_cmd(
     config_file,
@@ -703,7 +1013,8 @@ def inspect_datamodel_cmd(
     datamodel_file,
     cm_file,
     cm_uuid,
-    ca_label,
+    ca_identifier,
+    event_type_version,
 ):
     """Show the EarthRanger event types that *would* be created/updated from a SMART data model.
 
@@ -725,9 +1036,17 @@ def inspect_datamodel_cmd(
         smart_ca_uuids=[smart_ca_uuid] if smart_ca_uuid else None,
     )
 
+    # CLI flag overrides config; otherwise inherit from config.
+    if event_type_version is None:
+        event_type_version = config.earthranger.event_type_version
+
     from smartconnect import ConfigurableDataModel, SmartClient
 
     if datamodel_file:
+        if not ca_identifier:
+            raise click.UsageError(
+                "--ca-identifier is required when --from-file is used"
+            )
         sclient = SmartClient(
             api="https://tempuri.org/",
             username="",
@@ -736,6 +1055,12 @@ def inspect_datamodel_cmd(
         )
         dm = sclient.load_datamodel(filename=datamodel_file)
     elif smart_ca_uuid:
+        if ca_identifier:
+            logger.warning(
+                "--ca-identifier %r ignored: identifier will be extracted "
+                "from the conservation-area label fetched from the SMART API.",
+                ca_identifier,
+            )
         sclient = SmartClient(
             api=config.smart.endpoint,
             username=config.smart.login,
@@ -745,11 +1070,20 @@ def inspect_datamodel_cmd(
         )
         dm = sclient.get_data_model(ca_uuid=smart_ca_uuid)
         ca = sclient.get_conservation_area(ca_uuid=smart_ca_uuid)
-        ca_label = ca.label
+        ca_identifier = ERSmartSynchronizer.get_identifier_from_ca_label(ca.label)
+        if not ca_identifier:
+            # Match the runtime sync behavior (push_smart_datamodel_to_earthranger
+            # raises on the same condition) — fail with the same actionable message
+            # rather than silently rendering "CA: " with a blank identifier.
+            raise click.ClickException(
+                f"Could not extract a CA identifier from SMART label "
+                f"{ca.label!r} (ca_uuid={smart_ca_uuid}). The label must "
+                f"contain a bracketed short code, e.g. 'Foasf Reserve [FOASF]'. "
+                f"Fix the label in SMART Connect, or use --from-file with "
+                f"an explicit --ca-identifier."
+            )
     else:
-        raise click.UsageError(
-            "Either --from-file or --smart-ca-uuid is required."
-        )
+        raise click.UsageError("Either --from-file or --smart-ca-uuid is required.")
 
     if cm_uuid and not cm_file:
         raise click.UsageError("--cm-uuid requires --cm-from-file")
@@ -763,24 +1097,44 @@ def inspect_datamodel_cmd(
         with open(cm_file) as f:
             cm.load(f.read())
 
-    from .smart_to_er import build_event_types
+    # For file-based runs, use the same synthetic UUID `datamodel --from-file`
+    # uses, so inspect-datamodel previews match the actual sync output
+    # (event-type value prefixes and Choice.field $ref URLs both depend on it).
+    ca_uuid = smart_ca_uuid or _FILE_BASED_CA_UUID
 
-    ca_uuid = smart_ca_uuid or "ca-uuid-placeholder"
-    ca_identifier = ERSmartSynchronizer.get_identifier_from_ca_label(ca_label)
-    event_types = build_event_types(
-        dm=dm.export_as_dict(),
-        cm=cm.export_as_dict() if cm else None,
-        ca_uuid=ca_uuid,
-        ca_identifier=ca_identifier,
-    )
+    if event_type_version == "v2":
+        from .smart_to_er_v2 import build_event_types_v2
 
-    _print_event_type_summary(event_types, ca_label=ca_label)
+        event_types = build_event_types_v2(
+            dm=dm.export_as_dict(),
+            cm=cm.export_as_dict() if cm else None,
+            ca_uuid=ca_uuid,
+            ca_identifier=ca_identifier,
+            choices_base_url=config.earthranger.choices_base_url,
+        )
+        _print_event_type_summary_v2(event_types, ca_identifier=ca_identifier)
+        choice_sets = build_choice_sets(
+            dm=dm.export_as_dict(),
+            cm=cm.export_as_dict() if cm else None,
+            ca_uuid=ca_uuid,
+        )
+        _print_choice_set_summary(choice_sets)
+    else:
+        from .smart_to_er import build_event_types
+
+        event_types = build_event_types(
+            dm=dm.export_as_dict(),
+            cm=cm.export_as_dict() if cm else None,
+            ca_uuid=ca_uuid,
+            ca_identifier=ca_identifier,
+        )
+        _print_event_type_summary(event_types, ca_identifier=ca_identifier)
 
 
-def _print_event_type_summary(event_types, *, ca_label: str) -> None:
+def _print_event_type_summary(event_types, *, ca_identifier: str) -> None:
     import json as _json
 
-    click.echo(f"CA: {ca_label}")
+    click.echo(f"CA: {ca_identifier}")
     click.echo(f"Event types: {len(event_types)}")
     active = [et for et in event_types if et.is_active]
     inactive = [et for et in event_types if not et.is_active]
@@ -814,3 +1168,60 @@ def _print_event_type_summary(event_types, *, ca_label: str) -> None:
                 extras.append("readOnly")
             extras_str = f" ({', '.join(extras)})" if extras else ""
             click.echo(f"      {key}: {type_part}{extras_str}")
+
+
+def _print_event_type_summary_v2(event_types, *, ca_identifier: str) -> None:
+    click.echo(f"CA: {ca_identifier}")
+    click.echo(f"Event types: {len(event_types)}")
+    active = [et for et in event_types if et.is_active]
+    inactive = [et for et in event_types if not et.is_active]
+    click.echo(f"  active:   {len(active)}")
+    click.echo(f"  inactive: {len(inactive)}")
+    click.echo("")
+
+    for et in event_types:
+        active_marker = "" if et.is_active else " [inactive]"
+        click.echo(f"- {et.value}{active_marker}")
+        click.echo(f"    display: {et.display}")
+        if not et.event_schema:
+            continue
+        properties = et.event_schema.get("json", {}).get("properties", {})
+        ui_fields = et.event_schema.get("ui", {}).get("fields", {})
+        if not properties:
+            continue
+        click.echo("    fields:")
+        for key, prop in properties.items():
+            type_part = prop.get("type", "?")
+            if "format" in prop:
+                type_part = f"{type_part}/{prop['format']}"
+            ui = ui_fields.get(key, {})
+            extras = []
+            ui_type = ui.get("type")
+            if ui_type:
+                input_type = ui.get("inputType")
+                extras.append(
+                    f"ui={ui_type}/{input_type}" if input_type else f"ui={ui_type}"
+                )
+            enum = prop.get("enum")
+            items = prop.get("items", {})
+            if not enum and isinstance(items, dict):
+                enum = items.get("enum")
+            if enum:
+                extras.append(f"enum={enum}")
+            if prop.get("deprecated"):
+                extras.append("deprecated")
+            extras_str = f" ({', '.join(extras)})" if extras else ""
+            click.echo(f"      {key}: {type_part}{extras_str}")
+
+
+def _print_choice_set_summary(choice_sets) -> None:
+    if not choice_sets:
+        return
+    click.echo("")
+    click.echo(f"Choice sets: {len(choice_sets)}")
+    for cs in choice_sets:
+        click.echo(f"- field: {cs.field}")
+        click.echo(f"    options ({len(cs.options)}):")
+        for opt in cs.options:
+            marker = "" if opt.is_active else " [inactive]"
+            click.echo(f"      - {opt.value}: {opt.display}{marker}")
