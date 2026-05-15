@@ -31,6 +31,17 @@ er-smart-sync --help
 See the [Installation page](https://padas.github.io/earthranger-smart-utils/getting-started/install/)
 for prerequisites, optional extras, and verification steps.
 
+## For contributors
+
+Working on the codebase itself? Start with:
+
+- **[USAGE.md](USAGE.md)** — developer-oriented CLI reference, architecture notes, Pydantic v1 conventions, ER version-gating details, and the bracketed-CA-label convention as it affects the codebase.
+- **[CLAUDE.md](CLAUDE.md)** — codebase guidance for Claude Code sessions.
+- **[docs/superpowers/specs/](docs/superpowers/specs/)** — design specs for non-trivial features (v2 event types, choices population, etc.).
+- **[docs/superpowers/plans/](docs/superpowers/plans/)** — implementation plans for recent feature work.
+
+The user-facing documentation at the link above covers what `er-smart-sync` does and how to use it; the references in this section cover how it's built.
+
 ## License
 
 Apache License 2.0. See [LICENSE](LICENSE).
