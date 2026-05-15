@@ -97,7 +97,10 @@ class DryRunERClient:
     sentinel dict so callers expecting a response keep working.
     """
 
-    _WRITE_PREFIXES = ("post_", "patch_", "delete_", "put_")
+    _WRITE_PREFIXES = (
+        "post_", "patch_", "delete_", "put_",
+        "_post", "_patch", "_delete", "_put",
+    )
 
     def __init__(self, inner):
         self._inner = inner

@@ -213,9 +213,7 @@ def test_leaf_with_no_attributes_is_skipped():
 def test_inactive_category_emits_event_type_without_schema():
     dm = {
         "categories": [
-            _category(
-                "old", attributes=[_cat_attr("x")], is_active=False
-            ),
+            _category("old", attributes=[_cat_attr("x")], is_active=False),
         ],
         "attributes": [_attr("x", "TEXT")],
     }
@@ -336,9 +334,7 @@ def test_configurable_model_overrides_categories_and_filters_options():
             }
         ],
     }
-    out = build_event_types(
-        dm=dm, cm=cm, ca_uuid=CA_UUID, ca_identifier="X"
-    )
+    out = build_event_types(dm=dm, cm=cm, ca_uuid=CA_UUID, ca_identifier="X")
     assert len(out) == 1
     assert out[0].value == f"{CA_UUID}_cm1_incidents"
     prop = _schema(out[0])["properties"]["level"]
@@ -360,24 +356,17 @@ def test_value_is_lowercased_for_mixed_case_paths():
         "attributes": [_attr("note", "TEXT")],
     }
     out = build_event_types(dm=dm, ca_uuid=CA_UUID, ca_identifier="X")
-    assert (
-        out[0].value
-        == f"{CA_UUID}_actividadesantropicas_mineria".lower()
-    )
+    assert out[0].value == f"{CA_UUID}_actividadesantropicas_mineria".lower()
 
 
 def test_configurable_model_skips_options_without_isactive():
     dm = {
         "categories": [_category("c", attributes=[_cat_attr("k")])],
-        "attributes": [
-            _attr("k", "LIST", options=[_option("a"), _option("b")])
-        ],
+        "attributes": [_attr("k", "LIST", options=[_option("a"), _option("b")])],
     }
     cm = {
         "cm_uuid": "CM1",
-        "categories": [
-            _category("c", attributes=[_cat_attr("k")], hkey_path="c")
-        ],
+        "categories": [_category("c", attributes=[_cat_attr("k")], hkey_path="c")],
         "attributes": [
             {
                 "key": "k",
@@ -388,8 +377,6 @@ def test_configurable_model_skips_options_without_isactive():
             }
         ],
     }
-    out = build_event_types(
-        dm=dm, cm=cm, ca_uuid=CA_UUID, ca_identifier="X"
-    )
+    out = build_event_types(dm=dm, cm=cm, ca_uuid=CA_UUID, ca_identifier="X")
     prop = _schema(out[0])["properties"]["k"]
     assert prop["enum"] == ["b"]

@@ -1,3 +1,4 @@
+from typing import Literal
 
 import pydantic
 
@@ -52,6 +53,15 @@ class EarthRangerConfig(pydantic.BaseModel):
     password: str = ""
     token: str = ""
     client_id: str = "das_web_client"
+    event_type_version: Literal["v1", "v2"] = "v2"
+    choices_base_url: str = "/api/v2.0/schemas"
+
+    @pydantic.validator("event_type_version", pre=True)
+    def _normalize_event_type_version(cls, v):
+        if not isinstance(v, str):
+            return v
+        normalized = v.strip().lower()
+        return {"v1.0": "v1", "v2.0": "v2"}.get(normalized, normalized)
 
 
 class SyncConfig(pydantic.BaseModel):

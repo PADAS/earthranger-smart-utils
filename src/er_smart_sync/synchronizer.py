@@ -25,6 +25,7 @@ from smartconnect.er_sync_utils import (
     get_subjects_from_patrol_data_model,
 )
 
+from .choices import build_choice_sets, upsert_choices
 from .config import SyncConfig
 from .defaults import (
     JsonFileStateStore,
@@ -33,6 +34,7 @@ from .defaults import (
     NullTracing,
 )
 from .smart_to_er import build_event_types
+from .smart_to_er_v2 import ERV2EventType, build_event_types_v2
 from .utils import unicode_to_ascii
 
 logger = logging.getLogger(__name__)
@@ -76,6 +78,42 @@ def _retry(fn, *, max_attempts: int = 4, base_delay: float = 1.0, **kwargs):
     raise last_exc  # pragma: no cover — unreachable
 
 
+def _summarize_schema_diff(new: dict, existing: dict) -> str:
+    """Compact human-readable diff of two schema dicts for debugging."""
+    if not isinstance(new, dict) or not isinstance(existing, dict):
+        return (
+            f"type-mismatch new={type(new).__name__} existing={type(existing).__name__}"
+        )
+
+    new_keys = set(new.keys())
+    existing_keys = set(existing.keys())
+    only_new = new_keys - existing_keys
+    only_existing = existing_keys - new_keys
+    common = new_keys & existing_keys
+
+    diffs = []
+    if only_new:
+        diffs.append(f"keys-only-in-new={sorted(only_new)}")
+    if only_existing:
+        diffs.append(f"keys-only-in-existing={sorted(only_existing)}")
+    for k in sorted(common):
+        if new[k] != existing[k]:
+            n_repr = repr(new[k])
+            e_repr = repr(existing[k])
+            if len(n_repr) > 120 or len(e_repr) > 120:
+                # For deeply nested mismatches, recurse one level if both are dicts.
+                if isinstance(new[k], dict) and isinstance(existing[k], dict):
+                    nested = _summarize_schema_diff(new[k], existing[k])
+                    diffs.append(f"{k}: {{ {nested} }}")
+                else:
+                    diffs.append(
+                        f"{k}: new={n_repr[:120]}... existing={e_repr[:120]}..."
+                    )
+            else:
+                diffs.append(f"{k}: new={n_repr} existing={e_repr}")
+    return "; ".join(diffs) or "(equal but != returned True?)"
+
+
 class ERSmartSynchronizer:
     """Synchronizes data between SMART Connect and EarthRanger.
 
@@ -109,6 +147,8 @@ class ERSmartSynchronizer:
         # Datamodel-sync mode: "both", "create-only", or "update-only".
         # Drives whether create_or_update_er_event_types skips creates or updates.
         self.sync_mode: str = "both"
+        self.skip_choices: bool = False
+        self._event_type_version: str = config.earthranger.event_type_version
         # Datamodel-sync run summary counters, populated by create_or_update_er_event_types.
         self.datamodel_stats: dict[str, int] = {
             "categories_created": 0,
@@ -117,7 +157,13 @@ class ERSmartSynchronizer:
             "event_types_updated": 0,
             "event_types_unchanged": 0,
             "event_types_skipped_by_mode": 0,
+            "event_types_skipped_by_conflict": 0,
             "event_types_errored": 0,
+            "choices_created": 0,
+            "choices_updated": 0,
+            "choices_unchanged": 0,
+            "choices_deactivated": 0,
+            "choices_errored": 0,
         }
 
         if er_client:
@@ -163,18 +209,16 @@ class ERSmartSynchronizer:
         # the prior CA's writes.
         self._er_event_categories_cache = self.er_client.get_event_categories()
         self._er_event_types_cache = self.er_client.get_event_types(
-            include_inactive=True, include_schema=True
+            include_inactive=True,
+            include_schema=True,
+            version=self._event_type_version,
         )
         try:
             for idx, ca_uuid in enumerate(ca_uuids, start=1):
-                logger.info(
-                    "Syncing CA %d/%d (%s)", idx, total, ca_uuid
-                )
+                logger.info("Syncing CA %d/%d (%s)", idx, total, ca_uuid)
                 ca = self.smart_client.get_conservation_area(ca_uuid=ca_uuid)
 
-                self.push_smart_datamodel_to_earthranger(
-                    smart_ca_uuid=ca_uuid, ca=ca
-                )
+                self.push_smart_datamodel_to_earthranger(smart_ca_uuid=ca_uuid, ca=ca)
 
                 configurable_model_list = (
                     self.config.smart.configurable_models_lists.get(ca_uuid)
@@ -209,9 +253,7 @@ class ERSmartSynchronizer:
             self._er_event_types_cache = None
             logger.info(
                 "Datamodel sync summary: %s",
-                ", ".join(
-                    f"{k}={v}" for k, v in self.datamodel_stats.items()
-                ),
+                ", ".join(f"{k}={v}" for k, v in self.datamodel_stats.items()),
             )
 
     def push_smart_datamodel_to_earthranger(
@@ -220,32 +262,86 @@ class ERSmartSynchronizer:
         dm = self.smart_client.get_data_model(ca_uuid=smart_ca_uuid)
 
         if smart_cm_uuid:
-            cm = self.smart_client.get_configurable_data_model(
-                cm_uuid=smart_cm_uuid
-            )
+            cm = self.smart_client.get_configurable_data_model(cm_uuid=smart_cm_uuid)
         else:
             cm = None
 
+        ca_identifier = self.get_identifier_from_ca_label(ca.label)
+        if not ca_identifier:
+            raise ValueError(
+                f"Could not extract a CA identifier from SMART label "
+                f"{ca.label!r} (ca_uuid={smart_ca_uuid}). The label must "
+                f"contain a bracketed short code, e.g. 'Foasf Reserve [FOASF]'. "
+                f"Fix the label in SMART Connect, or use --from-file with "
+                f"an explicit --ca-identifier."
+            )
+
         return self.push_smart_ca_datamodel_to_earthranger(
-            dm=dm, smart_ca_uuid=smart_ca_uuid, ca_label=ca.label, cm=cm
+            dm=dm,
+            smart_ca_uuid=smart_ca_uuid,
+            ca_identifier=ca_identifier,
+            cm=cm,
         )
 
     def push_smart_ca_datamodel_to_earthranger(
-        self, *, dm=None, smart_ca_uuid=None, ca_label=None, cm=None
+        self, *, dm=None, smart_ca_uuid: str | None = None,
+        ca_identifier: str | None = None, cm=None,
     ) -> None:
         if not dm:
             raise ValueError("dm is required")
+        if not smart_ca_uuid:
+            raise ValueError("smart_ca_uuid is required")
+        if not ca_identifier:
+            raise ValueError("ca_identifier is required")
 
         dm_dict = dm.export_as_dict()
         cdm_dict = cm.export_as_dict() if cm else None
 
-        ca_identifier = self.get_identifier_from_ca_label(ca_label)
-        event_types = build_event_types(
-            dm=dm_dict,
-            cm=cdm_dict,
-            ca_uuid=smart_ca_uuid,
-            ca_identifier=ca_identifier,
-        )
+        if self._event_type_version == "v2" and not self.skip_choices:
+            choice_sets = build_choice_sets(
+                dm=dm_dict,
+                cm=cdm_dict,
+                ca_uuid=smart_ca_uuid,
+            )
+            choices_stats = upsert_choices(
+                er_client=self.er_client,
+                choice_sets=choice_sets,
+            )
+            self.datamodel_stats["choices_created"] += choices_stats.created
+            self.datamodel_stats["choices_updated"] += choices_stats.updated
+            self.datamodel_stats["choices_unchanged"] += choices_stats.unchanged
+            self.datamodel_stats["choices_deactivated"] += choices_stats.deactivated
+            self.datamodel_stats["choices_errored"] += choices_stats.errored
+
+            if choices_stats.errored > 0:
+                logger.warning(
+                    "Aborting event-type push for CA %s: %d choice "
+                    "operations failed. Investigate the choice errors above "
+                    "before re-running.",
+                    smart_ca_uuid,
+                    choices_stats.errored,
+                    extra=dict(
+                        ca_uuid=smart_ca_uuid,
+                        choices_errored=choices_stats.errored,
+                    ),
+                )
+                return
+
+        if self._event_type_version == "v2":
+            event_types = build_event_types_v2(
+                dm=dm_dict,
+                cm=cdm_dict,
+                ca_uuid=smart_ca_uuid,
+                ca_identifier=ca_identifier,
+                choices_base_url=self.config.earthranger.choices_base_url,
+            )
+        else:
+            event_types = build_event_types(
+                dm=dm_dict,
+                cm=cdm_dict,
+                ca_uuid=smart_ca_uuid,
+                ca_identifier=ca_identifier,
+            )
 
         if self._er_event_categories_cache is not None:
             existing_event_categories = self._er_event_categories_cache
@@ -275,24 +371,26 @@ class ERSmartSynchronizer:
                     "update-only mode: skipping creation of missing category %s",
                     event_category_value,
                 )
-                self.datamodel_stats["event_types_skipped_by_mode"] += len(
-                    event_types
-                )
+                self.datamodel_stats["event_types_skipped_by_mode"] += len(event_types)
                 return
             logger.info(
                 "Event Category not found in destination ER, creating now ...",
-                extra=dict(
-                    value=event_category_value, display=event_category_display
-                ),
+                extra=dict(value=event_category_value, display=event_category_display),
             )
 
             event_category = dict(
                 value=event_category_value, display=event_category_display
             )
             try:
-                _retry(
+                posted = _retry(
                     self.er_client.post_event_category, data=event_category
                 )
+                # ER assigns the category's UUID server-side; merge it back
+                # so downstream v1 event-type POSTs can reference the
+                # category by its `id` (v1 expects a UUID FK; v2 uses the
+                # `value` slug).
+                if isinstance(posted, dict) and posted.get("id"):
+                    event_category["id"] = posted["id"]
                 logger.info(
                     "Successfully created event category",
                     extra=dict(
@@ -305,10 +403,7 @@ class ERSmartSynchronizer:
                     self._er_event_categories_cache.append(event_category)
             except Exception as e:
                 error_message = str(e)
-                if (
-                    "duplicate key value violates unique constraint"
-                    in error_message
-                ):
+                if "duplicate key value violates unique constraint" in error_message:
                     logger.warning(
                         "Event category already exists; re-fetching and continuing",
                         extra=dict(
@@ -317,9 +412,7 @@ class ERSmartSynchronizer:
                             error=error_message,
                         ),
                     )
-                    existing_event_categories = (
-                        self.er_client.get_event_categories()
-                    )
+                    existing_event_categories = self.er_client.get_event_categories()
                     refetched = next(
                         (
                             x
@@ -359,8 +452,6 @@ class ERSmartSynchronizer:
 
         translation = str.maketrans(
             {
-                "[": "",
-                "]": "",
                 " ": "_",
                 "-": "_",
                 "/": "_",
@@ -406,25 +497,72 @@ class ERSmartSynchronizer:
         return ""
 
     def _event_type_needs_update(
-        self, event_type: EREventType, existing_er_event_type: dict
+        self, event_type: EREventType | ERV2EventType, existing_er_event_type: dict
     ) -> bool:
-        if (
-            event_type.is_active != existing_er_event_type.get("is_active")
-            or event_type.display != existing_er_event_type.get("display")
-        ):
+        if event_type.is_active != existing_er_event_type.get(
+            "is_active"
+        ) or event_type.display != existing_er_event_type.get("display"):
             return True
 
-        if event_type.is_active and event_type.event_schema:
-            new_schema = json.loads(event_type.event_schema).get("schema")
-            existing_schema = json.loads(
-                existing_er_event_type.get("schema", "{}")
-            ).get("schema")
-            if not er_event_type_schemas_equal(new_schema, existing_schema):
+        # v2 has top-level `readonly` and `category` fields outside the schema
+        # blob. The schema comparison below won't catch differences in these,
+        # so re-runs would never PATCH a drift in readonly or category.
+        if self._event_type_version == "v2":
+            new_readonly = bool(getattr(event_type, "readonly", False))
+            existing_readonly = bool(existing_er_event_type.get("readonly", False))
+            if new_readonly != existing_readonly:
                 return True
+            if event_type.category != existing_er_event_type.get("category"):
+                return True
+
+        if event_type.is_active and event_type.event_schema:
+            if self._event_type_version == "v2":
+                new_schema = event_type.event_schema
+                raw_existing = existing_er_event_type.get("schema") or {}
+                if isinstance(raw_existing, str):
+                    # ER returns v2 schemas as JSON-stringified blobs on GET
+                    # (DRF serializes the JSONField as a string). Parse it
+                    # so dict == dict comparison works.
+                    try:
+                        existing_schema = json.loads(raw_existing)
+                    except (json.JSONDecodeError, TypeError):
+                        logger.warning(
+                            "Existing v2 schema for %r is a string that "
+                            "doesn't parse as JSON; treating as empty. "
+                            "First 200 chars: %r",
+                            event_type.value,
+                            raw_existing[:200],
+                        )
+                        existing_schema = {}
+                elif isinstance(raw_existing, dict):
+                    existing_schema = raw_existing
+                else:
+                    logger.warning(
+                        "Existing v2 schema for %r came back as %s "
+                        "(unexpected); treating as empty.",
+                        event_type.value,
+                        type(raw_existing).__name__,
+                    )
+                    existing_schema = {}
+                if new_schema != existing_schema:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "v2 schema diff for %r: %s",
+                            event_type.value,
+                            _summarize_schema_diff(new_schema, existing_schema),
+                        )
+                    return True
+            else:
+                new_schema = json.loads(event_type.event_schema).get("schema")
+                existing_schema = json.loads(
+                    existing_er_event_type.get("schema", "{}")
+                ).get("schema")
+                if not er_event_type_schemas_equal(new_schema, existing_schema):
+                    return True
 
         return False
 
-    def _create_event_type(self, event_type: EREventType) -> bool:
+    def _create_event_type(self, event_type: EREventType | ERV2EventType) -> str:
         """Create an event type; recover by patching on duplicate-value conflicts.
 
         ER enforces a unique constraint on `value` per tenant (across all
@@ -432,7 +570,7 @@ class ERSmartSynchronizer:
         e.g. because get_event_types didn't return everything — the POST will
         fail with a duplicate-key error. In that case, re-fetch and patch.
 
-        Returns True if a record was created, False if we fell back to a patch.
+        Returns one of "created", "patched", "skipped", or "errored".
         """
         logger.info(
             "Creating ER event type %r (%s)",
@@ -444,10 +582,21 @@ class ERSmartSynchronizer:
             _retry(
                 self.er_client.post_event_type,
                 event_type=event_type.dict(by_alias=True, exclude_none=True),
+                version=self._event_type_version,
             )
-            return True
+            return "created"
         except Exception as e:
             if "duplicate key" in str(e) or "already exists" in str(e):
+                if self._event_type_version == "v2":
+                    logger.warning(
+                        "Event type value %r already exists in this tenant "
+                        "(possibly under v1). Skipping; run ER's "
+                        "POST /api/v2.0/activity/eventtypes/migrate/ to "
+                        "convert legacy v1 records before retrying.",
+                        event_type.value,
+                        extra=dict(value=event_type.value),
+                    )
+                    return "skipped"
                 logger.warning(
                     "post_event_type hit existing record; patching instead",
                     extra=dict(value=event_type.value),
@@ -455,17 +604,40 @@ class ERSmartSynchronizer:
                 existing = self._find_existing_event_type(event_type.value)
                 if existing is not None:
                     self._update_event_type(event_type, existing)
-                    return False
+                    return "patched"
+
+                # Not found in v1 records — the conflict may be with a v2
+                # record. ER's value-uniqueness constraint spans v1+v2, so
+                # the colliding record can live in either version.
+                try:
+                    other_records = self.er_client.get_event_types(
+                        include_inactive=True,
+                        include_schema=True,
+                        version="v2",
+                    )
+                except Exception:
+                    other_records = []
+                if any(
+                    r.get("value") == event_type.value for r in other_records or []
+                ):
+                    logger.warning(
+                        "Event type value %r exists in this tenant as v2; "
+                        "skipping the v1 push to avoid cross-version "
+                        "corruption. Convert it via POST "
+                        "/api/v2.0/activity/eventtypes/migrate/ before "
+                        "retrying v1.",
+                        event_type.value,
+                        extra=dict(value=event_type.value),
+                    )
+                    return "skipped"
             logger.exception(
                 "Error occurred during er_client.post_event_type",
                 extra=dict(
-                    event_type=event_type.dict(
-                        by_alias=True, exclude_none=True
-                    ),
+                    event_type=event_type.dict(by_alias=True, exclude_none=True),
                     error=str(e),
                 ),
             )
-            return False
+            return "errored"
 
     def _find_existing_event_type(self, value: str) -> dict | None:
         """Look up an event type by value, bypassing any cache.
@@ -475,19 +647,19 @@ class ERSmartSynchronizer:
         """
         try:
             fresh = self.er_client.get_event_types(
-                include_inactive=True, include_schema=True
+                include_inactive=True,
+                include_schema=True,
+                version=self._event_type_version,
             )
         except Exception:
             logger.exception("Failed to refetch event types after conflict")
             return None
         if self._er_event_types_cache is not None:
             self._er_event_types_cache = fresh
-        return next(
-            (x for x in fresh if x.get("value") == value), None
-        )
+        return next((x for x in fresh if x.get("value") == value), None)
 
     def _update_event_type(
-        self, event_type: EREventType, existing_er_event_type: dict
+        self, event_type: EREventType | ERV2EventType, existing_er_event_type: dict
     ) -> None:
         logger.info(
             "Updating ER event type %r (%s)",
@@ -500,14 +672,13 @@ class ERSmartSynchronizer:
             _retry(
                 self.er_client.patch_event_type,
                 event_type=event_type.dict(by_alias=True, exclude_none=True),
+                version=self._event_type_version,
             )
         except Exception as e:
             logger.exception(
                 "Error occurred during er_client.patch_event_type",
                 extra=dict(
-                    event_type=event_type.dict(
-                        by_alias=True, exclude_none=True
-                    ),
+                    event_type=event_type.dict(by_alias=True, exclude_none=True),
                     error=str(e),
                 ),
             )
@@ -516,13 +687,15 @@ class ERSmartSynchronizer:
         self,
         *,
         event_category: dict | None = None,
-        event_types: list[EREventType] | None = None,
+        event_types: list[EREventType] | list[ERV2EventType] | None = None,
     ) -> None:
         if self._er_event_types_cache is not None:
             existing_event_types = self._er_event_types_cache
         else:
             existing_event_types = self.er_client.get_event_types(
-                include_inactive=True, include_schema=True
+                include_inactive=True,
+                include_schema=True,
+                version=self._event_type_version,
             )
         logger.debug(
             "Fetched %d existing event types from ER for category %s",
@@ -532,7 +705,12 @@ class ERSmartSynchronizer:
 
         for event_type in event_types or []:
             try:
-                event_type.category = event_category.get("value")
+                # v1's event-type payload uses `category` as a UUID FK;
+                # v2's uses the category `value` slug. Assign the right one.
+                if self._event_type_version == "v1":
+                    event_type.category = event_category.get("id")
+                else:
+                    event_type.category = event_category.get("value")
                 logger.debug(
                     "Checking event type %r (%s)",
                     event_type.display,
@@ -554,23 +732,21 @@ class ERSmartSynchronizer:
 
                 if not existing_er_event_type:
                     if self.sync_mode == "update-only":
-                        self.datamodel_stats[
-                            "event_types_skipped_by_mode"
-                        ] += 1
+                        self.datamodel_stats["event_types_skipped_by_mode"] += 1
                         continue
-                    created = self._create_event_type(event_type)
-                    if created:
+                    outcome = self._create_event_type(event_type)
+                    if outcome == "created":
                         self.datamodel_stats["event_types_created"] += 1
-                    else:
-                        # Fell back to patch because of a duplicate-value race.
+                    elif outcome == "patched":
+                        # Fell back to patch because of a duplicate-value race on v1.
                         self.datamodel_stats["event_types_updated"] += 1
-                elif self._event_type_needs_update(
-                    event_type, existing_er_event_type
-                ):
+                    elif outcome == "skipped":
+                        self.datamodel_stats["event_types_skipped_by_conflict"] += 1
+                    else:
+                        self.datamodel_stats["event_types_errored"] += 1
+                elif self._event_type_needs_update(event_type, existing_er_event_type):
                     if self.sync_mode == "create-only":
-                        self.datamodel_stats[
-                            "event_types_skipped_by_mode"
-                        ] += 1
+                        self.datamodel_stats["event_types_skipped_by_mode"] += 1
                         continue
                     self._update_event_type(event_type, existing_er_event_type)
                     self.datamodel_stats["event_types_updated"] += 1
@@ -586,9 +762,7 @@ class ERSmartSynchronizer:
                 logger.exception(
                     "Unexpected error occurred while syncing event type",
                     extra=dict(
-                        event_type=event_type.dict(
-                            by_alias=True, exclude_none=True
-                        ),
+                        event_type=event_type.dict(by_alias=True, exclude_none=True),
                         error=str(e),
                     ),
                 )
@@ -641,9 +815,9 @@ class ERSmartSynchronizer:
                 if not event.patrols:
                     event.integration_id = integration_id
                     event.device_id = event.id
-                    if version.parse(
-                        self.smart_client.version
-                    ) < version.parse("7.5.3"):
+                    if version.parse(self.smart_client.version) < version.parse(
+                        "7.5.3"
+                    ):
                         try:
                             self.update_event_with_smart_data(event=event)
                         except Exception as e:
@@ -692,13 +866,9 @@ class ERSmartSynchronizer:
                                 "tracing_context": tracing_context,
                             },
                         )
-                        subspan.add_event(
-                            "gundi_er_smart_sync.event_sent_to_routing"
-                        )
+                        subspan.add_event("gundi_er_smart_sync.event_sent_to_routing")
                         i_state.event_last_poll_at = event.updated_at
-                        self.state_store.set_last_poll(
-                            integration_id, i_state
-                        )
+                        self.state_store.set_last_poll(integration_id, i_state)
                         published += 1
                 else:
                     current_span.set_attribute("is_patrol_event", True)
@@ -725,9 +895,7 @@ class ERSmartSynchronizer:
         """Add a SMART observation UUID to an ER event if it doesn't have one."""
         if not event.event_details.get("smart_observation_uuid"):
             smart_observation_uuid = uuid.uuid1()
-            event.event_details["smart_observation_uuid"] = str(
-                smart_observation_uuid
-            )
+            event.event_details["smart_observation_uuid"] = str(smart_observation_uuid)
             payload = dict(event_details=event.event_details)
             _retry(
                 self.er_client.patch_event,
@@ -749,9 +917,7 @@ class ERSmartSynchronizer:
         with ThreadPoolExecutor(
             max_workers=min(max_workers, max(1, len(files)))
         ) as pool:
-            futures = {
-                pool.submit(self.process_file, file=f): f for f in files
-            }
+            futures = {pool.submit(self.process_file, file=f): f for f in files}
             for fut in as_completed(futures):
                 f = futures[fut]
                 try:
@@ -812,9 +978,7 @@ class ERSmartSynchronizer:
         }
         patrols = parse_obj_as(
             list[ERPatrol],
-            self.er_client.get_patrols(
-                filter=json.dumps(patrol_filter_spec)
-            ),
+            self.er_client.get_patrols(filter=json.dumps(patrol_filter_spec)),
         )
         logger.info(
             f"Read {len(patrols)} patrols from integration {self.config.earthranger.endpoint} (id={integration_id})",
@@ -835,9 +999,7 @@ class ERSmartSynchronizer:
         i_state.patrol_last_poll_at = upper
         self.state_store.set_last_poll(integration_id, i_state)
 
-    def _fetch_events_by_id(
-        self, event_ids: list
-    ) -> dict[str, EREvent]:
+    def _fetch_events_by_id(self, event_ids: list) -> dict[str, EREvent]:
         """Fetch full EREvents for the given ids in a single ER call.
 
         Falls back to per-id fetches if the batched call returns fewer events
@@ -951,9 +1113,7 @@ class ERSmartSynchronizer:
                         updates.append(update)
                     for event in seg.events:
                         events_updated_at.append(event.updated_at)
-                max_update = max(
-                    events_updated_at + [u.time for u in updates]
-                )
+                max_update = max(events_updated_at + [u.time for u in updates])
 
                 self._download_files_parallel(
                     patrol.files,
@@ -1019,8 +1179,7 @@ class ERSmartSynchronizer:
                         track_point.observation_details = None
 
                 if max_update < patrol_last_poll_at and not any(
-                    len(seg.track_points) > 0
-                    for seg in patrol.patrol_segments
+                    len(seg.track_points) > 0 for seg in patrol.patrol_segments
                 ):
                     logger.info(
                         "skipping processing, patrol doesn't have updates since last poll",
@@ -1047,9 +1206,7 @@ class ERSmartSynchronizer:
                     patrol_data = json.loads(patrol.json())
 
                     serialized_json = json.dumps(patrol_data)
-                    message_size_bytes = len(
-                        serialized_json.encode("utf-8")
-                    )
+                    message_size_bytes = len(serialized_json.encode("utf-8"))
                     message_size_mb = message_size_bytes / (1024 * 1024)
 
                     logger.info(
@@ -1072,9 +1229,7 @@ class ERSmartSynchronizer:
                                 "tracing_context": tracing_context,
                             },
                         )
-                        subspan.add_event(
-                            "gundi_er_smart_sync.patrol_sent_to_routing"
-                        )
+                        subspan.add_event("gundi_er_smart_sync.patrol_sent_to_routing")
                         published += 1
                     except Exception:
                         logger.exception(
@@ -1083,9 +1238,7 @@ class ERSmartSynchronizer:
                                 "patrol_id": patrol.id,
                                 "patrol_serial_number": patrol.serial_number,
                                 "message_size_bytes": message_size_bytes,
-                                "message_size_mb": round(
-                                    message_size_mb, 2
-                                ),
+                                "message_size_mb": round(message_size_mb, 2),
                             },
                         )
                         current_span.add_event(
@@ -1109,9 +1262,7 @@ class ERSmartSynchronizer:
         """Synchronize SMART patrol subjects (team members) to EarthRanger."""
         ca_uuids = self.config.smart.ca_uuids
         if not ca_uuids:
-            raise ValueError(
-                "No conservation areas configured for this integration"
-            )
+            raise ValueError("No conservation areas configured for this integration")
         smart_ca_uuid = ca_uuids[0]
         ca = self.smart_client.get_conservation_area(ca_uuid=smart_ca_uuid)
 
@@ -1122,17 +1273,14 @@ class ERSmartSynchronizer:
             pm=patrol_data_model, ca_uuid=smart_ca_uuid
         )
 
-        existing_subjects = parse_obj_as(
-            list[ERSubject], self.er_client.get_subjects()
-        )
+        existing_subjects = parse_obj_as(list[ERSubject], self.er_client.get_subjects())
         for subject in patrol_subjects:
             smart_member_id = subject.additional.get("smart_member_id")
             existing_subject_match = next(
                 (
                     ex_subject
                     for ex_subject in existing_subjects
-                    if ex_subject.additional.get("smart_member_id")
-                    == smart_member_id
+                    if ex_subject.additional.get("smart_member_id") == smart_member_id
                 ),
                 None,
             )
@@ -1149,9 +1297,7 @@ class ERSmartSynchronizer:
                     )
             else:
                 try:
-                    ca_identifier = self.get_identifier_from_ca_label(
-                        ca.label
-                    )
+                    ca_identifier = self.get_identifier_from_ca_label(ca.label)
                     if ca_identifier:
                         subject.name = f"{subject.name} ({ca_identifier})"
                     _retry(
