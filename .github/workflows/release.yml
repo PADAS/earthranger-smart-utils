@@ -5,12 +5,21 @@ on:
     tags:
       - "v*.*.*"
 
+# `id-token: write` is required for PyPI Trusted Publishing (OIDC).
+# `contents: write` is required for the GitHub Release upload step.
 permissions:
   contents: write
+  id-token: write
 
 jobs:
   build-and-release:
     runs-on: ubuntu-latest
+    # Pin to a named environment so the PyPI Trusted Publisher config
+    # can be scoped to `pypi` and PRs from forks cannot trigger a
+    # release.
+    environment:
+      name: pypi
+      url: https://pypi.org/p/er-smart-sync
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -58,7 +67,17 @@ jobs:
           fi
           echo "Tag and wheel both at $wheel_version"
 
+      - name: Publish to PyPI
+        # Trusted Publisher (OIDC) — no API token. Requires a one-time
+        # config on pypi.org: pypi.org/manage/account/publishing/ →
+        # add a trusted publisher for `er-smart-sync` pointing at this
+        # repo, workflow `release.yml`, environment `pypi`.
+        uses: pypa/gh-action-pypi-publish@release/v1
+
       - name: Create GitHub Release
+        # Also attach the artifacts to a GitHub Release. Keeps the
+        # existing "install from a release wheel URL" path working
+        # alongside `pip install er-smart-sync`.
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
