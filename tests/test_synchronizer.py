@@ -122,6 +122,129 @@ class TestDatamodelSync:
         posted = mock_er_client.post_event_category.call_args.kwargs["data"]
         assert posted["value"] == "test"
 
+    def test_v1_event_type_uses_category_uuid_not_slug(
+        self, sync_config, mock_er_client
+    ):
+        """v1 ER expects event_type.category as a UUID FK to the category,
+        not the category slug. v2 expects the slug. Branch correctly."""
+        from smartconnect.er_sync_utils import EREventType
+
+        category_uuid = "11111111-1111-1111-1111-111111111111"
+        mock_er_client.get_event_categories.return_value = [
+            {"id": category_uuid, "value": "test", "display": "TEST"}
+        ]
+        mock_er_client.get_event_types.return_value = []
+
+        dm = MagicMock()
+        dm.export_as_dict.return_value = {"categories": []}
+
+        et = EREventType(value="some_event", display="Some Event", is_active=True)
+        with patch(
+            "er_smart_sync.synchronizer.build_event_types",
+            return_value=[et],
+        ):
+            # sync_config uses er_config which is pinned to v1.
+            sync = ERSmartSynchronizer(
+                config=sync_config,
+                er_client=mock_er_client,
+                smart_client=MagicMock(),
+            )
+            sync.push_smart_ca_datamodel_to_earthranger(
+                dm=dm, smart_ca_uuid="uuid", ca_identifier="TEST"
+            )
+
+        # Event type was POSTed with category = UUID.
+        mock_er_client.post_event_type.assert_called_once()
+        posted = mock_er_client.post_event_type.call_args.kwargs["event_type"]
+        assert posted["category"] == category_uuid, (
+            f"v1 should POST category as UUID FK; got {posted['category']!r}"
+        )
+
+    def test_v2_event_type_uses_category_slug(
+        self, sync_config_v2, mock_er_client
+    ):
+        """v2 ER expects event_type.category as the category's value (slug)."""
+        from er_smart_sync.smart_to_er_v2 import ERV2EventType
+
+        category_uuid = "22222222-2222-2222-2222-222222222222"
+        mock_er_client.get_event_categories.return_value = [
+            {"id": category_uuid, "value": "test", "display": "TEST"}
+        ]
+        mock_er_client.get_event_types.return_value = []
+
+        dm = MagicMock()
+        dm.export_as_dict.return_value = {"categories": []}
+
+        et = ERV2EventType(value="some_event", display="Some Event")
+        with patch(
+            "er_smart_sync.synchronizer.build_event_types_v2",
+            return_value=[et],
+        ), patch(
+            "er_smart_sync.synchronizer.build_choice_sets",
+            return_value=[],
+        ), patch(
+            "er_smart_sync.synchronizer.upsert_choices",
+            return_value=__import__(
+                "er_smart_sync.choices", fromlist=["ChoicesStats"]
+            ).ChoicesStats(),
+        ):
+            sync = ERSmartSynchronizer(
+                config=sync_config_v2,
+                er_client=mock_er_client,
+                smart_client=MagicMock(),
+            )
+            sync.push_smart_ca_datamodel_to_earthranger(
+                dm=dm, smart_ca_uuid="uuid", ca_identifier="TEST"
+            )
+
+        mock_er_client.post_event_type.assert_called_once()
+        posted = mock_er_client.post_event_type.call_args.kwargs["event_type"]
+        assert posted["category"] == "test", (
+            f"v2 should POST category as slug; got {posted['category']!r}"
+        )
+
+    def test_created_category_preserves_id_for_v1_payload(
+        self, sync_config, mock_er_client
+    ):
+        """When we POST a fresh event category, ER assigns its UUID server-side.
+        We must capture that id and merge it back so v1 event-type POSTs can
+        reference the category by UUID (not just the slug we sent)."""
+        from smartconnect.er_sync_utils import EREventType
+
+        category_uuid = "33333333-3333-3333-3333-333333333333"
+        mock_er_client.get_event_categories.return_value = []
+        # ER returns the assigned UUID in the POST response.
+        mock_er_client.post_event_category.return_value = {
+            "id": category_uuid,
+            "value": "test",
+            "display": "TEST",
+        }
+        mock_er_client.get_event_types.return_value = []
+
+        dm = MagicMock()
+        dm.export_as_dict.return_value = {"categories": []}
+
+        et = EREventType(value="some_event", display="Some Event", is_active=True)
+        with patch(
+            "er_smart_sync.synchronizer.build_event_types",
+            return_value=[et],
+        ):
+            sync = ERSmartSynchronizer(
+                config=sync_config,
+                er_client=mock_er_client,
+                smart_client=MagicMock(),
+            )
+            sync.push_smart_ca_datamodel_to_earthranger(
+                dm=dm, smart_ca_uuid="uuid", ca_identifier="TEST"
+            )
+
+        mock_er_client.post_event_type.assert_called_once()
+        posted = mock_er_client.post_event_type.call_args.kwargs["event_type"]
+        assert posted["category"] == category_uuid, (
+            f"After category creation, v1 POST must use server-assigned "
+            f"UUID; got {posted['category']!r}"
+        )
+
     def test_skips_event_category_creation_when_exists(
         self, sync_config, mock_er_client
     ):
