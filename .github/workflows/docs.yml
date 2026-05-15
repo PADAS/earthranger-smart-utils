@@ -1,0 +1,44 @@
+name: docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - docs/**
+      - mkdocs.yml
+      - .github/workflows/docs.yml
+  # Allow manual triggers from the Actions UI.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # gh-deploy needs full history to commit to gh-pages.
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install docs dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install mkdocs-material mkdocs-exclude
+
+      # Note: not using --strict. The site intentionally contains screenshot
+      # placeholder references (er-event-category-list.png, etc.) listed in
+      # docs/images/README.md for the user to capture and replace later.
+      # --strict would fail until those slots are filled.
+      - name: Build site
+        run: mkdocs build
+
+      - name: Deploy to gh-pages
+        run: mkdocs gh-deploy --force
