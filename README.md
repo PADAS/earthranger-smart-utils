@@ -21,8 +21,10 @@ a complete CLI reference, conceptual background, and troubleshooting.
 
 ## Quick install
 
-Install the latest release wheel from
-[GitHub Releases](https://github.com/PADAS/earthranger-smart-utils/releases):
+Pick the latest release on the
+[releases page](https://github.com/PADAS/earthranger-smart-utils/releases),
+copy the wheel URL, and install it (replacing `vX.Y.Z` / `X.Y.Z` with the
+actual version):
 
 ```bash
 uv pip install https://github.com/PADAS/earthranger-smart-utils/releases/download/vX.Y.Z/er_smart_sync-X.Y.Z-py3-none-any.whl
