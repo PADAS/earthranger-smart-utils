@@ -434,7 +434,7 @@ requires-dist = [
     { name = "pytest-mock", marker = "extra == 'dev'" },
     { name = "pyyaml" },
     { name = "ruff", marker = "extra == 'dev'" },
-    { name = "smartconnect-client", url = "https://github.com/PADAS/smartconnect-client/releases/download/v1.11.0/smartconnect_client-1.11.0-py3-none-any.whl" },
+    { name = "smartconnect-client", specifier = ">=1.11.0,<2.0" },
     { name = "ty", marker = "extra == 'dev'" },
 ]
 provides-extras = ["gcp", "tracing", "dev", "docs"]
@@ -1671,8 +1671,8 @@ wheels = [
 
 [[package]]
 name = "smartconnect-client"
-version = "1.11.0"
-source = { url = "https://github.com/PADAS/smartconnect-client/releases/download/v1.11.0/smartconnect_client-1.11.0-py3-none-any.whl" }
+version = "1.11.1"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "dateparser" },
     { name = "environs" },
@@ -1687,24 +1687,9 @@ dependencies = [
     { name = "timezonefinder" },
     { name = "untangle" },
 ]
+sdist = { url = "https://files.pythonhosted.org/packages/38/47/e5fe4959659db5ab1aea453de3a6370107643f164aa681f7a49116403a22/smartconnect_client-1.11.1.tar.gz", hash = "sha256:638027c1095982569b95c0933e6cf7d143129d7386a0f186f1407b110d0b2c2c", size = 18739, upload-time = "2026-05-16T00:01:29.36Z" }
 wheels = [
-    { url = "https://github.com/PADAS/smartconnect-client/releases/download/v1.11.0/smartconnect_client-1.11.0-py3-none-any.whl", hash = "sha256:573ab6aa13d8fdb067a125f5c66a109777f9c4622b451e2a93b5a0d56b93ebc1" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "dateparser", specifier = ">=1.2.0,<2.0.0" },
-    { name = "environs", specifier = ">=9.3.0,<10.0.0" },
-    { name = "httpx", specifier = ">=0.28.0,<0.29.0" },
-    { name = "marshmallow", specifier = "<4.0.0" },
-    { name = "numpy", specifier = ">=1.21.7,<2.0.0" },
-    { name = "pydantic", specifier = ">=1.10.0,<2.0.0" },
-    { name = "python-json-logger", specifier = ">=3.0.0,<4.0.0" },
-    { name = "pytz", specifier = ">=2025.0,<2026.0" },
-    { name = "redis", specifier = ">=6.0.0,<7.0.0" },
-    { name = "shapely", specifier = ">=2.0.0,<3.0.0" },
-    { name = "timezonefinder", specifier = ">=8.0.0,<9.0.0" },
-    { name = "untangle", specifier = ">=1.1.1,<2.0.0" },
+    { url = "https://files.pythonhosted.org/packages/3d/34/98bbda46456f0c7c704eaa9c5dab2344377c426475a662785eb5fd4fbcd1/smartconnect_client-1.11.1-py3-none-any.whl", hash = "sha256:c3913fc696a8c359f1b123bafe4fb0348a5ecc9e419362c557f7d944516563ab", size = 24835, upload-time = "2026-05-16T00:01:27.825Z" },
 ]
 
 [[package]]
