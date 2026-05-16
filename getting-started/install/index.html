@@ -565,10 +565,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#install-from-a-release-recommended-for-support-staff" class="md-nav__link">
+  <a href="#install-from-pypi-recommended" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Install from a release (recommended for support staff)
+        Install from PyPI (recommended)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#install-from-a-github-release" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Install from a GitHub Release
       
     </span>
   </a>
@@ -1442,10 +1453,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#install-from-a-release-recommended-for-support-staff" class="md-nav__link">
+  <a href="#install-from-pypi-recommended" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Install from a release (recommended for support staff)
+        Install from PyPI (recommended)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#install-from-a-github-release" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Install from a GitHub Release
       
     </span>
   </a>
@@ -1576,23 +1598,28 @@
 <li><strong><code>uv</code></strong> (recommended) or <code>pip</code> for installing the package.</li>
 <li><strong>Read access to the <code>PADAS/earthranger-smart-utils</code> GitHub repository.</strong></li>
 </ul>
-<h2 id="install-from-a-release-recommended-for-support-staff">Install from a release (recommended for support staff)<a class="headerlink" href="#install-from-a-release-recommended-for-support-staff" title="Permanent link">&para;</a></h2>
-<p>Each tagged release attaches a wheel to its GitHub Release page. Pick the
-latest release on the
-<a href="https://github.com/PADAS/earthranger-smart-utils/releases">releases page</a>,
-copy the wheel URL, and install it:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>https://github.com/PADAS/earthranger-smart-utils/releases/download/vX.Y.Z/er_smart_sync-X.Y.Z-py3-none-any.whl
+<h2 id="install-from-pypi-recommended">Install from PyPI (recommended)<a class="headerlink" href="#install-from-pypi-recommended" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>er-smart-sync
 </code></pre></div>
-<p>(Replace <code>vX.Y.Z</code> / <code>X.Y.Z</code> with the actual version.) This pulls in the
-<code>smartconnect-client</code> and <code>earthranger-client</code> dependencies automatically.</p>
+<p>That's it. The CLI is registered as <code>er-smart-sync</code>. Use <code>er-smart-sync==X.Y.Z</code>
+to pin to a specific version.</p>
+<h2 id="install-from-a-github-release">Install from a GitHub Release<a class="headerlink" href="#install-from-a-github-release" title="Permanent link">&para;</a></h2>
+<p>Each tagged release also attaches a wheel to its GitHub Release page. Useful
+if you need an offline installer or want to pin to a specific build URL.
+Pick the latest release on the
+<a href="https://github.com/PADAS/earthranger-smart-utils/releases">releases page</a>,
+copy the wheel URL, and install it (replacing <code>vX.Y.Z</code> / <code>X.Y.Z</code> with the
+actual version):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>https://github.com/PADAS/earthranger-smart-utils/releases/download/vX.Y.Z/er_smart_sync-X.Y.Z-py3-none-any.whl
+</code></pre></div>
 <h2 id="install-from-source-for-development">Install from source (for development)<a class="headerlink" href="#install-from-source-for-development" title="Permanent link">&para;</a></h2>
 <p>Clone the repository and install in editable mode:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>git<span class="w"> </span>clone<span class="w"> </span>git@github.com:PADAS/earthranger-smart-utils.git
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="nb">cd</span><span class="w"> </span>earthranger-smart-utils
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">&quot;.[dev]&quot;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>git<span class="w"> </span>clone<span class="w"> </span>git@github.com:PADAS/earthranger-smart-utils.git
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="nb">cd</span><span class="w"> </span>earthranger-smart-utils
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">&quot;.[dev]&quot;</span>
 </code></pre></div>
 <p>The CLI is registered as <code>er-smart-sync</code>. Verify it installed:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>er-smart-sync<span class="w"> </span>--help
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>er-smart-sync<span class="w"> </span>--help
 </code></pre></div>
 <p>You should see the list of subcommands (<code>datamodel</code>, <code>choices</code>, <code>events</code>,
 <code>patrols</code>, <code>inspect-datamodel</code>, <code>validate-config</code>, <code>list-cas</code>,
@@ -1627,7 +1654,7 @@ copy the wheel URL, and install it:</p>
 <p>Combine multiple: <code>uv pip install -e ".[dev,gcp,docs]"</code>.</p>
 <h2 id="verify">Verify<a class="headerlink" href="#verify" title="Permanent link">&para;</a></h2>
 <p>Run the test suite to confirm the install works end-to-end:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>pytest<span class="w"> </span>-q
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>pytest<span class="w"> </span>-q
 </code></pre></div>
 <p>You should see all tests passing.</p>
 <h2 id="next">Next<a class="headerlink" href="#next" title="Permanent link">&para;</a></h2>
