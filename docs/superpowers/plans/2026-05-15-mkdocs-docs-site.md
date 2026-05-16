@@ -761,7 +761,7 @@ Two modes:
     ```bash
     er-smart-sync datamodel \
       --config sync.yaml \
-      --from-file ~/***REMOVED***.datamodel.xml \
+      --from-file ~/junglekeepers-peru.datamodel.xml \
       --ca-identifier JKPERU
     ```
 

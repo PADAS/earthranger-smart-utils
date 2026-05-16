@@ -5,7 +5,7 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "sync ***REMOVED***.pamdas.org",
+            "name": "sync junglekeepers-peru.pamdas.org",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/.venv/bin/er-smart-sync",
@@ -14,17 +14,17 @@
                 "--smart-language",
                 "es",
                 "--er-token",
-                "***REMOVED***",
+                "98ILsqkxMA0R9MSK7Kl6nZLBQ9SKAI",
                 "--er-endpoint",
-                "https://***REMOVED***.pamdas.org",
+                "https://junglekeepers-peru.pamdas.org",
                 "--smart-ca-uuid",
                 "SMART-IMPORT",
                 "--from-file",
-                "/Users/chrisdo/***REMOVED***.datamodel.xml",
+                "/Users/chrisdo/junglekeepers-peru.datamodel.xml",
                 "--ca-label",
                 "[SMART]",
                 "--cm-from-file",
-                "/Users/chrisdo/***REMOVED***.cm.xml"
+                "/Users/chrisdo/junglekeepers-peru.cm.xml"
             ],
             "console": "integratedTerminal"
         },
@@ -38,9 +38,9 @@
                 "--smart-language",
                 "in",
                 "--er-token",
-                "***REMOVED***",
+                "df7cddebb00c8e509ba820022b6c730d3c3414c6",
                 "--er-endpoint",
-                "https://***REMOVED***.pamdas.org",
+                "https://ujungkulon-np.pamdas.org",
                 "--smart-ca-uuid",
                 "SMART-IMPORT",
                 "--from-file",
