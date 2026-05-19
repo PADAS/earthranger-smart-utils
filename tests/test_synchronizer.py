@@ -67,6 +67,50 @@ class TestStaticHelpers:
         assert ERSmartSynchronizer.get_identifier_from_ca_label() == ""
 
 
+class TestDiffHelpers:
+    def test_list_diff_length_mismatch(self):
+        from er_smart_sync.synchronizer import _summarize_list_diff
+
+        result = _summarize_list_diff([1, 2, 3], [1, 2])
+        assert "length new=3 existing=2" in result
+
+    def test_list_diff_element_mismatch_names_index(self):
+        from er_smart_sync.synchronizer import _summarize_list_diff
+
+        result = _summarize_list_diff(["a", "b", "c"], ["a", "x", "c"])
+        assert "first-diff-at-index=1" in result
+        assert "new='b'" in result and "existing='x'" in result
+
+    def test_list_diff_equal_lists_returns_placeholder(self):
+        from er_smart_sync.synchronizer import _summarize_list_diff
+
+        assert _summarize_list_diff([1, 2], [1, 2]) == "(equal but != returned True?)"
+
+    def test_value_diff_routes_dicts_to_schema_diff(self):
+        from er_smart_sync.synchronizer import _summarize_value_diff
+
+        result = _summarize_value_diff({"a": 1}, {"a": 2})
+        assert "a: new=1 existing=2" in result
+
+    def test_value_diff_type_mismatch(self):
+        from er_smart_sync.synchronizer import _summarize_value_diff
+
+        result = _summarize_value_diff([1, 2], {"a": 1})
+        assert "type-mismatch" in result and "list" in result and "dict" in result
+
+    def test_schema_diff_recurses_into_nested_list(self):
+        from er_smart_sync.synchronizer import _summarize_schema_diff
+
+        # Long list values trigger the recursion branch (repr > 120 chars).
+        long_new = [f"item_{i}" for i in range(20)]
+        long_existing = long_new[:10] + ["different"] + long_new[11:]
+        result = _summarize_schema_diff(
+            {"definition": long_new}, {"definition": long_existing}
+        )
+        assert "definition" in result
+        assert "first-diff-at-index=10" in result
+
+
 class TestDatamodelSync:
     def test_push_smart_ca_datamodel_requires_dm(self, sync_config, mock_er_client):
         sync = ERSmartSynchronizer(
@@ -122,11 +166,12 @@ class TestDatamodelSync:
         posted = mock_er_client.post_event_category.call_args.kwargs["data"]
         assert posted["value"] == "test"
 
-    def test_v1_event_type_uses_category_uuid_not_slug(
+    def test_v1_event_type_uses_category_slug(
         self, sync_config, mock_er_client
     ):
-        """v1 ER expects event_type.category as a UUID FK to the category,
-        not the category slug. v2 expects the slug. Branch correctly."""
+        """ER's event_type endpoint resolves `category` by slug for both v1
+        and v2. Sending the UUID 400s with `event_category: <uuid> does not
+        exist` because the slug lookup can't match a UUID string."""
         from smartconnect.er_sync_utils import EREventType
 
         category_uuid = "11111111-1111-1111-1111-111111111111"
@@ -143,7 +188,6 @@ class TestDatamodelSync:
             "er_smart_sync.synchronizer.build_event_types",
             return_value=[et],
         ):
-            # sync_config uses er_config which is pinned to v1.
             sync = ERSmartSynchronizer(
                 config=sync_config,
                 er_client=mock_er_client,
@@ -153,11 +197,10 @@ class TestDatamodelSync:
                 dm=dm, smart_ca_uuid="uuid", ca_identifier="TEST"
             )
 
-        # Event type was POSTed with category = UUID.
         mock_er_client.post_event_type.assert_called_once()
         posted = mock_er_client.post_event_type.call_args.kwargs["event_type"]
-        assert posted["category"] == category_uuid, (
-            f"v1 should POST category as UUID FK; got {posted['category']!r}"
+        assert posted["category"] == "test", (
+            f"v1 should POST category as slug; got {posted['category']!r}"
         )
 
     def test_v2_event_type_uses_category_slug(
@@ -203,19 +246,16 @@ class TestDatamodelSync:
             f"v2 should POST category as slug; got {posted['category']!r}"
         )
 
-    def test_created_category_preserves_id_for_v1_payload(
+    def test_event_type_post_uses_slug_after_creating_category(
         self, sync_config, mock_er_client
     ):
-        """When we POST a fresh event category, ER assigns its UUID server-side.
-        We must capture that id and merge it back so v1 event-type POSTs can
-        reference the category by UUID (not just the slug we sent)."""
+        """When we POST a fresh event category, the follow-up event-type POST
+        still keys on slug — independent of whatever id ER assigns server-side."""
         from smartconnect.er_sync_utils import EREventType
 
-        category_uuid = "33333333-3333-3333-3333-333333333333"
         mock_er_client.get_event_categories.return_value = []
-        # ER returns the assigned UUID in the POST response.
         mock_er_client.post_event_category.return_value = {
-            "id": category_uuid,
+            "id": "33333333-3333-3333-3333-333333333333",
             "value": "test",
             "display": "TEST",
         }
@@ -240,10 +280,99 @@ class TestDatamodelSync:
 
         mock_er_client.post_event_type.assert_called_once()
         posted = mock_er_client.post_event_type.call_args.kwargs["event_type"]
-        assert posted["category"] == category_uuid, (
-            f"After category creation, v1 POST must use server-assigned "
-            f"UUID; got {posted['category']!r}"
+        assert posted["category"] == "test", (
+            f"event-type POST must use category slug; got {posted['category']!r}"
         )
+
+    def test_dedup_collapses_same_value_to_one_post(
+        self, sync_config, mock_er_client, caplog
+    ):
+        """SMART builder occasionally emits multiple distinct event types
+        with the same value (CM-variant ambiguity). Without dedup the same ER
+        row gets PATCHed N times per run and never settles."""
+        from smartconnect.er_sync_utils import EREventType
+
+        mock_er_client.get_event_categories.return_value = [
+            {"id": "cat-id", "value": "test", "display": "TEST"}
+        ]
+        mock_er_client.get_event_types.return_value = []
+
+        ets = [
+            EREventType(value="dupe", display="A variant", is_active=True),
+            EREventType(value="dupe", display="B variant", is_active=True),
+            EREventType(value="dupe", display="C variant", is_active=True),
+        ]
+        dm = MagicMock()
+        dm.export_as_dict.return_value = {"categories": []}
+        with patch(
+            "er_smart_sync.synchronizer.build_event_types",
+            return_value=ets,
+        ):
+            sync = ERSmartSynchronizer(
+                config=sync_config,
+                er_client=mock_er_client,
+                smart_client=MagicMock(),
+            )
+            with caplog.at_level("WARNING"):
+                sync.push_smart_ca_datamodel_to_earthranger(
+                    dm=dm, smart_ca_uuid="uuid", ca_identifier="TEST"
+                )
+
+        assert mock_er_client.post_event_type.call_count == 1, (
+            "dedup must collapse same-value variants to one POST"
+        )
+        assert any(
+            "duplicate value 'dupe'" in r.message and "alphabetical" in r.message
+            for r in caplog.records
+        )
+
+    def test_dedup_picks_variant_matching_existing_display(
+        self, sync_config, mock_er_client, caplog
+    ):
+        """For idempotent re-runs, the picker prefers the variant whose
+        display matches what ER already has — so noop runs stay noop."""
+        from smartconnect.er_sync_utils import EREventType
+
+        mock_er_client.get_event_categories.return_value = [
+            {"id": "cat-id", "value": "test", "display": "TEST"}
+        ]
+        mock_er_client.get_event_types.return_value = [
+            {
+                "value": "dupe",
+                "display": "B variant",
+                "is_active": True,
+                "schema": "{}",
+            }
+        ]
+
+        ets = [
+            EREventType(value="dupe", display="A variant", is_active=True),
+            EREventType(value="dupe", display="B variant", is_active=True),
+            EREventType(value="dupe", display="C variant", is_active=True),
+        ]
+        dm = MagicMock()
+        dm.export_as_dict.return_value = {"categories": []}
+        with patch(
+            "er_smart_sync.synchronizer.build_event_types",
+            return_value=ets,
+        ):
+            sync = ERSmartSynchronizer(
+                config=sync_config,
+                er_client=mock_er_client,
+                smart_client=MagicMock(),
+            )
+            with caplog.at_level("WARNING"):
+                sync.push_smart_ca_datamodel_to_earthranger(
+                    dm=dm, smart_ca_uuid="uuid", ca_identifier="TEST"
+                )
+
+        # Match-existing fired, and since the chosen variant equals what's in
+        # ER, no PATCH should be issued.
+        assert any(
+            "matched existing ER display" in r.message for r in caplog.records
+        )
+        assert mock_er_client.patch_event_type.call_count == 0
+        assert mock_er_client.post_event_type.call_count == 0
 
     def test_skips_event_category_creation_when_exists(
         self, sync_config, mock_er_client
@@ -820,6 +949,48 @@ class TestRetry:
         # Only one call — no retries on bad credentials.
         assert mock_er_client.post_event_category.call_count == 1
 
+    @pytest.mark.parametrize(
+        "msg",
+        [
+            "duplicate key value violates unique constraint",
+            "Event Type with this Das tenant and Value already exists.",
+            "event_category: <uuid> does not exist.",
+            "400 Invalid JSON Schema: foo",
+        ],
+    )
+    def test_retry_short_circuits_on_permanent_400_messages(
+        self, msg, sync_config, mock_er_client
+    ):
+        """4xx ER validation errors are permanent — retrying just delays the
+        caller's recovery path (e.g. patch-on-duplicate) by ~7s."""
+        mock_er_client.get_event_categories.return_value = []
+        mock_er_client.post_event_category.side_effect = Exception(msg)
+
+        dm = MagicMock()
+        dm.export_as_dict.return_value = {"categories": []}
+
+        with patch(
+            "er_smart_sync.synchronizer.build_event_types",
+            return_value=[],
+        ):
+            sync = ERSmartSynchronizer(
+                config=sync_config,
+                er_client=mock_er_client,
+                smart_client=MagicMock(),
+            )
+            # Non-duplicate-key permanent errors propagate; duplicate-key gets
+            # swallowed by the category-creation handler. Either way: one call.
+            try:
+                sync.push_smart_ca_datamodel_to_earthranger(
+                    dm=dm, smart_ca_uuid="uuid", ca_identifier="TEST"
+                )
+            except Exception:
+                pass
+
+        assert mock_er_client.post_event_category.call_count == 1, (
+            f"Permanent error %r should not retry" % msg
+        )
+
 
 class TestDatamodelCache:
     def test_synchronize_datamodel_fetches_categories_once(
@@ -1050,7 +1221,7 @@ class TestEventTypeVersionWiring:
         assert mock_er_client.post_event_type.called
         assert not mock_er_client.patch_event_type.called
         assert any(
-            "exists in v1" in r.message or "duplicate" in r.message.lower()
+            "already exists" in r.message and "possibly under v1" in r.message
             for r in caplog.records
         )
 
