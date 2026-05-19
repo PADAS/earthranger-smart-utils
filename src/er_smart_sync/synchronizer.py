@@ -47,12 +47,30 @@ _NON_RETRIABLE_ER_ERRORS = (
     ERClientPermissionDenied,
 )
 
+# erclient flattens 4xx validation errors into ERClientException with the
+# server's message embedded in the string. Retrying these wastes ~7s per
+# event-type before the caller's recovery path (e.g. patch-on-duplicate)
+# ever gets to run. Bail out immediately when the message matches a known
+# permanent failure mode.
+_NON_RETRIABLE_ER_MESSAGE_SUBSTRINGS = (
+    "already exists",
+    "duplicate key",
+    "does not exist",
+    "Invalid JSON Schema",
+)
+
+
+def _is_permanent_er_error(exc: BaseException) -> bool:
+    msg = str(exc)
+    return any(s in msg for s in _NON_RETRIABLE_ER_MESSAGE_SUBSTRINGS)
+
 
 def _retry(fn, *, max_attempts: int = 4, base_delay: float = 1.0, **kwargs):
     """Call fn(**kwargs) with exponential-backoff retries on transient errors.
 
-    Retries any exception except those in _NON_RETRIABLE_ER_ERRORS. We retry
-    broadly because erclient maps several transient failure modes (5xx, gateway
+    Retries any exception except those in _NON_RETRIABLE_ER_ERRORS or whose
+    message matches _NON_RETRIABLE_ER_MESSAGE_SUBSTRINGS. We retry broadly
+    because erclient maps several transient failure modes (5xx, gateway
     errors, connection errors) onto distinct exceptions, and the cost of an
     unnecessary retry is bounded by max_attempts.
     """
@@ -63,6 +81,8 @@ def _retry(fn, *, max_attempts: int = 4, base_delay: float = 1.0, **kwargs):
         except _NON_RETRIABLE_ER_ERRORS:
             raise
         except Exception as e:
+            if _is_permanent_er_error(e):
+                raise
             last_exc = e
             if attempt == max_attempts:
                 raise
@@ -76,6 +96,37 @@ def _retry(fn, *, max_attempts: int = 4, base_delay: float = 1.0, **kwargs):
             )
             time.sleep(delay)
     raise last_exc  # pragma: no cover — unreachable
+
+
+def _summarize_value_diff(new, existing) -> str:
+    """Diff two arbitrary JSON-shaped values (dict, list, scalar)."""
+    if isinstance(new, dict) and isinstance(existing, dict):
+        return _summarize_schema_diff(new, existing)
+    if isinstance(new, list) and isinstance(existing, list):
+        return _summarize_list_diff(new, existing)
+    if type(new) is not type(existing):
+        return (
+            f"type-mismatch new={type(new).__name__}({new!r}) "
+            f"existing={type(existing).__name__}({existing!r})"
+        )
+    n_repr = repr(new)
+    e_repr = repr(existing)
+    if len(n_repr) > 120 or len(e_repr) > 120:
+        return f"new={n_repr[:120]}... existing={e_repr[:120]}..."
+    return f"new={n_repr} existing={e_repr}"
+
+
+def _summarize_list_diff(new: list, existing: list) -> str:
+    """Compact diff of two lists at the same nesting level."""
+    if len(new) != len(existing):
+        return (
+            f"length new={len(new)} existing={len(existing)} "
+            f"(first new={new[:2]!r}; first existing={existing[:2]!r})"
+        )
+    for i, (n, e) in enumerate(zip(new, existing)):
+        if n != e:
+            return f"first-diff-at-index={i}: {_summarize_value_diff(n, e)}"
+    return "(equal but != returned True?)"
 
 
 def _summarize_schema_diff(new: dict, existing: dict) -> str:
@@ -101,10 +152,14 @@ def _summarize_schema_diff(new: dict, existing: dict) -> str:
             n_repr = repr(new[k])
             e_repr = repr(existing[k])
             if len(n_repr) > 120 or len(e_repr) > 120:
-                # For deeply nested mismatches, recurse one level if both are dicts.
                 if isinstance(new[k], dict) and isinstance(existing[k], dict):
-                    nested = _summarize_schema_diff(new[k], existing[k])
-                    diffs.append(f"{k}: {{ {nested} }}")
+                    diffs.append(
+                        f"{k}: {{ {_summarize_schema_diff(new[k], existing[k])} }}"
+                    )
+                elif isinstance(new[k], list) and isinstance(existing[k], list):
+                    diffs.append(
+                        f"{k}: [ {_summarize_list_diff(new[k], existing[k])} ]"
+                    )
                 else:
                     diffs.append(
                         f"{k}: new={n_repr[:120]}... existing={e_repr[:120]}..."
@@ -347,6 +402,12 @@ class ERSmartSynchronizer:
             existing_event_categories = self._er_event_categories_cache
         else:
             existing_event_categories = self.er_client.get_event_categories()
+        logger.info(
+            "ER returned %s event categories",
+            len(existing_event_categories)
+            if isinstance(existing_event_categories, list)
+            else f"non-list({type(existing_event_categories).__name__})",
+        )
         event_category_value = self.calculate_event_category_value(
             ca_label=ca_identifier,
             cm_label=getattr(cm, "_name", None),
@@ -382,15 +443,7 @@ class ERSmartSynchronizer:
                 value=event_category_value, display=event_category_display
             )
             try:
-                posted = _retry(
-                    self.er_client.post_event_category, data=event_category
-                )
-                # ER assigns the category's UUID server-side; merge it back
-                # so downstream v1 event-type POSTs can reference the
-                # category by its `id` (v1 expects a UUID FK; v2 uses the
-                # `value` slug).
-                if isinstance(posted, dict) and posted.get("id"):
-                    event_category["id"] = posted["id"]
+                _retry(self.er_client.post_event_category, data=event_category)
                 logger.info(
                     "Successfully created event category",
                     extra=dict(
@@ -499,9 +552,21 @@ class ERSmartSynchronizer:
     def _event_type_needs_update(
         self, event_type: EREventType | ERV2EventType, existing_er_event_type: dict
     ) -> bool:
-        if event_type.is_active != existing_er_event_type.get(
-            "is_active"
-        ) or event_type.display != existing_er_event_type.get("display"):
+        if event_type.is_active != existing_er_event_type.get("is_active"):
+            logger.info(
+                "needs-update %r: is_active new=%r existing=%r",
+                event_type.value,
+                event_type.is_active,
+                existing_er_event_type.get("is_active"),
+            )
+            return True
+        if event_type.display != existing_er_event_type.get("display"):
+            logger.info(
+                "needs-update %r: display new=%r existing=%r",
+                event_type.value,
+                event_type.display,
+                existing_er_event_type.get("display"),
+            )
             return True
 
         # v2 has top-level `readonly` and `category` fields outside the schema
@@ -558,6 +623,18 @@ class ERSmartSynchronizer:
                     existing_er_event_type.get("schema", "{}")
                 ).get("schema")
                 if not er_event_type_schemas_equal(new_schema, existing_schema):
+                    logger.info(
+                        "v1 schema diff for %r — properties: %s; definition: %s",
+                        event_type.value,
+                        _summarize_value_diff(
+                            (new_schema or {}).get("properties"),
+                            (existing_schema or {}).get("properties"),
+                        ),
+                        _summarize_value_diff(
+                            (new_schema or {}).get("definition"),
+                            (existing_schema or {}).get("definition"),
+                        ),
+                    )
                     return True
 
         return False
@@ -656,7 +733,19 @@ class ERSmartSynchronizer:
             return None
         if self._er_event_types_cache is not None:
             self._er_event_types_cache = fresh
-        return next((x for x in fresh if x.get("value") == value), None)
+        found = next((x for x in fresh if x.get("value") == value), None)
+        if found is None:
+            # ER's POST said the value already exists, but a fresh GET can't
+            # find it — strong signal that get_event_types is paginated or
+            # scoped (e.g. per-provider) and silently truncating results.
+            logger.warning(
+                "Conflict-value %r not found in fresh get_event_types "
+                "response (got %s %s); patch fallback will not run",
+                value,
+                len(fresh) if isinstance(fresh, list) else "non-list",
+                type(fresh).__name__,
+            )
+        return found
 
     def _update_event_type(
         self, event_type: EREventType | ERV2EventType, existing_er_event_type: dict
@@ -691,26 +780,75 @@ class ERSmartSynchronizer:
     ) -> None:
         if self._er_event_types_cache is not None:
             existing_event_types = self._er_event_types_cache
+            source = "cache"
         else:
             existing_event_types = self.er_client.get_event_types(
                 include_inactive=True,
                 include_schema=True,
                 version=self._event_type_version,
             )
-        logger.debug(
-            "Fetched %d existing event types from ER for category %s",
-            len(existing_event_types) if existing_event_types else 0,
+            source = "fresh GET"
+        logger.info(
+            "%s %s existing %s event types for category %s",
+            source,
+            len(existing_event_types)
+            if isinstance(existing_event_types, list)
+            else f"non-list({type(existing_event_types).__name__})",
+            self._event_type_version,
             event_category.get("value") if event_category else None,
         )
 
-        for event_type in event_types or []:
+        # The SMART builder occasionally emits multiple distinct event types
+        # that share the same `value` slug — different displays/schemas all
+        # collapse to one ER row because `value` is unique per tenant. Without
+        # deduping, we PATCH the row repeatedly in a single run and each
+        # subsequent sync looks "dirty" again because whichever variant won
+        # the last race doesn't match the first variant produced this run.
+        # Pick the variant whose display matches the existing ER record (so
+        # re-runs are idempotent); fall back to alphabetical for deterministic
+        # behavior on fresh slugs. Surface every collision as a warning so the
+        # underlying builder bug stays visible.
+        groups: dict[str, list[EREventType | ERV2EventType]] = {}
+        for et in event_types or []:
+            groups.setdefault(et.value, []).append(et)
+        existing_by_value: dict[str, dict] = {
+            e["value"]: e
+            for e in (existing_event_types or [])
+            if isinstance(e, dict) and e.get("value")
+        }
+        deduped: dict[str, EREventType | ERV2EventType] = {}
+        for value, variants in groups.items():
+            if len(variants) == 1:
+                deduped[value] = variants[0]
+                continue
+            existing = existing_by_value.get(value)
+            chosen = None
+            picker = "alphabetical"
+            if existing is not None:
+                chosen = next(
+                    (v for v in variants if v.display == existing.get("display")),
+                    None,
+                )
+                if chosen is not None:
+                    picker = "matched existing ER display"
+            if chosen is None:
+                chosen = min(variants, key=lambda v: v.display)
+            deduped[value] = chosen
+            dropped = [v.display for v in variants if v is not chosen]
+            logger.warning(
+                "Builder emitted %d event types with duplicate value %r; "
+                "keeping display=%r (%s), dropping displays=%s. "
+                "Fix in build_earthranger_event_types or the CM XML.",
+                len(variants),
+                value,
+                chosen.display,
+                picker,
+                dropped,
+            )
+
+        for event_type in deduped.values():
             try:
-                # v1's event-type payload uses `category` as a UUID FK;
-                # v2's uses the category `value` slug. Assign the right one.
-                if self._event_type_version == "v1":
-                    event_type.category = event_category.get("id")
-                else:
-                    event_type.category = event_category.get("value")
+                event_type.category = event_category.get("value")
                 logger.debug(
                     "Checking event type %r (%s)",
                     event_type.display,

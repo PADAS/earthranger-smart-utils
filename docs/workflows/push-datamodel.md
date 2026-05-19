@@ -37,7 +37,7 @@ Two modes:
     ```bash
     er-smart-sync datamodel \
       --config sync.yaml \
-      --from-file ~/junglekeepers-peru.datamodel.xml \
+      --from-file ~/***REMOVED***.datamodel.xml \
       --ca-identifier JKPERU
     ```
 
