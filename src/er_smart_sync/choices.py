@@ -59,6 +59,10 @@ def derive_choice_field(event_type_value: str, attr_key: str) -> str:
 # dots to underscores. Truncate at build time so the upsert path's
 # (field, value) lookup and display-drift comparison stay consistent.
 _CHOICE_FIELD_MAX = 100
+_VALUE_HASH_LEN = 8
+# Readable prefix kept before the "_{hash}" suffix. Derived so the total
+# always equals _CHOICE_FIELD_MAX: 100 - 1 (separator) - 8 (hash) = 91.
+_VALUE_PREFIX_LEN = _CHOICE_FIELD_MAX - 1 - _VALUE_HASH_LEN
 
 
 def _shorten_value(sanitized: str) -> str:
@@ -66,15 +70,18 @@ def _shorten_value(sanitized: str) -> str:
 
     Stable: same input always produces the same output. Two distinct
     inputs that share a 91-char prefix get different hash tails, so
-    silent collisions are vanishingly rare.
+    silent collisions are vanishingly rare. Logs at DEBUG because deep
+    TREEs can produce many shortenings per sync; the design is documented
+    in docs/concepts/choices.md and counts surface via datamodel_stats.
     """
     if len(sanitized) <= _CHOICE_FIELD_MAX:
         return sanitized
-    digest = hashlib.sha256(sanitized.encode("utf-8")).hexdigest()[:8]
-    shortened = f"{sanitized[:91]}_{digest}"
-    logger.info(
-        "Shortened choice value (len %d → 100) via hash-suffix: %r",
+    digest = hashlib.sha256(sanitized.encode("utf-8")).hexdigest()[:_VALUE_HASH_LEN]
+    shortened = f"{sanitized[:_VALUE_PREFIX_LEN]}_{digest}"
+    logger.debug(
+        "Shortened choice value (len %d → %d) via hash-suffix: %r",
         len(sanitized),
+        len(shortened),
         shortened,
     )
     return shortened
@@ -83,36 +90,43 @@ def _shorten_value(sanitized: str) -> str:
 def _shorten_display(raw: str) -> str:
     """Cap display at 100 chars while preserving meaning when possible.
 
-    Handles three cases:
+    Strategy stays centered on the leaf identifier when dots are present:
     - Dotted fallback (the SMART tree-path-as-display edge case): keep the
-      last dotted segment, which is the leaf's actual identifier.
-    - Long natural-language label with whitespace: truncate at the last
-      word boundary before char 99 and append ``…``.
-    - Pathological no-whitespace string: hard-cut at 99 + ``…``.
+      last dotted segment. If that segment is itself still > 100 chars,
+      truncate the segment (word-boundary/hard-cut) rather than falling
+      back to the start of the full path — keeps the focus on the leaf.
+    - Long natural-language label with whitespace: word-boundary truncate
+      at the last whitespace before char 99 and append ``…``.
+    - Pathological no-whitespace string: hard-cut at char 99 + ``…``.
+
+    Logs at DEBUG for the same reason as ``_shorten_value``.
     """
     if len(raw) <= _CHOICE_FIELD_MAX:
         return raw
-    if "." in raw:
-        last_segment = raw.rsplit(".", 1)[-1]
-        if 0 < len(last_segment) <= _CHOICE_FIELD_MAX:
-            logger.info(
-                "Shortened choice display (len %d → %d) via last-segment: %r",
-                len(raw),
-                len(last_segment),
-                last_segment,
-            )
-            return last_segment
-    head = raw[: _CHOICE_FIELD_MAX - 1]
+    # Center the truncation on the leaf segment when this looks like a
+    # dotted-path display. Even if the leaf itself is overlong, we want
+    # the truncation to operate on the leaf — not the parent prefix.
+    target = raw.rsplit(".", 1)[-1] if "." in raw else raw
+    if target != raw and len(target) <= _CHOICE_FIELD_MAX:
+        logger.debug(
+            "Shortened choice display (len %d → %d) via last-segment: %r",
+            len(raw),
+            len(target),
+            target,
+        )
+        return target
+    head = target[: _CHOICE_FIELD_MAX - 1]
     if " " in head:
         head = head.rsplit(" ", 1)[0]
         strategy = "word-boundary"
     else:
         strategy = "hard-cut"
     shortened = f"{head}…"
-    logger.info(
-        "Shortened choice display (len %d → %d) via %s: %r",
+    logger.debug(
+        "Shortened choice display (len %d → %d) via %s%s: %r",
         len(raw),
         len(shortened),
+        "last-segment+" if target != raw else "",
         strategy,
         shortened,
     )
@@ -506,20 +520,25 @@ def _create_choice(
             payload=payload,
         )
         stats.created += 1
-    except Exception as e:
+    except Exception:
         # ER's choices table has a varchar(100) constraint on at least one
         # column. Surface field lengths so a "value too long" 500 names the
-        # offender directly.
-        logger.error(
+        # offender directly. Keep logger.exception for the traceback —
+        # ERClientException wrapping details are often diagnostic.
+        logger.exception(
             "Failed to POST choice: field=%r (len=%d) value=%r (len=%d) "
-            "display=%r (len=%d) error=%s",
+            "display=%r (len=%d)",
             cs_field,
             len(cs_field or ""),
             option.value,
             len(option.value or ""),
             option.display,
             len(option.display or ""),
-            e,
+            extra=dict(
+                field=cs_field,
+                value=option.value,
+                display=option.display,
+            ),
         )
         stats.errored += 1
 

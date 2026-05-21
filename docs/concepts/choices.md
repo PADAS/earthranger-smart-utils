@@ -91,8 +91,10 @@ The mapping happens in two stages:
     re-runs find the same record.
 
     The shortening only fires for deeply-nested SMART **TREE** leaves —
-    LIST/MLIST option keys are typically short. A log line at INFO level
-    is emitted for each shortened value, naming the original length.
+    LIST/MLIST option keys are typically short. A log line at DEBUG level
+    is emitted for each shortened value (re-run with `-v` to see them); a
+    deep TREE can produce many shortenings per sync, so the default
+    output stays quiet.
 
 !!! warning "Historical events keep the old value"
     If a previously-synced choice had a long unhashed value (from a
@@ -118,6 +120,9 @@ a structural strategy that aims to preserve meaning:
    element (see `smartconnect.models.generate_tree_children`). When this
    happens and the path exceeds 100 chars, we keep only the last dotted
    segment (the leaf's own identifier), since that's the meaningful part.
+   If the leaf segment is itself > 100 chars, the next-tier truncation
+   (word-boundary / hard-cut) operates on the leaf, not on the full path
+   — keeping the focus on the leaf identifier.
 
     Input (135 chars):
 
@@ -148,7 +153,8 @@ a structural strategy that aims to preserve meaning:
 
 4. **Pathological no-whitespace string:** hard-cut at 99 + `…`.
 
-Each shortening logs an INFO line naming the strategy used.
+Each shortening logs at DEBUG level naming the strategy used (re-run with
+`-v` to see them).
 
 ## CM overlay rules
 

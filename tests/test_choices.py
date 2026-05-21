@@ -184,6 +184,36 @@ def test_shorten_display_no_whitespace_hard_cut():
     assert out == "x" * 99 + "…"
 
 
+def test_shorten_display_overlong_leaf_truncates_leaf_not_path():
+    """When the dotted path's *leaf* segment is itself > 100 chars, the
+    truncation must operate on the leaf — not fall back to truncating from
+    the start of the full path, which would lose the leaf identifier and
+    return parent components."""
+    from er_smart_sync.choices import _shorten_display
+
+    parent = "africa.kenya.nairobi"
+    leaf = "very_long_leaf_identifier_" + "x" * 100  # > 100 chars
+    raw = f"{parent}.{leaf}"
+    out = _shorten_display(raw)
+    assert len(out) <= 100
+    # Result must come from the leaf, not from "africa.kenya…" or similar.
+    assert out.startswith("very_long_leaf_identifier")
+    assert "africa" not in out
+    assert "nairobi" not in out
+
+
+def test_shorten_value_constants_align_to_100():
+    """Guard the prefix-length derivation: any future change to
+    _CHOICE_FIELD_MAX or _VALUE_HASH_LEN must keep the total at the cap."""
+    from er_smart_sync.choices import (
+        _CHOICE_FIELD_MAX,
+        _VALUE_HASH_LEN,
+        _VALUE_PREFIX_LEN,
+    )
+
+    assert _VALUE_PREFIX_LEN + 1 + _VALUE_HASH_LEN == _CHOICE_FIELD_MAX
+
+
 # ── dataclasses ────────────────────────────────────────────────
 
 
