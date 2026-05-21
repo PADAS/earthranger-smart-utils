@@ -79,10 +79,11 @@ The mapping happens in two stages:
     | `  trim me  `          | `trim_me`               |
 
 2. **Cap at 100 chars.** ER's column is `varchar(100)`. If the sanitized
-   value exceeds that, replace the tail with a deterministic hash suffix:
+   value exceeds that, replace the tail with a deterministic hash suffix
+   over the **sanitized** string (not the raw SMART key):
 
-    ```
-    value[:91] + "_" + sha256(value)[:8]
+    ```python
+    sanitized[:91] + "_" + hashlib.sha256(sanitized.encode("utf-8")).hexdigest()[:8]
     ```
 
     Total length is exactly 100. The 91-char readable prefix aids

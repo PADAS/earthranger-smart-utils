@@ -204,14 +204,14 @@ def test_shorten_display_overlong_leaf_truncates_leaf_not_path():
 
 def test_shorten_value_constants_align_to_100():
     """Guard the prefix-length derivation: any future change to
-    _CHOICE_FIELD_MAX or _VALUE_HASH_LEN must keep the total at the cap."""
+    _CHOICE_VALUE_DISPLAY_MAX or _VALUE_HASH_LEN must keep the total at the cap."""
     from er_smart_sync.choices import (
-        _CHOICE_FIELD_MAX,
+        _CHOICE_VALUE_DISPLAY_MAX,
         _VALUE_HASH_LEN,
         _VALUE_PREFIX_LEN,
     )
 
-    assert _VALUE_PREFIX_LEN + 1 + _VALUE_HASH_LEN == _CHOICE_FIELD_MAX
+    assert _VALUE_PREFIX_LEN + 1 + _VALUE_HASH_LEN == _CHOICE_VALUE_DISPLAY_MAX
 
 
 # ── dataclasses ────────────────────────────────────────────────

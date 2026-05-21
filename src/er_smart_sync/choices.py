@@ -58,11 +58,11 @@ def derive_choice_field(event_type_value: str, attr_key: str) -> str:
 # components) routinely exceed this after sanitize_choice_value collapses
 # dots to underscores. Truncate at build time so the upsert path's
 # (field, value) lookup and display-drift comparison stay consistent.
-_CHOICE_FIELD_MAX = 100
+_CHOICE_VALUE_DISPLAY_MAX = 100
 _VALUE_HASH_LEN = 8
 # Readable prefix kept before the "_{hash}" suffix. Derived so the total
-# always equals _CHOICE_FIELD_MAX: 100 - 1 (separator) - 8 (hash) = 91.
-_VALUE_PREFIX_LEN = _CHOICE_FIELD_MAX - 1 - _VALUE_HASH_LEN
+# always equals _CHOICE_VALUE_DISPLAY_MAX: 100 - 1 (separator) - 8 (hash) = 91.
+_VALUE_PREFIX_LEN = _CHOICE_VALUE_DISPLAY_MAX - 1 - _VALUE_HASH_LEN
 
 
 def _shorten_value(sanitized: str) -> str:
@@ -74,7 +74,7 @@ def _shorten_value(sanitized: str) -> str:
     TREEs can produce many shortenings per sync; the design is documented
     in docs/concepts/choices.md and counts surface via datamodel_stats.
     """
-    if len(sanitized) <= _CHOICE_FIELD_MAX:
+    if len(sanitized) <= _CHOICE_VALUE_DISPLAY_MAX:
         return sanitized
     digest = hashlib.sha256(sanitized.encode("utf-8")).hexdigest()[:_VALUE_HASH_LEN]
     shortened = f"{sanitized[:_VALUE_PREFIX_LEN]}_{digest}"
@@ -101,13 +101,13 @@ def _shorten_display(raw: str) -> str:
 
     Logs at DEBUG for the same reason as ``_shorten_value``.
     """
-    if len(raw) <= _CHOICE_FIELD_MAX:
+    if len(raw) <= _CHOICE_VALUE_DISPLAY_MAX:
         return raw
     # Center the truncation on the leaf segment when this looks like a
     # dotted-path display. Even if the leaf itself is overlong, we want
     # the truncation to operate on the leaf — not the parent prefix.
     target = raw.rsplit(".", 1)[-1] if "." in raw else raw
-    if target != raw and len(target) <= _CHOICE_FIELD_MAX:
+    if target != raw and len(target) <= _CHOICE_VALUE_DISPLAY_MAX:
         logger.debug(
             "Shortened choice display (len %d → %d) via last-segment: %r",
             len(raw),
@@ -115,7 +115,7 @@ def _shorten_display(raw: str) -> str:
             target,
         )
         return target
-    head = target[: _CHOICE_FIELD_MAX - 1]
+    head = target[: _CHOICE_VALUE_DISPLAY_MAX - 1]
     if " " in head:
         head = head.rsplit(" ", 1)[0]
         strategy = "word-boundary"
