@@ -101,6 +101,89 @@ def test_event_type_value_for_with_cm_uses_hkey_path():
     assert value == "ca-1_cm-1_some_hkey_path"
 
 
+# ── _shorten_value / _shorten_display ─────────────────────────
+
+
+def test_shorten_value_short_input_unchanged():
+    from er_smart_sync.choices import _shorten_value
+
+    assert _shorten_value("lion") == "lion"
+    assert _shorten_value("a" * 100) == "a" * 100  # exactly at limit
+
+
+def test_shorten_value_long_input_hashed_to_exactly_100():
+    from er_smart_sync.choices import _shorten_value
+
+    raw = "africa_kenya_nairobi_westlands_neighborhood_" * 5  # ~220 chars
+    out = _shorten_value(raw)
+    assert len(out) == 100
+    assert out.startswith(raw[:91])
+    # 91 readable chars + "_" + 8 hex
+    assert out[91] == "_"
+    assert all(c in "0123456789abcdef" for c in out[92:])
+
+
+def test_shorten_value_deterministic():
+    from er_smart_sync.choices import _shorten_value
+
+    raw = "x" * 200
+    assert _shorten_value(raw) == _shorten_value(raw)
+
+
+def test_shorten_value_distinct_inputs_with_shared_prefix_differ():
+    from er_smart_sync.choices import _shorten_value
+
+    shared_prefix = "a" * 91
+    out_a = _shorten_value(shared_prefix + "_aaaa_bbbb_cccc")
+    out_b = _shorten_value(shared_prefix + "_xxxx_yyyy_zzzz")
+    assert out_a != out_b
+    # Same readable prefix; hash tails diverge.
+    assert out_a[:91] == out_b[:91]
+    assert out_a[92:] != out_b[92:]
+
+
+def test_shorten_display_short_input_unchanged():
+    from er_smart_sync.choices import _shorten_display
+
+    assert _shorten_display("Lion") == "Lion"
+    assert _shorten_display("x" * 100) == "x" * 100
+
+
+def test_shorten_display_dotted_takes_last_segment():
+    """SMART's TREE-with-no-<names> edge case: display falls back to the
+    dotted key. The leaf name lives at the end — keep that."""
+    from er_smart_sync.choices import _shorten_display
+
+    raw = "africa.kenya.nairobi.westlands.specific_neighborhood_with_a_very_long_descriptive_identifier"
+    raw = raw + "_padding_to_exceed_100_chars_total"  # ensure > 100
+    assert len(raw) > 100
+    out = _shorten_display(raw)
+    assert out == raw.rsplit(".", 1)[-1]
+
+
+def test_shorten_display_word_boundary_truncation():
+    from er_smart_sync.choices import _shorten_display
+
+    raw = "African Lion " + ("Panthera leo " * 20)  # whitespace, no dots
+    assert len(raw) > 100
+    out = _shorten_display(raw)
+    assert len(out) <= 100
+    assert out.endswith("…")
+    # Cut on a word boundary, not mid-word.
+    assert not out[:-1].endswith(" ")
+    # The body before "…" must be a prefix of the original.
+    assert raw.startswith(out[:-1])
+
+
+def test_shorten_display_no_whitespace_hard_cut():
+    from er_smart_sync.choices import _shorten_display
+
+    raw = "x" * 200  # no whitespace, no dots
+    out = _shorten_display(raw)
+    assert len(out) == 100
+    assert out == "x" * 99 + "…"
+
+
 # ── dataclasses ────────────────────────────────────────────────
 
 
@@ -363,6 +446,29 @@ def test_build_choice_sets_tree_flattens_to_leaves():
     # Only leaves: africa.kenya.nairobi → africa_kenya_nairobi,
     # africa.tanzania → africa_tanzania
     assert values == {"africa_kenya_nairobi", "africa_tanzania"}
+
+
+def test_build_choice_sets_deep_tree_key_truncated_to_100():
+    """A deep TREE leaf whose sanitized key exceeds 100 chars yields a
+    ChoiceOption.value of exactly 100 chars, stable across builds."""
+    from er_smart_sync.choices import build_choice_sets
+
+    # 8 components × ~22 chars + dots → sanitized form is ~180 chars.
+    deep_key = ".".join([f"level_{i}_deep_label_part" for i in range(8)])
+    assert len(deep_key) > 100
+
+    dm = {
+        "categories": [_category("c", attributes=[_cat_attr("region")])],
+        "attributes": [
+            _attr("region", "TREE", options=[_option(deep_key, display="Leaf")]),
+        ],
+    }
+    sets_a = build_choice_sets(dm=dm, cm=None, ca_uuid=CA_UUID)
+    sets_b = build_choice_sets(dm=dm, cm=None, ca_uuid=CA_UUID)
+    assert len(sets_a) == 1 and len(sets_a[0].options) == 1
+    value = sets_a[0].options[0].value
+    assert len(value) == 100
+    assert value == sets_b[0].options[0].value  # deterministic across builds
 
 
 def test_build_choice_sets_skips_inactive_categories_without_cm():

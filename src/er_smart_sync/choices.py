@@ -53,6 +53,72 @@ def derive_choice_field(event_type_value: str, attr_key: str) -> str:
     return field
 
 
+# ER's Choice table caps both `value` and `display` at varchar(100). Deep
+# SMART TREE leaves (whose key is a dotted concatenation of parent path
+# components) routinely exceed this after sanitize_choice_value collapses
+# dots to underscores. Truncate at build time so the upsert path's
+# (field, value) lookup and display-drift comparison stay consistent.
+_CHOICE_FIELD_MAX = 100
+
+
+def _shorten_value(sanitized: str) -> str:
+    """Hash-suffix overlong values; mirrors derive_choice_field's scheme.
+
+    Stable: same input always produces the same output. Two distinct
+    inputs that share a 91-char prefix get different hash tails, so
+    silent collisions are vanishingly rare.
+    """
+    if len(sanitized) <= _CHOICE_FIELD_MAX:
+        return sanitized
+    digest = hashlib.sha256(sanitized.encode("utf-8")).hexdigest()[:8]
+    shortened = f"{sanitized[:91]}_{digest}"
+    logger.info(
+        "Shortened choice value (len %d → 100) via hash-suffix: %r",
+        len(sanitized),
+        shortened,
+    )
+    return shortened
+
+
+def _shorten_display(raw: str) -> str:
+    """Cap display at 100 chars while preserving meaning when possible.
+
+    Handles three cases:
+    - Dotted fallback (the SMART tree-path-as-display edge case): keep the
+      last dotted segment, which is the leaf's actual identifier.
+    - Long natural-language label with whitespace: truncate at the last
+      word boundary before char 99 and append ``…``.
+    - Pathological no-whitespace string: hard-cut at 99 + ``…``.
+    """
+    if len(raw) <= _CHOICE_FIELD_MAX:
+        return raw
+    if "." in raw:
+        last_segment = raw.rsplit(".", 1)[-1]
+        if 0 < len(last_segment) <= _CHOICE_FIELD_MAX:
+            logger.info(
+                "Shortened choice display (len %d → %d) via last-segment: %r",
+                len(raw),
+                len(last_segment),
+                last_segment,
+            )
+            return last_segment
+    head = raw[: _CHOICE_FIELD_MAX - 1]
+    if " " in head:
+        head = head.rsplit(" ", 1)[0]
+        strategy = "word-boundary"
+    else:
+        strategy = "hard-cut"
+    shortened = f"{head}…"
+    logger.info(
+        "Shortened choice display (len %d → %d) via %s: %r",
+        len(raw),
+        len(shortened),
+        strategy,
+        shortened,
+    )
+    return shortened
+
+
 def event_type_value_for(
     *,
     category_path: str,
@@ -171,8 +237,8 @@ def build_choice_sets(
                     options = _leaf_options(options)
                 choice_options = tuple(
                     ChoiceOption(
-                        value=sanitize_choice_value(o.key),
-                        display=o.display,
+                        value=_shorten_value(sanitize_choice_value(o.key)),
+                        display=_shorten_display(o.display),
                         is_active=True,
                     )
                     for o in options
@@ -233,8 +299,8 @@ def _options_from_cm_config(
             continue
         result.append(
             ChoiceOption(
-                value=sanitize_choice_value(original.key),
-                display=original.display,
+                value=_shorten_value(sanitize_choice_value(original.key)),
+                display=_shorten_display(original.display),
                 is_active=bool(opt_cfg.get("isActive")),
             )
         )
@@ -441,9 +507,19 @@ def _create_choice(
         )
         stats.created += 1
     except Exception as e:
-        logger.exception(
-            "Failed to POST choice",
-            extra=dict(field=cs_field, value=option.value, error=str(e)),
+        # ER's choices table has a varchar(100) constraint on at least one
+        # column. Surface field lengths so a "value too long" 500 names the
+        # offender directly.
+        logger.error(
+            "Failed to POST choice: field=%r (len=%d) value=%r (len=%d) "
+            "display=%r (len=%d) error=%s",
+            cs_field,
+            len(cs_field or ""),
+            option.value,
+            len(option.value or ""),
+            option.display,
+            len(option.display or ""),
+            e,
         )
         stats.errored += 1
 
