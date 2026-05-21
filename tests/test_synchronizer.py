@@ -956,6 +956,7 @@ class TestRetry:
             "Event Type with this Das tenant and Value already exists.",
             "event_category: <uuid> does not exist.",
             "400 Invalid JSON Schema: foo",
+            "value too long for type character varying(100)",
         ],
     )
     def test_retry_short_circuits_on_permanent_400_messages(

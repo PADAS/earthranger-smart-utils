@@ -57,6 +57,10 @@ _NON_RETRIABLE_ER_MESSAGE_SUBSTRINGS = (
     "duplicate key",
     "does not exist",
     "Invalid JSON Schema",
+    # Postgres-level varchar overflow (e.g. choices `value`/`display` > 100).
+    # Surfaces as 500 not 4xx, but is just as deterministic and unfixable
+    # by retry.
+    "value too long",
 )
 
 
