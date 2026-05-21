@@ -520,11 +520,13 @@ def _create_choice(
             payload=payload,
         )
         stats.created += 1
-    except Exception:
+    except Exception as e:
         # ER's choices table has a varchar(100) constraint on at least one
         # column. Surface field lengths so a "value too long" 500 names the
         # offender directly. Keep logger.exception for the traceback —
-        # ERClientException wrapping details are often diagnostic.
+        # ERClientException wrapping details are often diagnostic. Include
+        # error=str(e) in extra= to stay consistent with the PATCH and
+        # deactivation handlers (lines 444 and 584) for log aggregators.
         logger.exception(
             "Failed to POST choice: field=%r (len=%d) value=%r (len=%d) "
             "display=%r (len=%d)",
@@ -538,6 +540,7 @@ def _create_choice(
                 field=cs_field,
                 value=option.value,
                 display=option.display,
+                error=str(e),
             ),
         )
         stats.errored += 1
