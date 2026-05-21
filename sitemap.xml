@@ -2,94 +2,94 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
          <loc>https://padas.github.io/earthranger-smart-utils/</loc>
-         <lastmod>2026-05-19</lastmod>
+         <lastmod>2026-05-21</lastmod>
     </url>
     <url>
          <loc>https://padas.github.io/earthranger-smart-utils/changelog/</loc>
-         <lastmod>2026-05-19</lastmod>
+         <lastmod>2026-05-21</lastmod>
     </url>
     <url>
          <loc>https://padas.github.io/earthranger-smart-utils/troubleshooting/</loc>
-         <lastmod>2026-05-19</lastmod>
+         <lastmod>2026-05-21</lastmod>
     </url>
     <url>
          <loc>https://padas.github.io/earthranger-smart-utils/cli-reference/choices/</loc>
-         <lastmod>2026-05-19</lastmod>
+         <lastmod>2026-05-21</lastmod>
     </url>
     <url>
          <loc>https://padas.github.io/earthranger-smart-utils/cli-reference/config-template/</loc>
-         <lastmod>2026-05-19</lastmod>
+         <lastmod>2026-05-21</lastmod>
     </url>
     <url>
          <loc>https://padas.github.io/earthranger-smart-utils/cli-reference/datamodel/</loc>
-         <lastmod>2026-05-19</lastmod>
+         <lastmod>2026-05-21</lastmod>
     </url>
     <url>
          <loc>https://padas.github.io/earthranger-smart-utils/cli-reference/events/</loc>
-         <lastmod>2026-05-19</lastmod>
+         <lastmod>2026-05-21</lastmod>
     </url>
     <url>
          <loc>https://padas.github.io/earthranger-smart-utils/cli-reference/inspect-datamodel/</loc>
-         <lastmod>2026-05-19</lastmod>
+         <lastmod>2026-05-21</lastmod>
     </url>
     <url>
          <loc>https://padas.github.io/earthranger-smart-utils/cli-reference/list-cas/</loc>
-         <lastmod>2026-05-19</lastmod>
+         <lastmod>2026-05-21</lastmod>
     </url>
     <url>
          <loc>https://padas.github.io/earthranger-smart-utils/cli-reference/overview/</loc>
-         <lastmod>2026-05-19</lastmod>
+         <lastmod>2026-05-21</lastmod>
     </url>
     <url>
          <loc>https://padas.github.io/earthranger-smart-utils/cli-reference/patrols/</loc>
-         <lastmod>2026-05-19</lastmod>
+         <lastmod>2026-05-21</lastmod>
     </url>
     <url>
          <loc>https://padas.github.io/earthranger-smart-utils/cli-reference/validate-config/</loc>
-         <lastmod>2026-05-19</lastmod>
+         <lastmod>2026-05-21</lastmod>
     </url>
     <url>
          <loc>https://padas.github.io/earthranger-smart-utils/concepts/ca-identifier/</loc>
-         <lastmod>2026-05-19</lastmod>
+         <lastmod>2026-05-21</lastmod>
     </url>
     <url>
          <loc>https://padas.github.io/earthranger-smart-utils/concepts/choices/</loc>
-         <lastmod>2026-05-19</lastmod>
+         <lastmod>2026-05-21</lastmod>
     </url>
     <url>
          <loc>https://padas.github.io/earthranger-smart-utils/concepts/event-type-version/</loc>
-         <lastmod>2026-05-19</lastmod>
+         <lastmod>2026-05-21</lastmod>
     </url>
     <url>
          <loc>https://padas.github.io/earthranger-smart-utils/getting-started/config/</loc>
-         <lastmod>2026-05-19</lastmod>
+         <lastmod>2026-05-21</lastmod>
     </url>
     <url>
          <loc>https://padas.github.io/earthranger-smart-utils/getting-started/first-run/</loc>
-         <lastmod>2026-05-19</lastmod>
+         <lastmod>2026-05-21</lastmod>
     </url>
     <url>
          <loc>https://padas.github.io/earthranger-smart-utils/getting-started/install/</loc>
-         <lastmod>2026-05-19</lastmod>
+         <lastmod>2026-05-21</lastmod>
     </url>
     <url>
          <loc>https://padas.github.io/earthranger-smart-utils/workflows/inspect-datamodel/</loc>
-         <lastmod>2026-05-19</lastmod>
+         <lastmod>2026-05-21</lastmod>
     </url>
     <url>
          <loc>https://padas.github.io/earthranger-smart-utils/workflows/populate-choices/</loc>
-         <lastmod>2026-05-19</lastmod>
+         <lastmod>2026-05-21</lastmod>
     </url>
     <url>
          <loc>https://padas.github.io/earthranger-smart-utils/workflows/push-datamodel/</loc>
-         <lastmod>2026-05-19</lastmod>
+         <lastmod>2026-05-21</lastmod>
     </url>
     <url>
          <loc>https://padas.github.io/earthranger-smart-utils/workflows/sync-events/</loc>
-         <lastmod>2026-05-19</lastmod>
+         <lastmod>2026-05-21</lastmod>
     </url>
     <url>
          <loc>https://padas.github.io/earthranger-smart-utils/workflows/sync-patrols/</loc>
-         <lastmod>2026-05-19</lastmod>
+         <lastmod>2026-05-21</lastmod>
     </url>
 </urlset>
