@@ -103,9 +103,19 @@ def test_cm_variant_mode_defaults_to_split(er_config):
     assert er_config.cm_variant_mode == "split"
 
 
-def test_cm_variant_mode_rejects_unknown(smart_config):
+def test_cm_variant_mode_accepts_consolidate():
+    cfg = EarthRangerConfig(
+        id="i",
+        endpoint="https://x/api/v1.0",
+        cm_variant_mode="consolidate",
+    )
+    assert cfg.cm_variant_mode == "consolidate"
+
+
+def test_cm_variant_mode_rejects_unknown():
     with pytest.raises(pydantic.ValidationError):
-        SyncConfig(
-            smart=smart_config,
-            earthranger=EarthRangerConfig(endpoint="https://x", token="t", cm_variant_mode="nonsense"),  # ty: ignore[invalid-argument-type]
+        EarthRangerConfig(
+            id="i",
+            endpoint="https://x/api/v1.0",
+            cm_variant_mode="nonsense",  # ty: ignore[invalid-argument-type]
         )
