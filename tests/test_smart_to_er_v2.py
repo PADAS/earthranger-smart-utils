@@ -917,3 +917,53 @@ def test_build_consolidated_handles_shared_attribute_across_variants():
     # And they live in different sections.
     parents = {fields[k]["parent"] for k in age_keys}
     assert len(parents) == 2, f"expected 2 distinct parents, got {parents}"
+
+
+def test_consolidate_schema_matches_meta_schema_constraints():
+    """Structural guard: consolidate schema is accepted by ER's v2 meta-schema.
+
+    Validates that section-id, condition-id, operator set, and field references
+    all satisfy the v2 meta-schema constraints.
+    """
+    import re
+    from er_smart_sync.smart_to_er_v2 import build_event_types_v2
+
+    cm = {
+        "cm_uuid": "cm1",
+        "categories": [
+            {"path": "carcass.lp", "hkeyPath": "animals.carcass", "display": "Large Predator Carcass",
+             "id": "n1", "attributes": [{"key": "age"}]},
+            {"path": "carcass.sp", "hkeyPath": "animals.carcass", "display": "Small Predator Carcass",
+             "id": "n2", "attributes": [{"key": "age"}]},
+        ],
+        "attributes": [],
+    }
+    dm = {"attributes": [{"key": "age", "type": "NUMERIC", "display": "Age"}]}
+    et = build_event_types_v2(
+        dm=dm, cm=cm, ca_uuid="ca1", ca_identifier="CA",
+        cm_variant_mode="consolidate"
+    )[0]
+    ui = et.event_schema["ui"]
+
+    section_id = re.compile(r"^section-[A-Za-z0-9_-]+$")
+    condition_id = re.compile(r"^condition-.+$")
+
+    # Every order entry is a real section
+    assert set(ui["order"]) == set(ui["sections"].keys())
+    for sid, section in ui["sections"].items():
+        assert section_id.match(sid), f"section id {sid!r} doesn't match pattern"
+        for cond in section.get("conditions", []):
+            assert condition_id.match(cond["id"]), f"condition id {cond['id']!r} doesn't match pattern"
+            assert cond["operator"] in {
+                "CONTAINS", "IS_EMPTY", "IS_NOT_EMPTY", "IS_EXACTLY",
+                "IS_CONTAINED_BY", "IS_NOT_CONTAINED_BY",
+            }, f"unknown operator {cond['operator']!r}"
+            assert cond["field"] in et.event_schema["json"]["properties"], (
+                f"condition field {cond['field']!r} not in json.properties"
+            )
+    # conditionalDependents reference real sections
+    for fname, field in ui["fields"].items():
+        for dep in field.get("conditionalDependents", []):
+            assert dep in ui["sections"], (
+                f"field {fname!r} conditionalDependents references {dep!r} which is not in sections"
+            )
