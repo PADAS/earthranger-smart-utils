@@ -873,8 +873,47 @@ def test_build_consolidated_emits_discriminator_and_conditional_sections():
     # discriminator field lists the variant sections as conditionalDependents
     dep = ui["fields"][disc]["conditionalDependents"]
     assert set(dep) == {sid for sid in ui["sections"] if sid != "section-1"}
-    # variant attribute fields are re-parented to their own section (not the
-    # default section-1), so conditional visibility actually hides them.
-    assert ui["fields"]["age"]["parent"] != "section-1"
-    assert ui["fields"]["lc"]["parent"] != "section-1"
-    assert ui["fields"]["age"]["parent"] != ui["fields"]["lc"]["parent"]
+    # variant attribute fields are namespaced (e.g. section_2_age) and
+    # re-parented to their own section (not the default section-1), so
+    # conditional visibility actually hides them.
+    field_keys = [k for k in ui["fields"] if k.endswith("_age") or k.endswith("_lc")]
+    assert len(field_keys) == 2, f"expected 2 namespaced variant fields, got {field_keys}"
+    for fk in field_keys:
+        assert ui["fields"][fk]["parent"] != "section-1", (
+            f"expected {fk} re-parented away from section-1"
+        )
+        # Each namespaced key must also appear in the JSON schema properties.
+        assert fk in schema["json"]["properties"], (
+            f"namespaced key {fk!r} missing from json.properties"
+        )
+    parents = {ui["fields"][fk]["parent"] for fk in field_keys}
+    assert len(parents) == 2, f"expected 2 distinct parent sections, got {parents}"
+
+
+def test_build_consolidated_handles_shared_attribute_across_variants():
+    """When two variants share an attribute key, the consolidate builder must
+    namespace per variant to avoid property-key collision."""
+    from er_smart_sync.smart_to_er_v2 import build_event_types_v2
+
+    cm = {
+        "cm_uuid": "cm1",
+        "categories": [
+            {"path": "carcass.lp", "hkeyPath": "animals.carcass", "display": "Large Predator Carcass",
+             "id": "n1", "attributes": [{"key": "age"}]},
+            {"path": "carcass.sp", "hkeyPath": "animals.carcass", "display": "Small Predator Carcass",
+             "id": "n2", "attributes": [{"key": "age"}]},  # SAME attribute key
+        ],
+        "attributes": [],
+    }
+    dm = {"attributes": [{"key": "age", "type": "NUMERIC", "display": "Age"}]}
+    ets = build_event_types_v2(dm=dm, cm=cm, ca_uuid="ca1", ca_identifier="CA",
+                               cm_variant_mode="consolidate")
+    assert len(ets) == 1
+    props = ets[0].event_schema["json"]["properties"]
+    fields = ets[0].event_schema["ui"]["fields"]
+    # Both variants' "age" fields must coexist as distinct properties.
+    age_keys = [k for k in props if k.endswith("_age")]
+    assert len(age_keys) == 2, f"expected 2 namespaced age fields, got {age_keys}"
+    # And they live in different sections.
+    parents = {fields[k]["parent"] for k in age_keys}
+    assert len(parents) == 2, f"expected 2 distinct parents, got {parents}"

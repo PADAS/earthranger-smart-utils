@@ -141,6 +141,9 @@ def build_event_types_v2(
     return event_types
 
 
+DISCRIMINATOR_SECTION_ID = "section-1"
+
+
 def _build_consolidated(
     *,
     group: list[Category],
@@ -160,6 +163,11 @@ def _build_consolidated(
     - section-{i} (i >= 2): one conditional section per variant, each carrying
       that variant's attributes and an IS_EXACTLY condition on the discriminator
       that hides it when its variant is not selected.
+
+    Variant attribute keys are namespaced as ``{section_id}_{attr_key}``
+    (with hyphens replaced by underscores so the result satisfies JSON Schema's
+    ``^\\w+$``-flavored property-name rules).  This avoids silent overwrite when
+    two variants share an attribute key (a common SMART pattern).
     """
     rep = group[0]
     hkey = rep.hkeyPath or rep.path or ""
@@ -173,7 +181,7 @@ def _build_consolidated(
     properties: dict = {}
     ui_fields: dict = {}
     sections: dict = {}
-    order: list[str] = ["section-1"]
+    order: list[str] = [DISCRIMINATOR_SECTION_ID]
 
     # Discriminator: a single-select CHOICE_LIST. _build_choice_property_pair
     # derives the field name internally as derive_choice_field(value, "variant")
@@ -193,6 +201,8 @@ def _build_consolidated(
     variant_section_ids: list[str] = []
     for i, cat in enumerate(group, start=2):
         section_id = f"section-{i}"
+        # Namespace prefix: replace hyphens so the result is \w+-safe.
+        ns_prefix = section_id.replace("-", "_")
         variant_section_ids.append(section_id)
         order.append(section_id)
         leaf_attributes = list(cat.attributes or [])
@@ -204,19 +214,23 @@ def _build_consolidated(
             choices_base_url=choices_base_url,
             event_type_value=value,
         )
-        # _build_field_blocks tags every ui field parent="section-1" (the
-        # single-section default). Re-parent this variant's fields to their
-        # own section so rjsf renders them under the conditional section, not
-        # the always-visible one.
-        for fname in fields:
-            fields[fname]["parent"] = section_id
-        properties.update(props)
-        ui_fields.update(fields)
+        # Namespace every variant attribute key to avoid collisions when two
+        # variants share the same attribute.  Also re-parent ui fields to the
+        # variant's own section (away from the default "section-1") so rjsf
+        # hides them correctly via the IS_EXACTLY condition.
+        namespaced_field_order: list[str] = []
+        for orig_key in field_order:
+            ns_key = f"{ns_prefix}_{orig_key}"
+            properties[ns_key] = props[orig_key]
+            ui_fields[ns_key] = fields[orig_key]
+            ui_fields[ns_key]["parent"] = section_id
+            namespaced_field_order.append(ns_key)
+
         sections[section_id] = {
             "label": cat.display,
             "columns": 1,
             "isActive": True,
-            "leftColumn": [{"name": k, "type": "field"} for k in field_order],
+            "leftColumn": [{"name": k, "type": "field"} for k in namespaced_field_order],
             "rightColumn": [],
             "conditions": [{
                 "field": discriminator,
@@ -229,7 +243,7 @@ def _build_consolidated(
     # Discriminator UI field: always-visible section-1; depends on variant sections.
     disc_ui["conditionalDependents"] = variant_section_ids
     ui_fields[discriminator] = disc_ui
-    sections["section-1"] = {
+    sections[DISCRIMINATOR_SECTION_ID] = {
         "label": display,
         "columns": 1,
         "isActive": True,
@@ -238,7 +252,8 @@ def _build_consolidated(
         "conditions": [],
     }
 
-    if not properties:
+    if len(properties) <= 1:
+        # Only the discriminator was added — no variant produced any fields.
         return None
 
     et = ERV2EventType(value=value, display=display, is_active=True)
