@@ -97,3 +97,17 @@ def test_er_config_choices_base_url_override():
         choices_base_url="/custom/path",
     )
     assert cfg.choices_base_url == "/custom/path"
+
+
+def test_cm_variant_mode_defaults_to_split():
+    cfg = EarthRangerConfig(id="i", endpoint="https://x/api/v1.0")
+    assert cfg.cm_variant_mode == "split"
+
+
+def test_cm_variant_mode_rejects_unknown():
+    with pytest.raises(pydantic.ValidationError):
+        EarthRangerConfig(
+            id="i",
+            endpoint="https://x/api/v1.0",
+            cm_variant_mode="nonsense",  # ty: ignore[invalid-argument-type]
+        )
