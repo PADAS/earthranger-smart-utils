@@ -828,3 +828,53 @@ def test_build_event_types_v2_singleton_unchanged():
     ets = build_event_types_v2(dm=dm, cm=cm, ca_uuid="ca1", ca_identifier="CA", cm_variant_mode="split")
     assert len(ets) == 1
     assert ets[0].value == "ca1_cm1_incidents_report"   # no disambiguator for singletons
+
+
+# ── Consolidate mode ──────────────────────────────────────────────
+
+
+def test_build_consolidated_emits_discriminator_and_conditional_sections():
+    from er_smart_sync.smart_to_er_v2 import build_event_types_v2
+
+    cm = {
+        "cm_uuid": "cm1",
+        "categories": [
+            {"path": "carcass.lp", "hkeyPath": "animals.carcass", "display": "Large Predator Carcass",
+             "id": "n1", "attributes": [{"key": "age"}]},
+            {"path": "carcass.sp", "hkeyPath": "animals.carcass", "display": "Small Predator Carcass",
+             "id": "n2", "attributes": [{"key": "lc"}]},
+        ],
+        "attributes": [],
+    }
+    dm = {"attributes": [
+        {"key": "age", "type": "NUMERIC", "display": "Age"},
+        {"key": "lc", "type": "NUMERIC", "display": "Large Carnivore"},
+    ]}
+    ets = build_event_types_v2(dm=dm, cm=cm, ca_uuid="ca1", ca_identifier="CA", cm_variant_mode="consolidate")
+    assert len(ets) == 1
+    et = ets[0]
+    assert et.value == "ca1_cm1_animals_carcass"
+    assert et.display == "Carcass"
+    schema = et.event_schema
+    ui = schema["ui"]
+    # one section per variant + the discriminator section
+    assert len(ui["sections"]) == 3
+    assert ui["order"][0] == "section-1"
+    # discriminator field present and required
+    disc = next(k for k in schema["json"]["properties"] if k.endswith("_variant"))
+    assert disc in schema["json"]["required"]
+    # each variant section carries an IS_EXACTLY condition on the discriminator
+    variant_sections = [s for sid, s in ui["sections"].items() if sid != "section-1"]
+    for s in variant_sections:
+        cond = s["conditions"][0]
+        assert cond["operator"] == "IS_EXACTLY"
+        assert cond["field"] == disc
+        assert cond["id"].startswith("condition-")
+    # discriminator field lists the variant sections as conditionalDependents
+    dep = ui["fields"][disc]["conditionalDependents"]
+    assert set(dep) == {sid for sid in ui["sections"] if sid != "section-1"}
+    # variant attribute fields are re-parented to their own section (not the
+    # default section-1), so conditional visibility actually hides them.
+    assert ui["fields"]["age"]["parent"] != "section-1"
+    assert ui["fields"]["lc"]["parent"] != "section-1"
+    assert ui["fields"]["age"]["parent"] != ui["fields"]["lc"]["parent"]

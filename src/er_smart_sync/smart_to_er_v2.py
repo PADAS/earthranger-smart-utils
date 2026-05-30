@@ -20,7 +20,7 @@ import pydantic
 from pydantic import BaseModel, Field, parse_obj_as
 from smartconnect.models import Attribute, Category, CategoryAttribute
 
-from .choices import derive_choice_field, sanitize_choice_value
+from .choices import derive_choice_field, event_type_value_for, sanitize_choice_value
 
 logger = logging.getLogger(__name__)
 
@@ -141,8 +141,123 @@ def build_event_types_v2(
     return event_types
 
 
-def _build_consolidated(*, group, **kwargs):
-    raise NotImplementedError("consolidate mode lands in Task 9")
+def _build_consolidated(
+    *,
+    group: list[Category],
+    cats: list[Category],
+    cat_paths: list[str],
+    attributes: list[Attribute],
+    attribute_configs: list | None,
+    ca_uuid: str,
+    cm: dict | None,
+    choices_base_url: str = "/api/v2.0/schemas",
+) -> ERV2EventType | None:
+    """Build a single consolidated event type for a group of CM variant categories.
+
+    Emits one event type whose schema has:
+    - section-1: the always-visible discriminator field (a CHOICE_LIST that
+      lets the user pick which variant applies).
+    - section-{i} (i >= 2): one conditional section per variant, each carrying
+      that variant's attributes and an IS_EXACTLY condition on the discriminator
+      that hides it when its variant is not selected.
+    """
+    rep = group[0]
+    hkey = rep.hkeyPath or rep.path or ""
+    # Use event_type_value_for so the consolidated value matches the
+    # discriminator ChoiceSet's value exactly (Task 10) — same field name.
+    value = event_type_value_for(category_path=hkey, ca_uuid=ca_uuid, cm=cm)
+    display = hkey.split(".")[-1].replace("_", " ").title()
+
+    discriminator = derive_choice_field(value, "variant")
+
+    properties: dict = {}
+    ui_fields: dict = {}
+    sections: dict = {}
+    order: list[str] = ["section-1"]
+
+    # Discriminator: a single-select CHOICE_LIST. _build_choice_property_pair
+    # derives the field name internally as derive_choice_field(value, "variant")
+    # — identical to `discriminator` above — and sets parent="section-1", which
+    # is exactly where the discriminator lives. Its options resolve at query
+    # time from the ChoiceSet emitted in Task 10.
+    disc_prop, disc_ui = _build_choice_property_pair(
+        smart_type="LIST",
+        display="Variant",
+        is_multiple=False,
+        attr_key="variant",
+        choices_base_url=choices_base_url,
+        event_type_value=value,
+    )
+    properties[discriminator] = disc_prop
+
+    variant_section_ids: list[str] = []
+    for i, cat in enumerate(group, start=2):
+        section_id = f"section-{i}"
+        variant_section_ids.append(section_id)
+        order.append(section_id)
+        leaf_attributes = list(cat.attributes or [])
+        props, fields, field_order = _build_field_blocks(
+            attributes=attributes,
+            leaf_attributes=leaf_attributes,
+            is_multiple=bool(cat.is_multiple),
+            attribute_configs=attribute_configs,
+            choices_base_url=choices_base_url,
+            event_type_value=value,
+        )
+        # _build_field_blocks tags every ui field parent="section-1" (the
+        # single-section default). Re-parent this variant's fields to their
+        # own section so rjsf renders them under the conditional section, not
+        # the always-visible one.
+        for fname in fields:
+            fields[fname]["parent"] = section_id
+        properties.update(props)
+        ui_fields.update(fields)
+        sections[section_id] = {
+            "label": cat.display,
+            "columns": 1,
+            "isActive": True,
+            "leftColumn": [{"name": k, "type": "field"} for k in field_order],
+            "rightColumn": [],
+            "conditions": [{
+                "field": discriminator,
+                "id": f"condition-{i}",
+                "operator": "IS_EXACTLY",
+                "value": sanitize_choice_value(cat.display),
+            }],
+        }
+
+    # Discriminator UI field: always-visible section-1; depends on variant sections.
+    disc_ui["conditionalDependents"] = variant_section_ids
+    ui_fields[discriminator] = disc_ui
+    sections["section-1"] = {
+        "label": display,
+        "columns": 1,
+        "isActive": True,
+        "leftColumn": [{"name": discriminator, "type": "field"}],
+        "rightColumn": [],
+        "conditions": [],
+    }
+
+    if not properties:
+        return None
+
+    et = ERV2EventType(value=value, display=display, is_active=True)
+    et.event_schema = {
+        "json": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "object",
+            "unevaluatedProperties": False,
+            "properties": properties,
+            "required": [discriminator],
+        },
+        "ui": {
+            "fields": ui_fields,
+            "headers": {},
+            "order": order,
+            "sections": sections,
+        },
+    }
+    return et
 
 
 def _build_one(
