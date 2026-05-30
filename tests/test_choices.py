@@ -1104,3 +1104,85 @@ def test_build_choice_sets_split_emits_no_discriminator():
     }
     sets = build_choice_sets(dm={"attributes": []}, cm=cm, ca_uuid="ca1", cm_variant_mode="split")
     assert all(not s.field.endswith("_variant") for s in sets)
+
+
+def test_split_variant_group_choice_fields_match_schema_refs():
+    """Regression: split-mode variant groups must emit ChoiceSets whose
+    field names match the schema's $ref URLs. If they drift, ER renders
+    empty dropdowns.
+
+    The bug: build_choice_sets used a bare (non-disambiguated) et_value for
+    every category, so both variants got the same Choice.field name. Meanwhile
+    build_event_types_v2 appended _variant_disambiguator(cat) to each variant's
+    event_type_value before hashing, producing two distinct $ref field names.
+    Neither matched the single ChoiceSet field emitted, causing silent failure.
+    """
+    from er_smart_sync.choices import (
+        build_choice_sets,
+        derive_choice_field,
+        _variant_disambiguator,
+    )
+    from er_smart_sync.smart_to_er_v2 import build_event_types_v2
+
+    cm = {
+        "cm_uuid": "cm1",
+        "categories": [
+            {
+                "path": "carcass.lp",
+                "hkeyPath": "animals.carcass",
+                "display": "Large Predator Carcass",
+                "id": "n1",
+                "attributes": [{"key": "predator", "is_active": True}],
+            },
+            {
+                "path": "carcass.sp",
+                "hkeyPath": "animals.carcass",
+                "display": "Small Predator Carcass",
+                "id": "n2",
+                "attributes": [{"key": "predator", "is_active": True}],
+            },
+        ],
+        "attributes": [],
+    }
+    dm = {
+        "attributes": [
+            {
+                "key": "predator",
+                "type": "LIST",
+                "display": "Predator",
+                "isrequired": False,
+                "options": [{"key": "lion", "display": "Lion", "isActive": True}],
+            }
+        ]
+    }
+
+    sets = build_choice_sets(dm=dm, cm=cm, ca_uuid="ca1", cm_variant_mode="split")
+    ets = build_event_types_v2(
+        dm=dm,
+        cm=cm,
+        ca_uuid="ca1",
+        ca_identifier="CA",
+        cm_variant_mode="split",
+    )
+
+    assert len(ets) == 2, f"Expected 2 variant event types, got {len(ets)}"
+
+    # Every $ref in the schema must point at a ChoiceSet we emitted.
+    choice_fields = {s.field for s in sets}
+    ref_fields = []
+    for et in ets:
+        # For a non-multiple LIST, _build_choice_property_pair emits:
+        #   {"type": "string", ..., "anyOf": [{"$ref": ref_url}]}
+        prop = et.event_schema["json"]["properties"]["predator"]
+        ref_url = prop["anyOf"][0]["$ref"]
+        ref_field = ref_url.split("field=")[-1]
+        ref_fields.append(ref_field)
+        assert ref_field in choice_fields, (
+            f"Schema $ref field {ref_field!r} not in ChoiceSet fields "
+            f"{choice_fields!r}"
+        )
+
+    # The two variants must produce DISTINCT $ref fields.
+    assert ref_fields[0] != ref_fields[1], (
+        "Both variants share the same $ref field — they are not disambiguated"
+    )

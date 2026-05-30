@@ -25,6 +25,28 @@ from smartconnect.models import Attribute, Category, CategoryAttribute
 logger = logging.getLogger(__name__)
 
 
+def _variant_disambiguator(cat: Category) -> str:
+    """Per-variant slug suffix: sanitized display + 8-hex node-id hash.
+
+    Shared by ``build_choice_sets`` (split mode) and ``smart_to_er_v2._build_one``
+    (also split mode). Both must apply the identical suffix so the
+    ``event_type_value`` used to derive ``Choice.field`` names matches the
+    ``$ref`` URLs embedded in the v2 event-type schema.
+
+    Falls back to display-only (with a warning) when the CM node has no id.
+    """
+    base = sanitize_choice_value(cat.display)
+    if cat.id:
+        digest = hashlib.sha256(cat.id.encode("utf-8")).hexdigest()[:8]
+        return f"{base}_{digest}"
+    logger.warning(
+        "CM node %r has no id; split slug uses display only and may collide",
+        cat.display,
+        extra=dict(display=cat.display, hkey=cat.hkeyPath),
+    )
+    return base
+
+
 def sanitize_choice_value(option_key: str) -> str:
     """Map a SMART option key to a ``^\\w+$`` string.
 
@@ -203,83 +225,111 @@ def build_choice_sets(
     Mirrors the structure of ``smart_to_er_v2.build_event_types_v2`` so that
     field names line up byte-for-byte. Does not produce event types; only
     the choices plan.
+
+    For CM variant groups (categories sharing an hkeyPath):
+    - ``split`` mode: each variant gets its own ChoiceSets keyed on the
+      disambiguated ``et_value`` (base + ``_variant_disambiguator``), exactly
+      matching what ``build_event_types_v2`` embeds in the schema ``$ref`` URLs.
+    - ``consolidate`` mode: a single consolidated ChoiceSet is emitted for the
+      shared hkey plus a discriminator ChoiceSet whose options are the variant
+      displays.
     """
     source = cm if cm else dm
     cats = parse_obj_as(list[Category], source.get("categories") or [])
     cat_paths = [cat.path for cat in cats]
     attributes = parse_obj_as(list[Attribute], dm.get("attributes") or [])
 
+    # When a CM is present, group categories by hkeyPath to replicate the
+    # same variant-aware dispatch that build_event_types_v2 performs.
+    if cm:
+        groups: dict[str, list[Category]] = {}
+        for cat in cats:
+            key = cat.hkeyPath or cat.path or ""
+            groups.setdefault(key, []).append(cat)
+    else:
+        # Without a CM, every category is its own singleton group.
+        groups = {(cat.path or ""): [cat] for cat in cats}
+
+    attribute_configs = cm.get("attributes") if cm else None
     result: list[ChoiceSet] = []
-    for cat in cats:
-        # Only leaf-or-CM-driven categories emit event types; only those need choices.
-        is_leaf = _is_leaf_node(cat_paths, cat.path)
-        is_active = bool(cm) or (cat.is_active and is_leaf)
-        if not is_active:
-            continue
 
-        # Compute the same event_type_value the v2 builder will use.
-        path_for_value = cat.hkeyPath if cm else cat.path
-        et_value = event_type_value_for(
-            category_path=path_for_value,
-            ca_uuid=ca_uuid,
-            cm=cm,
-        )
+    for hkey, group in groups.items():
+        is_variant_group = cm and len(group) > 1
 
-        # Collect attributes from this category plus inherited (non-CM only).
-        path_components = path_for_value.split(".")
-        leaf_attrs = list(cat.attributes)
-        if not cm:
-            leaf_attrs.extend(_inherited_attributes(cats, path_components))
-
-        attribute_configs = cm.get("attributes") if cm else None
-
-        for cat_attr in leaf_attrs:
-            attribute = next(
-                (a for a in attributes if a.key == cat_attr.key),
-                None,
-            )
-            if attribute is None or attribute.type not in _CHOICE_TYPES:
-                continue
-            options = list(attribute.options or [])
-            if not options:
-                continue
-
-            options_cfg = _options_config_for(attribute_configs, cat_attr.key)
-            if options_cfg is not None:
-                choice_options = _options_from_cm_config(options, options_cfg)
-            else:
-                if attribute.type == "TREE":
-                    options = _leaf_options(options)
-                choice_options = tuple(
-                    ChoiceOption(
-                        value=_shorten_value(sanitize_choice_value(o.key)),
-                        display=_shorten_display(o.display),
-                        is_active=True,
+        if not is_variant_group or cm_variant_mode != "split":
+            # Singleton (or consolidate mode for variant groups): original flat logic.
+            # For consolidate variant groups, all members share the same hkey-based
+            # et_value, so only the first member is needed for the ChoiceSet fields.
+            members_to_process: list[tuple[Category, str]] = []
+            if not is_variant_group:
+                cat = group[0]
+                is_leaf = _is_leaf_node(cat_paths, cat.path)
+                is_active = bool(cm) or (cat.is_active and is_leaf)
+                if is_active:
+                    path_for_value = cat.hkeyPath if cm else cat.path
+                    et_value = event_type_value_for(
+                        category_path=path_for_value,
+                        ca_uuid=ca_uuid,
+                        cm=cm,
                     )
-                    for o in options
+                    members_to_process.append((cat, et_value))
+            else:
+                # consolidate mode for a variant group: use the shared hkey value.
+                base_et_value = event_type_value_for(
+                    category_path=hkey,
+                    ca_uuid=ca_uuid,
+                    cm=cm,
                 )
+                for cat in group:
+                    members_to_process.append((cat, base_et_value))
 
-            if not choice_options:
-                continue
-
-            result.append(
-                ChoiceSet(
-                    field=derive_choice_field(et_value, cat_attr.key),
-                    options=choice_options,
+            for cat, et_value in members_to_process:
+                path_for_value = cat.hkeyPath if cm else cat.path
+                path_components = path_for_value.split(".")
+                leaf_attrs = list(cat.attributes or [])
+                if not cm:
+                    leaf_attrs.extend(_inherited_attributes(cats, path_components))
+                result.extend(
+                    _choice_sets_for_attrs(
+                        leaf_attrs=leaf_attrs,
+                        attributes=attributes,
+                        attribute_configs=attribute_configs,
+                        et_value=et_value,
+                    )
                 )
-            )
+        else:
+            # split mode for a variant group: each member gets a disambiguated et_value.
+            for cat in group:
+                base_et_value = event_type_value_for(
+                    category_path=hkey,
+                    ca_uuid=ca_uuid,
+                    cm=cm,
+                )
+                disambig = _variant_disambiguator(cat)
+                et_value = f"{base_et_value}_{disambig}"
+                # et_value is already lowercased by event_type_value_for, and
+                # _variant_disambiguator produces lowercase output, so no extra lower().
+                leaf_attrs = list(cat.attributes or [])
+                result.extend(
+                    _choice_sets_for_attrs(
+                        leaf_attrs=leaf_attrs,
+                        attributes=attributes,
+                        attribute_configs=attribute_configs,
+                        et_value=et_value,
+                    )
+                )
 
     if cm and cm_variant_mode == "consolidate":
         # Group CM categories by hkeyPath; each variant group (>1) gets a
         # discriminator ChoiceSet whose options are the variant displays.
-        groups: dict[str, list[dict]] = {}
+        disc_groups: dict[str, list[dict]] = {}
         for c in (cm.get("categories") or []):
             key = c.get("hkeyPath") or c.get("path") or ""
-            groups.setdefault(key, []).append(c)
-        for hkey, members in groups.items():
+            disc_groups.setdefault(key, []).append(c)
+        for disc_hkey, members in disc_groups.items():
             if len(members) < 2:
                 continue
-            value = event_type_value_for(category_path=hkey, ca_uuid=ca_uuid, cm=cm)
+            value = event_type_value_for(category_path=disc_hkey, ca_uuid=ca_uuid, cm=cm)
             field = derive_choice_field(value, "variant")
             options = tuple(
                 ChoiceOption(
@@ -291,6 +341,53 @@ def build_choice_sets(
             )
             result.append(ChoiceSet(field=field, options=options))
 
+    return result
+
+
+def _choice_sets_for_attrs(
+    *,
+    leaf_attrs: list,
+    attributes: list[Attribute],
+    attribute_configs: list | None,
+    et_value: str,
+) -> list[ChoiceSet]:
+    """Emit ChoiceSets for every choice-bearing attribute in ``leaf_attrs``."""
+    result: list[ChoiceSet] = []
+    for cat_attr in leaf_attrs:
+        attribute = next(
+            (a for a in attributes if a.key == cat_attr.key),
+            None,
+        )
+        if attribute is None or attribute.type not in _CHOICE_TYPES:
+            continue
+        options = list(attribute.options or [])
+        if not options:
+            continue
+
+        options_cfg = _options_config_for(attribute_configs, cat_attr.key)
+        if options_cfg is not None:
+            choice_options = _options_from_cm_config(options, options_cfg)
+        else:
+            if attribute.type == "TREE":
+                options = _leaf_options(options)
+            choice_options = tuple(
+                ChoiceOption(
+                    value=_shorten_value(sanitize_choice_value(o.key)),
+                    display=_shorten_display(o.display),
+                    is_active=True,
+                )
+                for o in options
+            )
+
+        if not choice_options:
+            continue
+
+        result.append(
+            ChoiceSet(
+                field=derive_choice_field(et_value, cat_attr.key),
+                options=choice_options,
+            )
+        )
     return result
 
 
