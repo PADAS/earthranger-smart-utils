@@ -731,3 +731,21 @@ def test_inactive_choice_attribute_marked_deprecated():
     assert json_prop["deprecated"] is True
     # The anyOf $ref is still present (deprecated attr stays in the schema).
     assert "anyOf" in json_prop
+
+
+# ── Variant-group detection ───────────────────────────────────────
+
+
+def test_group_by_hkey_singletons_and_groups():
+    from smartconnect.models import Category
+    from er_smart_sync.smart_to_er_v2 import _group_by_hkey
+
+    cats = [
+        Category(path="a", hkeyPath="x", display="A", id="1"),
+        Category(path="b", hkeyPath="y", display="B1", id="2"),
+        Category(path="c", hkeyPath="y", display="B2", id="3"),
+    ]
+    groups = _group_by_hkey(cats)
+    assert list(groups.keys()) == ["x", "y"]          # insertion order preserved
+    assert len(groups["x"]) == 1
+    assert [c.id for c in groups["y"]] == ["2", "3"]   # member order preserved

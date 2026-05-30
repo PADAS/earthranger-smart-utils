@@ -24,6 +24,16 @@ from .choices import derive_choice_field
 logger = logging.getLogger(__name__)
 
 
+def _group_by_hkey(cats: list[Category]) -> dict[str, list[Category]]:
+    """Group categories by hkeyPath (falls back to path). Preserves first-seen
+    order of both keys and members so builder output is deterministic."""
+    groups: dict[str, list[Category]] = {}
+    for cat in cats:
+        key = cat.hkeyPath or cat.path or ""
+        groups.setdefault(key, []).append(cat)
+    return groups
+
+
 class ERV2EventType(BaseModel):
     """Wire model for an ER v2 event-type POST/PATCH payload.
 
