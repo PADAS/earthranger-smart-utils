@@ -700,6 +700,64 @@ def test_datamodel_event_type_version_defaults_to_v2(tmp_path, monkeypatch):
     assert captured["sync"]._event_type_version == "v2"
 
 
+def test_cm_variant_mode_flag_overrides_config(tmp_path, monkeypatch):
+    """--cm-variant-mode consolidate should produce a synchronizer with _cm_variant_mode == 'consolidate'."""
+    captured = {}
+
+    def fake_make_sync(config, ctx=None):
+        from er_smart_sync.synchronizer import ERSmartSynchronizer
+
+        sync = ERSmartSynchronizer.__new__(ERSmartSynchronizer)
+        sync._event_type_version = config.earthranger.event_type_version
+        sync._cm_variant_mode = config.earthranger.cm_variant_mode
+        sync.sync_mode = "both"
+        sync.datamodel_stats = {
+            "categories_created": 0,
+            "categories_existing": 0,
+            "event_types_created": 0,
+            "event_types_updated": 0,
+            "event_types_unchanged": 0,
+            "event_types_skipped_by_mode": 0,
+            "event_types_errored": 0,
+        }
+        sync.push_smart_ca_datamodel_to_earthranger = lambda **kwargs: None
+        sync.synchronize_datamodel = lambda: None
+        captured["sync"] = sync
+        return sync
+
+    monkeypatch.setattr("er_smart_sync.cli._make_synchronizer", fake_make_sync)
+
+    dm_file = tmp_path / "dm.xml"
+    dm_file.write_text("<datamodel/>")
+
+    monkeypatch.setattr(
+        "smartconnect.SmartClient.load_datamodel",
+        lambda self, filename: MagicMock(),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "datamodel",
+            "--from-file",
+            str(dm_file),
+            "--er-endpoint",
+            "https://x/api/v1.0",
+            "--er-token",
+            "t",
+            "--er-id",
+            "i",
+            "--ca-identifier",
+            "TEST",
+            "--cm-variant-mode",
+            "consolidate",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["sync"]._cm_variant_mode == "consolidate"
+
+
 def test_inspect_datamodel_v2_prints_field_types(tmp_path, monkeypatch):
     dm_mock = MagicMock()
     dm_mock.export_as_dict.return_value = {

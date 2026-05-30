@@ -313,6 +313,16 @@ def _validate_config(config: SyncConfig) -> None:
     help="EarthRanger event-type API version. Overrides --config or the default (v2).",
 )
 @click.option(
+    "--cm-variant-mode",
+    type=click.Choice(["split", "consolidate"]),
+    default=None,
+    help=(
+        "How to map CM variant groups (categories sharing an hkeyPath) to "
+        "ER event types: 'split' (one per variant, default) or 'consolidate' "
+        "(one event type + variant selector + conditional sections). v2 only."
+    ),
+)
+@click.option(
     "--skip-choices",
     "skip_choices",
     is_flag=True,
@@ -344,6 +354,7 @@ def datamodel(
     ca_identifier,
     mode,
     event_type_version,
+    cm_variant_mode,
     skip_choices,
 ):
     """Sync SMART data models to EarthRanger as event categories/types."""
@@ -364,6 +375,9 @@ def datamodel(
 
     if event_type_version:
         config.earthranger.event_type_version = event_type_version
+
+    if cm_variant_mode:
+        config.earthranger.cm_variant_mode = cm_variant_mode
 
     if cm_file and not datamodel_file:
         raise click.UsageError("--cm-from-file requires --from-file")

@@ -208,6 +208,7 @@ class ERSmartSynchronizer:
         self.sync_mode: str = "both"
         self.skip_choices: bool = False
         self._event_type_version: str = config.earthranger.event_type_version
+        self._cm_variant_mode: str = config.earthranger.cm_variant_mode
         # Datamodel-sync run summary counters, populated by create_or_update_er_event_types.
         self.datamodel_stats: dict[str, int] = {
             "categories_created": 0,
@@ -393,6 +394,7 @@ class ERSmartSynchronizer:
                 ca_uuid=smart_ca_uuid,
                 ca_identifier=ca_identifier,
                 choices_base_url=self.config.earthranger.choices_base_url,
+                cm_variant_mode=self._cm_variant_mode,
             )
         else:
             event_types = build_event_types(
