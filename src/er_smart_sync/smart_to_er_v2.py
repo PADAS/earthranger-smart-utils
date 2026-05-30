@@ -11,6 +11,7 @@ happens in ``synchronizer.ERSmartSynchronizer`` based on
 from __future__ import annotations
 
 import copy
+import hashlib
 import logging
 from collections.abc import Sequence
 from typing import Any
@@ -19,7 +20,7 @@ import pydantic
 from pydantic import BaseModel, Field, parse_obj_as
 from smartconnect.models import Attribute, Category, CategoryAttribute
 
-from .choices import derive_choice_field
+from .choices import derive_choice_field, sanitize_choice_value
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,21 @@ def _group_by_hkey(cats: list[Category]) -> dict[str, list[Category]]:
         key = cat.hkeyPath or cat.path or ""
         groups.setdefault(key, []).append(cat)
     return groups
+
+
+def _variant_disambiguator(cat: Category) -> str:
+    """Per-variant slug suffix: sanitized display + 8-hex node-id hash.
+    Falls back to display-only (with a warning) when the CM node has no id."""
+    base = sanitize_choice_value(cat.display)
+    if cat.id:
+        digest = hashlib.sha256(cat.id.encode("utf-8")).hexdigest()[:8]
+        return f"{base}_{digest}"
+    logger.warning(
+        "CM node %r has no id; split slug uses display only and may collide",
+        cat.display,
+        extra=dict(display=cat.display, hkey=cat.hkeyPath),
+    )
+    return base
 
 
 class ERV2EventType(BaseModel):

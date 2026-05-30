@@ -749,3 +749,26 @@ def test_group_by_hkey_singletons_and_groups():
     assert list(groups.keys()) == ["x", "y"]          # insertion order preserved
     assert len(groups["x"]) == 1
     assert [c.id for c in groups["y"]] == ["2", "3"]   # member order preserved
+
+
+def test_variant_disambiguator_is_stable_and_readable():
+    from smartconnect.models import Category
+    from er_smart_sync.smart_to_er_v2 import _variant_disambiguator
+
+    cat = Category(path="c", hkeyPath="animals.carcass", display="Large Predator Carcass", id="node-1")
+    out = _variant_disambiguator(cat)
+    assert out.startswith("large_predator_carcass_")
+    assert _variant_disambiguator(cat) == out               # deterministic
+    # 8-hex node-id suffix
+    assert len(out.rsplit("_", 1)[-1]) == 8
+
+
+def test_variant_disambiguator_missing_id_falls_back(caplog):
+    from smartconnect.models import Category
+    from er_smart_sync.smart_to_er_v2 import _variant_disambiguator
+
+    cat = Category(path="c", hkeyPath="animals.carcass", display="Large Predator Carcass", id=None)
+    with caplog.at_level("WARNING"):
+        out = _variant_disambiguator(cat)
+    assert out == "large_predator_carcass"
+    assert any("no id" in r.message.lower() for r in caplog.records)
