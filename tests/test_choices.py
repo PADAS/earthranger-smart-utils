@@ -1063,3 +1063,44 @@ def test_upsert_choices_counts_one_error_per_failed_set_not_per_option():
     # ONE failed set → errored == 1 (not 4).
     assert stats.errored == 1
     assert stats.created == 0
+
+
+# ── build_choice_sets: cm_variant_mode ────────────────────────
+
+
+def test_build_choice_sets_consolidate_emits_discriminator():
+    from er_smart_sync.choices import build_choice_sets, derive_choice_field
+
+    cm = {
+        "cm_uuid": "cm1",
+        "categories": [
+            {"path": "carcass.lp", "hkeyPath": "animals.carcass", "display": "Large Predator Carcass",
+             "id": "n1", "attributes": []},
+            {"path": "carcass.sp", "hkeyPath": "animals.carcass", "display": "Small Predator Carcass",
+             "id": "n2", "attributes": []},
+        ],
+        "attributes": [],
+    }
+    dm = {"attributes": []}
+    sets = build_choice_sets(dm=dm, cm=cm, ca_uuid="ca1", cm_variant_mode="consolidate")
+    value = "ca1_cm1_animals_carcass"
+    disc_field = derive_choice_field(value, "variant")
+    disc = next((s for s in sets if s.field == disc_field), None)
+    assert disc is not None
+    assert {o.value for o in disc.options} == {"large_predator_carcass", "small_predator_carcass"}
+
+
+def test_build_choice_sets_split_emits_no_discriminator():
+    from er_smart_sync.choices import build_choice_sets
+    cm = {
+        "cm_uuid": "cm1",
+        "categories": [
+            {"path": "carcass.lp", "hkeyPath": "animals.carcass", "display": "Large Predator Carcass",
+             "id": "n1", "attributes": []},
+            {"path": "carcass.sp", "hkeyPath": "animals.carcass", "display": "Small Predator Carcass",
+             "id": "n2", "attributes": []},
+        ],
+        "attributes": [],
+    }
+    sets = build_choice_sets(dm={"attributes": []}, cm=cm, ca_uuid="ca1", cm_variant_mode="split")
+    assert all(not s.field.endswith("_variant") for s in sets)

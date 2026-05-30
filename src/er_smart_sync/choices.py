@@ -196,6 +196,7 @@ def build_choice_sets(
     dm: dict,
     cm: dict | None = None,
     ca_uuid: str,
+    cm_variant_mode: str = "split",
 ) -> list[ChoiceSet]:
     """Walk a SMART data model and emit one ChoiceSet per (event_type, choice attr).
 
@@ -267,6 +268,28 @@ def build_choice_sets(
                     options=choice_options,
                 )
             )
+
+    if cm and cm_variant_mode == "consolidate":
+        # Group CM categories by hkeyPath; each variant group (>1) gets a
+        # discriminator ChoiceSet whose options are the variant displays.
+        groups: dict[str, list[dict]] = {}
+        for c in (cm.get("categories") or []):
+            key = c.get("hkeyPath") or c.get("path") or ""
+            groups.setdefault(key, []).append(c)
+        for hkey, members in groups.items():
+            if len(members) < 2:
+                continue
+            value = event_type_value_for(category_path=hkey, ca_uuid=ca_uuid, cm=cm)
+            field = derive_choice_field(value, "variant")
+            options = tuple(
+                ChoiceOption(
+                    value=_shorten_value(sanitize_choice_value(m.get("display", ""))),
+                    display=_shorten_display(m.get("display", "")),
+                    is_active=True,
+                )
+                for m in members
+            )
+            result.append(ChoiceSet(field=field, options=options))
 
     return result
 
