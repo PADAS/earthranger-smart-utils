@@ -772,3 +772,19 @@ def test_variant_disambiguator_missing_id_falls_back(caplog):
         out = _variant_disambiguator(cat)
     assert out == "large_predator_carcass"
     assert any("no id" in r.message.lower() for r in caplog.records)
+
+
+def test_build_one_appends_value_disambiguator():
+    from smartconnect.models import Attribute, Category
+    from er_smart_sync.smart_to_er_v2 import _build_one
+
+    cat = Category(path="carcass", hkeyPath="animals.carcass", display="Large Predator Carcass",
+                   id="n1", attributes=[{"key": "age"}])
+    attrs = [Attribute(key="age", type="NUMERIC", display="Age")]
+    et = _build_one(
+        cat=cat, cats=[cat], cat_paths=["carcass"], attributes=attrs,
+        attribute_configs=None, ca_uuid="ca1", cm={"cm_uuid": "cm1"},
+        value_disambiguator="large_predator_carcass_a1b2c3d4",
+    )
+    assert et is not None
+    assert et.value == "ca1_cm1_animals_carcass_large_predator_carcass_a1b2c3d4"

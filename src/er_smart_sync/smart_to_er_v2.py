@@ -139,6 +139,7 @@ def _build_one(
     ca_uuid: str,
     cm: dict | None,
     choices_base_url: str = "/api/v2.0/schemas",
+    value_disambiguator: str | None = None,
 ) -> ERV2EventType | None:
     is_leaf = _is_leaf_node(cat_paths, cat.path)
     is_active = bool(cm) or (cat.is_active and is_leaf)
@@ -155,6 +156,8 @@ def _build_one(
         value = f"{ca_uuid}_{cm['cm_uuid']}_{value_suffix}"
     else:
         value = f"{ca_uuid}_{value_suffix}"
+    if value_disambiguator:
+        value = f"{value}_{value_disambiguator}"
     value = value.lower()
 
     # Pass event_type_value down so choice properties can derive their
