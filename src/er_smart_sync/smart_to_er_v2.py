@@ -102,6 +102,7 @@ def build_event_types_v2(
     ca_uuid: str,
     ca_identifier: str,
     choices_base_url: str = "/api/v2.0/schemas",
+    cm_variant_mode: str = "split",
 ) -> list[ERV2EventType]:
     """Build ERV2EventType records for a SMART CA (optionally with a CM overlay)."""
     del ca_identifier  # reserved; parity with v1 signature
@@ -112,21 +113,36 @@ def build_event_types_v2(
     attributes = parse_obj_as(list[Attribute], dm.get("attributes") or [])
     attribute_configs = cm.get("attributes") if cm else None
 
+    common = dict(
+        cats=cats,
+        cat_paths=cat_paths,
+        attributes=attributes,
+        attribute_configs=attribute_configs,
+        ca_uuid=ca_uuid,
+        cm=cm,
+        choices_base_url=choices_base_url,
+    )
+
     event_types: list[ERV2EventType] = []
-    for cat in cats:
-        et = _build_one(
-            cat=cat,
-            cats=cats,
-            cat_paths=cat_paths,
-            attributes=attributes,
-            attribute_configs=attribute_configs,
-            ca_uuid=ca_uuid,
-            cm=cm,
-            choices_base_url=choices_base_url,
-        )
-        if et is not None:
-            event_types.append(et)
+    for _hkey, group in _group_by_hkey(cats).items():
+        if len(group) == 1:
+            et = _build_one(cat=group[0], **common)
+            if et is not None:
+                event_types.append(et)
+        elif cm_variant_mode == "consolidate":
+            et = _build_consolidated(group=group, **common)
+            if et is not None:
+                event_types.append(et)
+        else:  # split
+            for cat in group:
+                et = _build_one(cat=cat, value_disambiguator=_variant_disambiguator(cat), **common)
+                if et is not None:
+                    event_types.append(et)
     return event_types
+
+
+def _build_consolidated(*, group, **kwargs):
+    raise NotImplementedError("consolidate mode lands in Task 9")
 
 
 def _build_one(

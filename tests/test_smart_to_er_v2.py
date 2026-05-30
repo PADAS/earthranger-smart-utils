@@ -788,3 +788,43 @@ def test_build_one_appends_value_disambiguator():
     )
     assert et is not None
     assert et.value == "ca1_cm1_animals_carcass_large_predator_carcass_a1b2c3d4"
+
+
+# ── build_event_types_v2 split / grouping ─────────────────────────
+
+
+def test_build_event_types_v2_split_emits_one_per_variant():
+    from er_smart_sync.smart_to_er_v2 import build_event_types_v2
+
+    cm = {
+        "cm_uuid": "cm1",
+        "categories": [
+            {"path": "carcass.lp", "hkeyPath": "animals.carcass", "display": "Large Predator Carcass",
+             "id": "n1", "attributes": [{"key": "age"}]},
+            {"path": "carcass.sp", "hkeyPath": "animals.carcass", "display": "Small Predator Carcass",
+             "id": "n2", "attributes": [{"key": "age"}]},
+        ],
+        "attributes": [],
+    }
+    dm = {"attributes": [{"key": "age", "type": "NUMERIC", "display": "Age"}]}
+    ets = build_event_types_v2(dm=dm, cm=cm, ca_uuid="ca1", ca_identifier="CA", cm_variant_mode="split")
+    values = sorted(e.value for e in ets)
+    assert len(values) == 2
+    assert all(v.startswith("ca1_cm1_animals_carcass_") for v in values)
+    assert values[0] != values[1]
+
+
+def test_build_event_types_v2_singleton_unchanged():
+    from er_smart_sync.smart_to_er_v2 import build_event_types_v2
+    cm = {
+        "cm_uuid": "cm1",
+        "categories": [
+            {"path": "incident", "hkeyPath": "incidents.report", "display": "Report",
+             "id": "n9", "attributes": [{"key": "age"}]},
+        ],
+        "attributes": [],
+    }
+    dm = {"attributes": [{"key": "age", "type": "NUMERIC", "display": "Age"}]}
+    ets = build_event_types_v2(dm=dm, cm=cm, ca_uuid="ca1", ca_identifier="CA", cm_variant_mode="split")
+    assert len(ets) == 1
+    assert ets[0].value == "ca1_cm1_incidents_report"   # no disambiguator for singletons
