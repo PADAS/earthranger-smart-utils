@@ -19,9 +19,25 @@ import pydantic
 from pydantic import BaseModel, Field, parse_obj_as
 from smartconnect.models import Attribute, Category, CategoryAttribute
 
-from .choices import derive_choice_field
+from .choices import (
+    _discriminator_option_value,
+    _variant_disambiguator,
+    derive_choice_field,
+    event_type_value_for,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def _group_by_hkey(cats: list[Category]) -> dict[str, list[Category]]:
+    """Group categories by hkeyPath (falls back to path). Preserves first-seen
+    order of both keys and members so builder output is deterministic."""
+    groups: dict[str, list[Category]] = {}
+    for cat in cats:
+        key = cat.hkeyPath or cat.path or ""
+        groups.setdefault(key, []).append(cat)
+    return groups
+
 
 
 class ERV2EventType(BaseModel):
@@ -76,6 +92,7 @@ def build_event_types_v2(
     ca_uuid: str,
     ca_identifier: str,
     choices_base_url: str = "/api/v2.0/schemas",
+    cm_variant_mode: str = "split",
 ) -> list[ERV2EventType]:
     """Build ERV2EventType records for a SMART CA (optionally with a CM overlay)."""
     del ca_identifier  # reserved; parity with v1 signature
@@ -86,21 +103,168 @@ def build_event_types_v2(
     attributes = parse_obj_as(list[Attribute], dm.get("attributes") or [])
     attribute_configs = cm.get("attributes") if cm else None
 
+    common = dict(
+        cats=cats,
+        cat_paths=cat_paths,
+        attributes=attributes,
+        attribute_configs=attribute_configs,
+        ca_uuid=ca_uuid,
+        cm=cm,
+        choices_base_url=choices_base_url,
+    )
+
     event_types: list[ERV2EventType] = []
-    for cat in cats:
-        et = _build_one(
-            cat=cat,
-            cats=cats,
-            cat_paths=cat_paths,
-            attributes=attributes,
-            attribute_configs=attribute_configs,
-            ca_uuid=ca_uuid,
-            cm=cm,
-            choices_base_url=choices_base_url,
-        )
-        if et is not None:
-            event_types.append(et)
+    for _hkey, group in _group_by_hkey(cats).items():
+        if len(group) == 1:
+            et = _build_one(cat=group[0], **common)
+            if et is not None:
+                event_types.append(et)
+        elif cm_variant_mode == "consolidate":
+            et = _build_consolidated(group=group, **common)
+            if et is not None:
+                event_types.append(et)
+        else:  # split
+            for cat in group:
+                et = _build_one(cat=cat, value_disambiguator=_variant_disambiguator(cat), **common)
+                if et is not None:
+                    event_types.append(et)
     return event_types
+
+
+DISCRIMINATOR_SECTION_ID = "section-1"
+
+
+def _build_consolidated(
+    *,
+    group: list[Category],
+    cats: list[Category],
+    cat_paths: list[str],
+    attributes: list[Attribute],
+    attribute_configs: list | None,
+    ca_uuid: str,
+    cm: dict | None,
+    choices_base_url: str = "/api/v2.0/schemas",
+) -> ERV2EventType | None:
+    """Build a single consolidated event type for a group of CM variant categories.
+
+    Emits one event type whose schema has:
+    - section-1: the always-visible discriminator field (a CHOICE_LIST that
+      lets the user pick which variant applies).
+    - section-{i} (i >= 2): one conditional section per variant, each carrying
+      that variant's attributes and an IS_EXACTLY condition on the discriminator
+      that hides it when its variant is not selected.
+
+    Variant attribute keys are namespaced as ``{section_id_with_underscores}_{attr_key}``
+    where the section_id's hyphens are converted to underscores (e.g.,
+    ``section-2`` → ``section_2_age``) to satisfy JSON Schema's ``^\\w+$``
+    property-name rules. The attribute key itself is left unchanged. This
+    namespacing avoids silent overwrite when two variants share an attribute
+    key (a common SMART pattern).
+    """
+    rep = group[0]
+    hkey = rep.hkeyPath or rep.path or ""
+    # Use event_type_value_for so the consolidated value matches the
+    # discriminator ChoiceSet's value exactly (Task 10) — same field name.
+    value = event_type_value_for(category_path=hkey, ca_uuid=ca_uuid, cm=cm)
+    display = hkey.split(".")[-1].replace("_", " ").title()
+
+    discriminator = derive_choice_field(value, "variant")
+
+    properties: dict = {}
+    ui_fields: dict = {}
+    sections: dict = {}
+    order: list[str] = [DISCRIMINATOR_SECTION_ID]
+
+    # Discriminator: a single-select CHOICE_LIST. _build_choice_property_pair
+    # derives the field name internally as derive_choice_field(value, "variant")
+    # — identical to `discriminator` above — and sets parent="section-1", which
+    # is exactly where the discriminator lives. Its options resolve at query
+    # time from the ChoiceSet emitted in Task 10.
+    disc_prop, disc_ui = _build_choice_property_pair(
+        smart_type="LIST",
+        display="Variant",
+        is_multiple=False,
+        attr_key="variant",
+        choices_base_url=choices_base_url,
+        event_type_value=value,
+    )
+    properties[discriminator] = disc_prop
+
+    variant_section_ids: list[str] = []
+    for i, cat in enumerate(group, start=2):
+        section_id = f"section-{i}"
+        # Namespace prefix: replace hyphens so the result is \w+-safe.
+        ns_prefix = section_id.replace("-", "_")
+        variant_section_ids.append(section_id)
+        order.append(section_id)
+        leaf_attributes = list(cat.attributes or [])
+        props, fields, field_order = _build_field_blocks(
+            attributes=attributes,
+            leaf_attributes=leaf_attributes,
+            is_multiple=bool(cat.is_multiple),
+            attribute_configs=attribute_configs,
+            choices_base_url=choices_base_url,
+            event_type_value=value,
+        )
+        # Namespace every variant attribute key to avoid collisions when two
+        # variants share the same attribute.  Also re-parent ui fields to the
+        # variant's own section (away from the default "section-1") so rjsf
+        # hides them correctly via the IS_EXACTLY condition.
+        namespaced_field_order: list[str] = []
+        for orig_key in field_order:
+            ns_key = f"{ns_prefix}_{orig_key}"
+            properties[ns_key] = props[orig_key]
+            ui_fields[ns_key] = fields[orig_key]
+            ui_fields[ns_key]["parent"] = section_id
+            namespaced_field_order.append(ns_key)
+
+        sections[section_id] = {
+            "label": cat.display,
+            "columns": 1,
+            "isActive": True,
+            "leftColumn": [{"name": k, "type": "field"} for k in namespaced_field_order],
+            "rightColumn": [],
+            "conditions": [{
+                "field": discriminator,
+                "id": f"condition-{i}",
+                "operator": "IS_EXACTLY",
+                "value": _discriminator_option_value(display=cat.display, node_id=cat.id),
+            }],
+        }
+
+    # Discriminator UI field: always-visible section-1; depends on variant sections.
+    disc_ui["conditionalDependents"] = variant_section_ids
+    ui_fields[discriminator] = disc_ui
+    sections[DISCRIMINATOR_SECTION_ID] = {
+        "label": display,
+        "columns": 1,
+        "isActive": True,
+        "leftColumn": [{"name": discriminator, "type": "field"}],
+        "rightColumn": [],
+        "conditions": [],
+    }
+
+    if len(properties) <= 1:
+        # Only the discriminator was added — no variant produced any fields.
+        return None
+
+    et = ERV2EventType(value=value, display=display, is_active=True)
+    et.event_schema = {
+        "json": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "object",
+            "unevaluatedProperties": False,
+            "properties": properties,
+            "required": [discriminator],
+        },
+        "ui": {
+            "fields": ui_fields,
+            "headers": {},
+            "order": order,
+            "sections": sections,
+        },
+    }
+    return et
 
 
 def _build_one(
@@ -113,6 +277,7 @@ def _build_one(
     ca_uuid: str,
     cm: dict | None,
     choices_base_url: str = "/api/v2.0/schemas",
+    value_disambiguator: str | None = None,
 ) -> ERV2EventType | None:
     is_leaf = _is_leaf_node(cat_paths, cat.path)
     is_active = bool(cm) or (cat.is_active and is_leaf)
@@ -129,6 +294,8 @@ def _build_one(
         value = f"{ca_uuid}_{cm['cm_uuid']}_{value_suffix}"
     else:
         value = f"{ca_uuid}_{value_suffix}"
+    if value_disambiguator:
+        value = f"{value}_{value_disambiguator}"
     value = value.lower()
 
     # Pass event_type_value down so choice properties can derive their

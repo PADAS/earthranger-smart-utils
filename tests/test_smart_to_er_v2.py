@@ -731,3 +731,288 @@ def test_inactive_choice_attribute_marked_deprecated():
     assert json_prop["deprecated"] is True
     # The anyOf $ref is still present (deprecated attr stays in the schema).
     assert "anyOf" in json_prop
+
+
+# ── Variant-group detection ───────────────────────────────────────
+
+
+def test_group_by_hkey_singletons_and_groups():
+    from smartconnect.models import Category
+    from er_smart_sync.smart_to_er_v2 import _group_by_hkey
+
+    cats = [
+        Category(path="a", hkeyPath="x", display="A", id="1"),
+        Category(path="b", hkeyPath="y", display="B1", id="2"),
+        Category(path="c", hkeyPath="y", display="B2", id="3"),
+    ]
+    groups = _group_by_hkey(cats)
+    assert list(groups.keys()) == ["x", "y"]          # insertion order preserved
+    assert len(groups["x"]) == 1
+    assert [c.id for c in groups["y"]] == ["2", "3"]   # member order preserved
+
+
+def test_variant_disambiguator_is_stable_and_readable():
+    from smartconnect.models import Category
+    from er_smart_sync.smart_to_er_v2 import _variant_disambiguator
+
+    cat = Category(path="c", hkeyPath="animals.carcass", display="Large Predator Carcass", id="node-1")
+    out = _variant_disambiguator(cat)
+    assert out.startswith("large_predator_carcass_")
+    assert _variant_disambiguator(cat) == out               # deterministic
+    # 8-hex node-id suffix
+    assert len(out.rsplit("_", 1)[-1]) == 8
+
+
+def test_variant_disambiguator_missing_id_falls_back(caplog):
+    from smartconnect.models import Category
+    from er_smart_sync.smart_to_er_v2 import _variant_disambiguator
+
+    cat = Category(path="c", hkeyPath="animals.carcass", display="Large Predator Carcass", id=None)
+    with caplog.at_level("WARNING"):
+        out = _variant_disambiguator(cat)
+    assert out == "large_predator_carcass"
+    assert any("no id" in r.message.lower() for r in caplog.records)
+
+
+def test_build_one_appends_value_disambiguator():
+    from smartconnect.models import Attribute, Category
+    from er_smart_sync.smart_to_er_v2 import _build_one
+
+    cat = Category(path="carcass", hkeyPath="animals.carcass", display="Large Predator Carcass",
+                   id="n1", attributes=[{"key": "age"}])
+    attrs = [Attribute(key="age", type="NUMERIC", display="Age")]
+    et = _build_one(
+        cat=cat, cats=[cat], cat_paths=["carcass"], attributes=attrs,
+        attribute_configs=None, ca_uuid="ca1", cm={"cm_uuid": "cm1"},
+        value_disambiguator="large_predator_carcass_a1b2c3d4",
+    )
+    assert et is not None
+    assert et.value == "ca1_cm1_animals_carcass_large_predator_carcass_a1b2c3d4"
+
+
+# ── build_event_types_v2 split / grouping ─────────────────────────
+
+
+def test_build_event_types_v2_split_emits_one_per_variant():
+    from er_smart_sync.smart_to_er_v2 import build_event_types_v2
+
+    cm = {
+        "cm_uuid": "cm1",
+        "categories": [
+            {"path": "carcass.lp", "hkeyPath": "animals.carcass", "display": "Large Predator Carcass",
+             "id": "n1", "attributes": [{"key": "age"}]},
+            {"path": "carcass.sp", "hkeyPath": "animals.carcass", "display": "Small Predator Carcass",
+             "id": "n2", "attributes": [{"key": "age"}]},
+        ],
+        "attributes": [],
+    }
+    dm = {"attributes": [{"key": "age", "type": "NUMERIC", "display": "Age"}]}
+    ets = build_event_types_v2(dm=dm, cm=cm, ca_uuid="ca1", ca_identifier="CA", cm_variant_mode="split")
+    values = sorted(e.value for e in ets)
+    assert len(values) == 2
+    assert all(v.startswith("ca1_cm1_animals_carcass_") for v in values)
+    assert values[0] != values[1]
+
+
+def test_build_event_types_v2_singleton_unchanged():
+    from er_smart_sync.smart_to_er_v2 import build_event_types_v2
+    cm = {
+        "cm_uuid": "cm1",
+        "categories": [
+            {"path": "incident", "hkeyPath": "incidents.report", "display": "Report",
+             "id": "n9", "attributes": [{"key": "age"}]},
+        ],
+        "attributes": [],
+    }
+    dm = {"attributes": [{"key": "age", "type": "NUMERIC", "display": "Age"}]}
+    ets = build_event_types_v2(dm=dm, cm=cm, ca_uuid="ca1", ca_identifier="CA", cm_variant_mode="split")
+    assert len(ets) == 1
+    assert ets[0].value == "ca1_cm1_incidents_report"   # no disambiguator for singletons
+
+
+# ── Consolidate mode ──────────────────────────────────────────────
+
+
+def test_build_consolidated_emits_discriminator_and_conditional_sections():
+    from er_smart_sync.smart_to_er_v2 import build_event_types_v2
+
+    cm = {
+        "cm_uuid": "cm1",
+        "categories": [
+            {"path": "carcass.lp", "hkeyPath": "animals.carcass", "display": "Large Predator Carcass",
+             "id": "n1", "attributes": [{"key": "age"}]},
+            {"path": "carcass.sp", "hkeyPath": "animals.carcass", "display": "Small Predator Carcass",
+             "id": "n2", "attributes": [{"key": "lc"}]},
+        ],
+        "attributes": [],
+    }
+    dm = {"attributes": [
+        {"key": "age", "type": "NUMERIC", "display": "Age"},
+        {"key": "lc", "type": "NUMERIC", "display": "Large Carnivore"},
+    ]}
+    ets = build_event_types_v2(dm=dm, cm=cm, ca_uuid="ca1", ca_identifier="CA", cm_variant_mode="consolidate")
+    assert len(ets) == 1
+    et = ets[0]
+    assert et.value == "ca1_cm1_animals_carcass"
+    assert et.display == "Carcass"
+    schema = et.event_schema
+    ui = schema["ui"]
+    # one section per variant + the discriminator section
+    assert len(ui["sections"]) == 3
+    assert ui["order"][0] == "section-1"
+    # discriminator field present and required
+    disc = next(k for k in schema["json"]["properties"] if k.endswith("_variant"))
+    assert disc in schema["json"]["required"]
+    # each variant section carries an IS_EXACTLY condition on the discriminator
+    variant_sections = [s for sid, s in ui["sections"].items() if sid != "section-1"]
+    for s in variant_sections:
+        cond = s["conditions"][0]
+        assert cond["operator"] == "IS_EXACTLY"
+        assert cond["field"] == disc
+        assert cond["id"].startswith("condition-")
+    # discriminator field lists the variant sections as conditionalDependents
+    dep = ui["fields"][disc]["conditionalDependents"]
+    assert set(dep) == {sid for sid in ui["sections"] if sid != "section-1"}
+    # variant attribute fields are namespaced (e.g. section_2_age) and
+    # re-parented to their own section (not the default section-1), so
+    # conditional visibility actually hides them.
+    field_keys = [k for k in ui["fields"] if k.endswith("_age") or k.endswith("_lc")]
+    assert len(field_keys) == 2, f"expected 2 namespaced variant fields, got {field_keys}"
+    for fk in field_keys:
+        assert ui["fields"][fk]["parent"] != "section-1", (
+            f"expected {fk} re-parented away from section-1"
+        )
+        # Each namespaced key must also appear in the JSON schema properties.
+        assert fk in schema["json"]["properties"], (
+            f"namespaced key {fk!r} missing from json.properties"
+        )
+    parents = {ui["fields"][fk]["parent"] for fk in field_keys}
+    assert len(parents) == 2, f"expected 2 distinct parent sections, got {parents}"
+
+
+def test_build_consolidated_handles_shared_attribute_across_variants():
+    """When two variants share an attribute key, the consolidate builder must
+    namespace per variant to avoid property-key collision."""
+    from er_smart_sync.smart_to_er_v2 import build_event_types_v2
+
+    cm = {
+        "cm_uuid": "cm1",
+        "categories": [
+            {"path": "carcass.lp", "hkeyPath": "animals.carcass", "display": "Large Predator Carcass",
+             "id": "n1", "attributes": [{"key": "age"}]},
+            {"path": "carcass.sp", "hkeyPath": "animals.carcass", "display": "Small Predator Carcass",
+             "id": "n2", "attributes": [{"key": "age"}]},  # SAME attribute key
+        ],
+        "attributes": [],
+    }
+    dm = {"attributes": [{"key": "age", "type": "NUMERIC", "display": "Age"}]}
+    ets = build_event_types_v2(dm=dm, cm=cm, ca_uuid="ca1", ca_identifier="CA",
+                               cm_variant_mode="consolidate")
+    assert len(ets) == 1
+    props = ets[0].event_schema["json"]["properties"]
+    fields = ets[0].event_schema["ui"]["fields"]
+    # Both variants' "age" fields must coexist as distinct properties.
+    age_keys = [k for k in props if k.endswith("_age")]
+    assert len(age_keys) == 2, f"expected 2 namespaced age fields, got {age_keys}"
+    # And they live in different sections.
+    parents = {fields[k]["parent"] for k in age_keys}
+    assert len(parents) == 2, f"expected 2 distinct parents, got {parents}"
+
+
+def test_consolidate_condition_value_matches_shortened_choice_option_value():
+    """Regression: when a variant display sanitizes to >100 chars, the
+    ChoiceSet option value is hash-shortened. The schema's IS_EXACTLY
+    condition value MUST receive the same shortening, or ER's rjsf
+    renderer will never satisfy the condition and the section stays hidden."""
+    from er_smart_sync.choices import build_choice_sets
+    from er_smart_sync.smart_to_er_v2 import build_event_types_v2
+
+    long_a = "Large Predator " + "Carcass " * 15  # ~135 chars after sanitize
+    long_b = "Small Predator " + "Carcass " * 15
+    cm = {
+        "cm_uuid": "cm1",
+        "categories": [
+            {"path": "carcass.lp", "hkeyPath": "animals.carcass",
+             "display": long_a, "id": "n1", "attributes": [{"key": "age"}]},
+            {"path": "carcass.sp", "hkeyPath": "animals.carcass",
+             "display": long_b, "id": "n2", "attributes": [{"key": "age"}]},
+        ],
+        "attributes": [],
+    }
+    dm = {"attributes": [{"key": "age", "type": "NUMERIC", "display": "Age"}]}
+
+    ets = build_event_types_v2(dm=dm, cm=cm, ca_uuid="ca1",
+                                ca_identifier="CA",
+                                cm_variant_mode="consolidate")
+    sets = build_choice_sets(dm=dm, cm=cm, ca_uuid="ca1",
+                              cm_variant_mode="consolidate")
+
+    assert len(ets) == 1
+    ui = ets[0].event_schema["ui"]
+    discriminator = next(
+        k for k in ets[0].event_schema["json"]["properties"]
+        if k.endswith("_variant")
+    )
+    disc_set = next(s for s in sets if s.field == discriminator)
+    option_values = {o.value for o in disc_set.options}
+
+    # Every variant section's condition value must be in the ChoiceSet's
+    # option values — otherwise the condition can never match.
+    for sid, section in ui["sections"].items():
+        if sid == "section-1":
+            continue
+        cond_value = section["conditions"][0]["value"]
+        assert cond_value in option_values, (
+            f"Condition value {cond_value!r} not in ChoiceSet option "
+            f"values {option_values!r} — IS_EXACTLY will never match"
+        )
+
+
+def test_consolidate_schema_matches_meta_schema_constraints():
+    """Structural guard: consolidate schema is accepted by ER's v2 meta-schema.
+
+    Validates that section-id, condition-id, operator set, and field references
+    all satisfy the v2 meta-schema constraints.
+    """
+    import re
+    from er_smart_sync.smart_to_er_v2 import build_event_types_v2
+
+    cm = {
+        "cm_uuid": "cm1",
+        "categories": [
+            {"path": "carcass.lp", "hkeyPath": "animals.carcass", "display": "Large Predator Carcass",
+             "id": "n1", "attributes": [{"key": "age"}]},
+            {"path": "carcass.sp", "hkeyPath": "animals.carcass", "display": "Small Predator Carcass",
+             "id": "n2", "attributes": [{"key": "age"}]},
+        ],
+        "attributes": [],
+    }
+    dm = {"attributes": [{"key": "age", "type": "NUMERIC", "display": "Age"}]}
+    et = build_event_types_v2(
+        dm=dm, cm=cm, ca_uuid="ca1", ca_identifier="CA",
+        cm_variant_mode="consolidate"
+    )[0]
+    ui = et.event_schema["ui"]
+
+    section_id = re.compile(r"^section-[A-Za-z0-9_-]+$")
+    condition_id = re.compile(r"^condition-.+$")
+
+    # Every order entry is a real section
+    assert set(ui["order"]) == set(ui["sections"].keys())
+    for sid, section in ui["sections"].items():
+        assert section_id.match(sid), f"section id {sid!r} doesn't match pattern"
+        for cond in section.get("conditions", []):
+            assert condition_id.match(cond["id"]), f"condition id {cond['id']!r} doesn't match pattern"
+            assert cond["operator"] in {
+                "CONTAINS", "IS_EMPTY", "IS_NOT_EMPTY", "IS_EXACTLY",
+                "IS_CONTAINED_BY", "IS_NOT_CONTAINED_BY",
+            }, f"unknown operator {cond['operator']!r}"
+            assert cond["field"] in et.event_schema["json"]["properties"], (
+                f"condition field {cond['field']!r} not in json.properties"
+            )
+    # conditionalDependents reference real sections
+    for fname, field in ui["fields"].items():
+        for dep in field.get("conditionalDependents", []):
+            assert dep in ui["sections"], (
+                f"field {fname!r} conditionalDependents references {dep!r} which is not in sections"
+            )

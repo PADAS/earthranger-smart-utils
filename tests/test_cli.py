@@ -700,6 +700,64 @@ def test_datamodel_event_type_version_defaults_to_v2(tmp_path, monkeypatch):
     assert captured["sync"]._event_type_version == "v2"
 
 
+def test_cm_variant_mode_flag_overrides_config(tmp_path, monkeypatch):
+    """--cm-variant-mode consolidate should produce a synchronizer with _cm_variant_mode == 'consolidate'."""
+    captured = {}
+
+    def fake_make_sync(config, ctx=None):
+        from er_smart_sync.synchronizer import ERSmartSynchronizer
+
+        sync = ERSmartSynchronizer.__new__(ERSmartSynchronizer)
+        sync._event_type_version = config.earthranger.event_type_version
+        sync._cm_variant_mode = config.earthranger.cm_variant_mode
+        sync.sync_mode = "both"
+        sync.datamodel_stats = {
+            "categories_created": 0,
+            "categories_existing": 0,
+            "event_types_created": 0,
+            "event_types_updated": 0,
+            "event_types_unchanged": 0,
+            "event_types_skipped_by_mode": 0,
+            "event_types_errored": 0,
+        }
+        sync.push_smart_ca_datamodel_to_earthranger = lambda **kwargs: None
+        sync.synchronize_datamodel = lambda: None
+        captured["sync"] = sync
+        return sync
+
+    monkeypatch.setattr("er_smart_sync.cli._make_synchronizer", fake_make_sync)
+
+    dm_file = tmp_path / "dm.xml"
+    dm_file.write_text("<datamodel/>")
+
+    monkeypatch.setattr(
+        "smartconnect.SmartClient.load_datamodel",
+        lambda self, filename: MagicMock(),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "datamodel",
+            "--from-file",
+            str(dm_file),
+            "--er-endpoint",
+            "https://x/api/v1.0",
+            "--er-token",
+            "t",
+            "--er-id",
+            "i",
+            "--ca-identifier",
+            "TEST",
+            "--cm-variant-mode",
+            "consolidate",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["sync"]._cm_variant_mode == "consolidate"
+
+
 def test_inspect_datamodel_v2_prints_field_types(tmp_path, monkeypatch):
     dm_mock = MagicMock()
     dm_mock.export_as_dict.return_value = {
@@ -1433,3 +1491,175 @@ def test_ca_identifier_required_for_file_based_sync(tmp_path, monkeypatch):
     assert result.exit_code != 0
     output = result.output.lower()
     assert "ca-identifier" in output or "required" in output
+
+
+def test_choices_subcommand_accepts_cm_variant_mode(tmp_path, monkeypatch):
+    """`choices --cm-variant-mode consolidate` is accepted and passed through
+    to build_choice_sets as cm_variant_mode='consolidate'."""
+    from click.testing import CliRunner
+
+    from er_smart_sync.cli import main
+
+    captured = {}
+
+    def fake_build_choice_sets(**kwargs):
+        from er_smart_sync.choices import ChoiceSet
+
+        captured["cm_variant_mode"] = kwargs.get("cm_variant_mode")
+        return []
+
+    def fake_upsert_choices(*, er_client, choice_sets):
+        from er_smart_sync.choices import ChoicesStats
+
+        return ChoicesStats()
+
+    monkeypatch.setattr("er_smart_sync.cli.build_choice_sets", fake_build_choice_sets)
+    monkeypatch.setattr("er_smart_sync.cli.upsert_choices", fake_upsert_choices)
+    monkeypatch.setattr(
+        "smartconnect.SmartClient.load_datamodel",
+        lambda self, filename: MagicMock(export_as_dict=lambda: {"categories": []}),
+    )
+
+    dm_file = tmp_path / "dm.xml"
+    dm_file.write_text("<datamodel/>")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "choices",
+            "--from-file", str(dm_file),
+            "--er-endpoint", "https://x/api/v1.0",
+            "--er-token", "t",
+            "--er-id", "i",
+            "--cm-variant-mode", "consolidate",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["cm_variant_mode"] == "consolidate"
+
+
+def test_choices_subcommand_honors_config_cm_variant_mode_when_flag_omitted(
+    tmp_path, monkeypatch
+):
+    """`choices` should use config.earthranger.cm_variant_mode when the
+    --cm-variant-mode flag is not passed. Previously the subcommand
+    hardcoded 'split', ignoring the config value."""
+    from click.testing import CliRunner
+
+    from er_smart_sync.cli import main
+
+    captured = {}
+
+    def fake_build_choice_sets(**kwargs):
+        captured["cm_variant_mode"] = kwargs.get("cm_variant_mode")
+        return []
+
+    def fake_upsert_choices(*, er_client, choice_sets):
+        from er_smart_sync.choices import ChoicesStats
+
+        return ChoicesStats()
+
+    monkeypatch.setattr("er_smart_sync.cli.build_choice_sets", fake_build_choice_sets)
+    monkeypatch.setattr("er_smart_sync.cli.upsert_choices", fake_upsert_choices)
+    monkeypatch.setattr(
+        "smartconnect.SmartClient.load_datamodel",
+        lambda self, filename: MagicMock(export_as_dict=lambda: {"categories": []}),
+    )
+
+    dm_file = tmp_path / "dm.xml"
+    dm_file.write_text("<datamodel/>")
+
+    # Write a config that sets cm_variant_mode to 'consolidate'.
+    config_file = tmp_path / "sync.yaml"
+    config_file.write_text(
+        "smart:\n"
+        "  endpoint: ''\n"
+        "  login: ''\n"
+        "  password: ''\n"
+        "earthranger:\n"
+        "  id: i\n"
+        "  endpoint: https://er.example.com/api/v1.0\n"
+        "  token: t\n"
+        "  cm_variant_mode: consolidate\n"
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "choices",
+            "--config", str(config_file),
+            "--from-file", str(dm_file),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    # Without the flag, the config value 'consolidate' must be forwarded.
+    assert captured["cm_variant_mode"] == "consolidate"
+
+
+def test_inspect_datamodel_accepts_cm_variant_mode(tmp_path, monkeypatch):
+    """`inspect-datamodel --cm-variant-mode consolidate` is accepted and passed
+    through to both build_event_types_v2 and build_choice_sets."""
+    from click.testing import CliRunner
+
+    from er_smart_sync.cli import main
+
+    captured = {}
+
+    def fake_build_v2(**kwargs):
+        captured["v2_variant_mode"] = kwargs.get("cm_variant_mode")
+        return []
+
+    def fake_build_choice_sets(**kwargs):
+        captured["cs_variant_mode"] = kwargs.get("cm_variant_mode")
+        return []
+
+    dm_mock = MagicMock()
+    dm_mock.export_as_dict.return_value = {"categories": [], "attributes": []}
+    monkeypatch.setattr(
+        "smartconnect.SmartClient.load_datamodel",
+        lambda self, filename: dm_mock,
+    )
+    monkeypatch.setattr(
+        "er_smart_sync.cli.build_choice_sets",
+        fake_build_choice_sets,
+    )
+    # Patch inside the cli module's import scope (cli imports lazily from smart_to_er_v2)
+    monkeypatch.setattr(
+        "er_smart_sync.smart_to_er_v2.build_event_types_v2", fake_build_v2,
+    )
+
+    dm_file = tmp_path / "dm.xml"
+    dm_file.write_text("<datamodel/>")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "inspect-datamodel",
+            "--from-file", str(dm_file),
+            "--ca-identifier", "TEST",
+            "--er-endpoint", "https://er.example.com/api/v1.0",
+            "--er-token", "x",
+            "--event-type-version", "v2",
+            "--cm-variant-mode", "consolidate",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured.get("v2_variant_mode") == "consolidate"
+    assert captured.get("cs_variant_mode") == "consolidate"
+
+
+def test_config_template_mentions_cm_variant_mode():
+    """The config-template output must include cm_variant_mode so users know
+    the field exists and what the default is."""
+    from click.testing import CliRunner
+
+    from er_smart_sync.cli import main
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["config-template"])
+    assert result.exit_code == 0, result.output
+    assert "cm_variant_mode" in result.output
+    assert "split" in result.output

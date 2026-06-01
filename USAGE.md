@@ -208,6 +208,22 @@ POST /api/v2.0/activity/eventtypes/migrate/
 (Tooling around that endpoint is tracked as a follow-up; you can call it directly via
 `curl` or the ER admin UI today.)
 
+### CM variant groups: `--cm-variant-mode`
+
+When a Configurable Model contains multiple CM nodes that share the same
+`categoryHkey` (variant groups), `er-smart-sync` maps them to ER event types
+according to `--cm-variant-mode`. The default is `split` (one ER event type per
+CM node); `consolidate` collapses a group into a single event type with a variant
+discriminator field and conditional sections. This flag is v2 only.
+
+```bash
+er-smart-sync datamodel --cm-from-file cm.xml --cm-variant-mode consolidate \
+  --er-endpoint https://site.pamdas.org/api/v1.0 --er-token YOUR-ER-TOKEN
+```
+
+See [CM variant groups](docs/concepts/cm-variants.md) for slug formats,
+rename-orphaning caveats, and guidance on choosing between modes.
+
 ### Choices: a v2 prerequisite
 
 ER's v2 event-type meta-schema rejects inline `enum`. Dropdowns must
