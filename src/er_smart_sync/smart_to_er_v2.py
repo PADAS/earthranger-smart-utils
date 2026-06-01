@@ -21,11 +21,9 @@ from smartconnect.models import Attribute, Category, CategoryAttribute
 
 from .choices import (
     _discriminator_option_value,
-    _shorten_value,
     _variant_disambiguator,
     derive_choice_field,
     event_type_value_for,
-    sanitize_choice_value,
 )
 
 logger = logging.getLogger(__name__)
@@ -156,10 +154,12 @@ def _build_consolidated(
       that variant's attributes and an IS_EXACTLY condition on the discriminator
       that hides it when its variant is not selected.
 
-    Variant attribute keys are namespaced as ``{section_id}_{attr_key}``
-    (with hyphens replaced by underscores so the result satisfies JSON Schema's
-    ``^\\w+$``-flavored property-name rules).  This avoids silent overwrite when
-    two variants share an attribute key (a common SMART pattern).
+    Variant attribute keys are namespaced as ``{section_id_with_underscores}_{attr_key}``
+    where the section_id's hyphens are converted to underscores (e.g.,
+    ``section-2`` → ``section_2_age``) to satisfy JSON Schema's ``^\\w+$``
+    property-name rules. The attribute key itself is left unchanged. This
+    namespacing avoids silent overwrite when two variants share an attribute
+    key (a common SMART pattern).
     """
     rep = group[0]
     hkey = rep.hkeyPath or rep.path or ""
