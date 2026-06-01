@@ -1069,7 +1069,11 @@ def test_upsert_choices_counts_one_error_per_failed_set_not_per_option():
 
 
 def test_build_choice_sets_consolidate_emits_discriminator():
-    from er_smart_sync.choices import build_choice_sets, derive_choice_field
+    from er_smart_sync.choices import (
+        _discriminator_option_value,
+        build_choice_sets,
+        derive_choice_field,
+    )
 
     cm = {
         "cm_uuid": "cm1",
@@ -1087,7 +1091,12 @@ def test_build_choice_sets_consolidate_emits_discriminator():
     disc_field = derive_choice_field(value, "variant")
     disc = next((s for s in sets if s.field == disc_field), None)
     assert disc is not None
-    assert {o.value for o in disc.options} == {"large_predator_carcass", "small_predator_carcass"}
+    # Values now include node-id hash to disambiguate; verify using the helper.
+    expected_values = {
+        _discriminator_option_value(display="Large Predator Carcass", node_id="n1"),
+        _discriminator_option_value(display="Small Predator Carcass", node_id="n2"),
+    }
+    assert {o.value for o in disc.options} == expected_values
 
 
 def test_build_choice_sets_split_emits_no_discriminator():
@@ -1186,3 +1195,76 @@ def test_split_variant_group_choice_fields_match_schema_refs():
     assert ref_fields[0] != ref_fields[1], (
         "Both variants share the same $ref field — they are not disambiguated"
     )
+
+
+def test_consolidate_discriminator_disambiguates_colliding_displays():
+    """Two variant displays that sanitize identically must produce
+    distinct ChoiceSet option values (via node-id hash). If they collapse,
+    the schema's IS_EXACTLY conditions match both sections simultaneously."""
+    from er_smart_sync.choices import build_choice_sets
+    from er_smart_sync.smart_to_er_v2 import build_event_types_v2
+
+    # Both sanitize to "carcass_a", but have distinct node ids.
+    cm = {
+        "cm_uuid": "cm1",
+        "categories": [
+            {"path": "carcass.a1", "hkeyPath": "animals.carcass",
+             "display": "Carcass: A", "id": "n1",
+             "attributes": [{"key": "age", "is_active": True}]},
+            {"path": "carcass.a2", "hkeyPath": "animals.carcass",
+             "display": "Carcass-A", "id": "n2",
+             "attributes": [{"key": "age", "is_active": True}]},
+        ],
+        "attributes": [],
+    }
+    dm = {"attributes": [{"key": "age", "type": "NUMERIC", "display": "Age",
+                           "isrequired": False, "options": None}]}
+
+    sets = build_choice_sets(dm=dm, cm=cm, ca_uuid="ca1",
+                             cm_variant_mode="consolidate")
+    ets = build_event_types_v2(dm=dm, cm=cm, ca_uuid="ca1",
+                               ca_identifier="CA",
+                               cm_variant_mode="consolidate")
+
+    disc = next(s for s in sets if s.field.endswith("_variant"))
+    values = [o.value for o in disc.options]
+    assert len(set(values)) == 2, (
+        f"colliding displays must yield distinct option values; got {values!r}"
+    )
+    # And each schema condition value must be in the option set (no
+    # orphaned condition values).
+    assert len(ets) == 1
+    ui = ets[0].event_schema["ui"]
+    for sid, section in ui["sections"].items():
+        if sid == "section-1":
+            continue
+        cond_val = section["conditions"][0]["value"]
+        assert cond_val in values, (
+            f"condition value {cond_val!r} not in option values {values!r}"
+        )
+
+
+def test_build_choice_sets_handles_missing_hkey_path():
+    """CMs can have categories without hkeyPath; falling back to path
+    keeps build_choice_sets from crashing on imperfect inputs."""
+    from er_smart_sync.choices import build_choice_sets
+
+    cm = {
+        "cm_uuid": "cm1",
+        "categories": [
+            # No hkeyPath; only path.
+            {"path": "incident", "display": "Incident", "id": "n1",
+             "attributes": [{"key": "kind", "is_active": True}]},
+        ],
+        "attributes": [],
+    }
+    dm = {"attributes": [{"key": "kind", "type": "LIST",
+                          "display": "Kind",
+                          "isrequired": False,
+                          "options": [{"key": "a", "display": "A",
+                                       "isActive": True}]}]}
+    # Should not raise.
+    sets = build_choice_sets(dm=dm, cm=cm, ca_uuid="ca1",
+                             cm_variant_mode="split")
+    # And the kind attribute's ChoiceSet should still be emitted.
+    assert any(s.field.endswith("_kind") for s in sets)

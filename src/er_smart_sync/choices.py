@@ -109,6 +109,28 @@ def _shorten_value(sanitized: str) -> str:
     return shortened
 
 
+def _discriminator_option_value(display: str, node_id: str | None) -> str:
+    """Stable option value for a consolidate-mode discriminator option.
+
+    Identical scheme to split-mode disambiguation: sanitized display +
+    8-hex node-id hash.  Guarantees uniqueness within a variant group
+    even when two variant displays sanitize to the same string.
+
+    Falls back to display-only when ``node_id`` is absent (same fallback
+    as ``_variant_disambiguator``).
+    """
+    base = sanitize_choice_value(display)
+    if node_id:
+        digest = hashlib.sha256(node_id.encode("utf-8")).hexdigest()[:8]
+        return _shorten_value(f"{base}_{digest}")
+    logger.warning(
+        "CM node %r has no id; discriminator option value uses display only and may collide",
+        display,
+        extra=dict(display=display),
+    )
+    return _shorten_value(base)
+
+
 def _shorten_display(raw: str) -> str:
     """Cap display at 100 chars while preserving meaning when possible.
 
@@ -266,7 +288,7 @@ def build_choice_sets(
                 is_leaf = _is_leaf_node(cat_paths, cat.path)
                 is_active = bool(cm) or (cat.is_active and is_leaf)
                 if is_active:
-                    path_for_value = cat.hkeyPath if cm else cat.path
+                    path_for_value = (cat.hkeyPath or cat.path or "") if cm else (cat.path or "")
                     et_value = event_type_value_for(
                         category_path=path_for_value,
                         ca_uuid=ca_uuid,
@@ -284,7 +306,7 @@ def build_choice_sets(
                     members_to_process.append((cat, base_et_value))
 
             for cat, et_value in members_to_process:
-                path_for_value = cat.hkeyPath if cm else cat.path
+                path_for_value = (cat.hkeyPath or cat.path or "") if cm else (cat.path or "")
                 path_components = path_for_value.split(".")
                 leaf_attrs = list(cat.attributes or [])
                 if not cm:
@@ -333,7 +355,10 @@ def build_choice_sets(
             field = derive_choice_field(value, "variant")
             options = tuple(
                 ChoiceOption(
-                    value=_shorten_value(sanitize_choice_value(m.get("display", ""))),
+                    value=_discriminator_option_value(
+                        display=m.get("display", ""),
+                        node_id=m.get("id"),
+                    ),
                     display=_shorten_display(m.get("display", "")),
                     is_active=True,
                 )
