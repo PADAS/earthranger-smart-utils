@@ -592,7 +592,7 @@ def choices(
         dm=dm.export_as_dict(),
         cm=cm.export_as_dict() if cm else None,
         ca_uuid=_FILE_BASED_CA_UUID,
-        cm_variant_mode=cm_variant_mode or "split",
+        cm_variant_mode=cm_variant_mode or config.earthranger.cm_variant_mode,
     )
 
     stats = upsert_choices(er_client=sync.er_client, choice_sets=choice_sets)

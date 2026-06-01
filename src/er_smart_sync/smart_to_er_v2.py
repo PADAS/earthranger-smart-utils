@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field, parse_obj_as
 from smartconnect.models import Attribute, Category, CategoryAttribute
 
 from .choices import (
+    _shorten_value,
     _variant_disambiguator,
     derive_choice_field,
     event_type_value_for,
@@ -226,7 +227,7 @@ def _build_consolidated(
                 "field": discriminator,
                 "id": f"condition-{i}",
                 "operator": "IS_EXACTLY",
-                "value": sanitize_choice_value(cat.display),
+                "value": _shorten_value(sanitize_choice_value(cat.display)),
             }],
         }
 

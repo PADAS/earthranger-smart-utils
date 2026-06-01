@@ -1539,6 +1539,65 @@ def test_choices_subcommand_accepts_cm_variant_mode(tmp_path, monkeypatch):
     assert captured["cm_variant_mode"] == "consolidate"
 
 
+def test_choices_subcommand_honors_config_cm_variant_mode_when_flag_omitted(
+    tmp_path, monkeypatch
+):
+    """`choices` should use config.earthranger.cm_variant_mode when the
+    --cm-variant-mode flag is not passed. Previously the subcommand
+    hardcoded 'split', ignoring the config value."""
+    from click.testing import CliRunner
+
+    from er_smart_sync.cli import main
+
+    captured = {}
+
+    def fake_build_choice_sets(**kwargs):
+        captured["cm_variant_mode"] = kwargs.get("cm_variant_mode")
+        return []
+
+    def fake_upsert_choices(*, er_client, choice_sets):
+        from er_smart_sync.choices import ChoicesStats
+
+        return ChoicesStats()
+
+    monkeypatch.setattr("er_smart_sync.cli.build_choice_sets", fake_build_choice_sets)
+    monkeypatch.setattr("er_smart_sync.cli.upsert_choices", fake_upsert_choices)
+    monkeypatch.setattr(
+        "smartconnect.SmartClient.load_datamodel",
+        lambda self, filename: MagicMock(export_as_dict=lambda: {"categories": []}),
+    )
+
+    dm_file = tmp_path / "dm.xml"
+    dm_file.write_text("<datamodel/>")
+
+    # Write a config that sets cm_variant_mode to 'consolidate'.
+    config_file = tmp_path / "sync.yaml"
+    config_file.write_text(
+        "smart:\n"
+        "  endpoint: ''\n"
+        "  login: ''\n"
+        "  password: ''\n"
+        "earthranger:\n"
+        "  id: i\n"
+        "  endpoint: https://er.example.com/api/v1.0\n"
+        "  token: t\n"
+        "  cm_variant_mode: consolidate\n"
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "choices",
+            "--config", str(config_file),
+            "--from-file", str(dm_file),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    # Without the flag, the config value 'consolidate' must be forwarded.
+    assert captured["cm_variant_mode"] == "consolidate"
+
+
 def test_inspect_datamodel_accepts_cm_variant_mode(tmp_path, monkeypatch):
     """`inspect-datamodel --cm-variant-mode consolidate` is accepted and passed
     through to both build_event_types_v2 and build_choice_sets."""

@@ -919,6 +919,55 @@ def test_build_consolidated_handles_shared_attribute_across_variants():
     assert len(parents) == 2, f"expected 2 distinct parents, got {parents}"
 
 
+def test_consolidate_condition_value_matches_shortened_choice_option_value():
+    """Regression: when a variant display sanitizes to >100 chars, the
+    ChoiceSet option value is hash-shortened. The schema's IS_EXACTLY
+    condition value MUST receive the same shortening, or ER's rjsf
+    renderer will never satisfy the condition and the section stays hidden."""
+    from er_smart_sync.choices import build_choice_sets
+    from er_smart_sync.smart_to_er_v2 import build_event_types_v2
+
+    long_a = "Large Predator " + "Carcass " * 15  # ~135 chars after sanitize
+    long_b = "Small Predator " + "Carcass " * 15
+    cm = {
+        "cm_uuid": "cm1",
+        "categories": [
+            {"path": "carcass.lp", "hkeyPath": "animals.carcass",
+             "display": long_a, "id": "n1", "attributes": [{"key": "age"}]},
+            {"path": "carcass.sp", "hkeyPath": "animals.carcass",
+             "display": long_b, "id": "n2", "attributes": [{"key": "age"}]},
+        ],
+        "attributes": [],
+    }
+    dm = {"attributes": [{"key": "age", "type": "NUMERIC", "display": "Age"}]}
+
+    ets = build_event_types_v2(dm=dm, cm=cm, ca_uuid="ca1",
+                                ca_identifier="CA",
+                                cm_variant_mode="consolidate")
+    sets = build_choice_sets(dm=dm, cm=cm, ca_uuid="ca1",
+                              cm_variant_mode="consolidate")
+
+    assert len(ets) == 1
+    ui = ets[0].event_schema["ui"]
+    discriminator = next(
+        k for k in ets[0].event_schema["json"]["properties"]
+        if k.endswith("_variant")
+    )
+    disc_set = next(s for s in sets if s.field == discriminator)
+    option_values = {o.value for o in disc_set.options}
+
+    # Every variant section's condition value must be in the ChoiceSet's
+    # option values — otherwise the condition can never match.
+    for sid, section in ui["sections"].items():
+        if sid == "section-1":
+            continue
+        cond_value = section["conditions"][0]["value"]
+        assert cond_value in option_values, (
+            f"Condition value {cond_value!r} not in ChoiceSet option "
+            f"values {option_values!r} — IS_EXACTLY will never match"
+        )
+
+
 def test_consolidate_schema_matches_meta_schema_constraints():
     """Structural guard: consolidate schema is accepted by ER's v2 meta-schema.
 

@@ -258,8 +258,8 @@ def build_choice_sets(
 
         if not is_variant_group or cm_variant_mode != "split":
             # Singleton (or consolidate mode for variant groups): original flat logic.
-            # For consolidate variant groups, all members share the same hkey-based
-            # et_value, so only the first member is needed for the ChoiceSet fields.
+            # For consolidate-mode variant groups, process all members so we can
+            # enumerate every variant's attributes using the shared hkey-based et_value.
             members_to_process: list[tuple[Category, str]] = []
             if not is_variant_group:
                 cat = group[0]
