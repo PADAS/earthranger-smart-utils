@@ -701,7 +701,7 @@ def test_datamodel_event_type_version_defaults_to_v2(tmp_path, monkeypatch):
 
 
 def test_cm_variant_mode_flag_overrides_config(tmp_path, monkeypatch):
-    """--cm-variant-mode consolidate should produce a synchronizer with _cm_variant_mode == 'consolidate'."""
+    """--cm-variant-mode consolidate produces synchronizer with matching mode."""
     captured = {}
 
     def fake_make_sync(config, ctx=None):
@@ -877,7 +877,7 @@ def test_config_template_mentions_event_type_version():
 
 
 def test_choices_subcommand_runs_upsert(tmp_path, monkeypatch):
-    """`er-smart-sync choices --from-file` invokes build_choice_sets + upsert_choices."""
+    """er-smart-sync choices --from-file invokes build_choice_sets + upsert."""
     from click.testing import CliRunner
 
     from er_smart_sync.cli import main
@@ -994,13 +994,20 @@ def test_choices_subcommand_without_from_file_fails_fast_with_clear_message():
         main,
         [
             "choices",
-            "--smart-api", "https://smart.example.com",
-            "--smart-username", "u",
-            "--smart-password", "p",
-            "--smart-ca-uuid", "some-ca-uuid",
-            "--er-endpoint", "https://x/api/v1.0",
-            "--er-token", "t",
-            "--er-id", "i",
+            "--smart-api",
+            "https://smart.example.com",
+            "--smart-username",
+            "u",
+            "--smart-password",
+            "p",
+            "--smart-ca-uuid",
+            "some-ca-uuid",
+            "--er-endpoint",
+            "https://x/api/v1.0",
+            "--er-token",
+            "t",
+            "--er-id",
+            "i",
         ],
     )
     assert result.exit_code != 0
@@ -1197,7 +1204,8 @@ def test_inspect_datamodel_file_based_uses_same_ca_uuid_as_datamodel_push(
         return []
 
     monkeypatch.setattr(
-        "er_smart_sync.smart_to_er_v2.build_event_types_v2", fake_build_v2,
+        "er_smart_sync.smart_to_er_v2.build_event_types_v2",
+        fake_build_v2,
     )
 
     dm_file = tmp_path / "dm.xml"
@@ -1208,11 +1216,16 @@ def test_inspect_datamodel_file_based_uses_same_ca_uuid_as_datamodel_push(
         main,
         [
             "inspect-datamodel",
-            "--from-file", str(dm_file),
-            "--ca-identifier", "FOASF",
-            "--event-type-version", "v2",
-            "--er-endpoint", "https://er.example.com/api/v1.0",
-            "--er-token", "x",
+            "--from-file",
+            str(dm_file),
+            "--ca-identifier",
+            "FOASF",
+            "--event-type-version",
+            "v2",
+            "--er-endpoint",
+            "https://er.example.com/api/v1.0",
+            "--er-token",
+            "x",
         ],
     )
     assert result.exit_code == 0, result.output
@@ -1246,12 +1259,18 @@ def test_inspect_datamodel_api_path_fails_on_unbracketed_label(tmp_path, monkeyp
         main,
         [
             "inspect-datamodel",
-            "--smart-api", "https://smart.example.com",
-            "--smart-username", "u",
-            "--smart-password", "p",
-            "--smart-ca-uuid", "some-ca-uuid",
-            "--er-endpoint", "https://er.example.com/api/v1.0",
-            "--er-token", "x",
+            "--smart-api",
+            "https://smart.example.com",
+            "--smart-username",
+            "u",
+            "--smart-password",
+            "p",
+            "--smart-ca-uuid",
+            "some-ca-uuid",
+            "--er-endpoint",
+            "https://er.example.com/api/v1.0",
+            "--er-token",
+            "x",
         ],
     )
     assert result.exit_code != 0
@@ -1282,7 +1301,8 @@ def test_inspect_datamodel_v2_passes_config_choices_base_url(tmp_path, monkeypat
         return []
 
     monkeypatch.setattr(
-        "er_smart_sync.smart_to_er_v2.build_event_types_v2", fake_build_v2,
+        "er_smart_sync.smart_to_er_v2.build_event_types_v2",
+        fake_build_v2,
     )
 
     dm_file = tmp_path / "dm.xml"
@@ -1307,9 +1327,12 @@ def test_inspect_datamodel_v2_passes_config_choices_base_url(tmp_path, monkeypat
         main,
         [
             "inspect-datamodel",
-            "--config", str(config_file),
-            "--from-file", str(dm_file),
-            "--ca-identifier", "FOASF",
+            "--config",
+            str(config_file),
+            "--from-file",
+            str(dm_file),
+            "--ca-identifier",
+            "FOASF",
         ],
     )
     assert result.exit_code == 0, result.output
@@ -1375,9 +1398,12 @@ def test_inspect_datamodel_respects_config_event_type_version(tmp_path, monkeypa
         main,
         [
             "inspect-datamodel",
-            "--config", str(config_file),
-            "--from-file", str(dm_file),
-            "--ca-identifier", "FOASF",
+            "--config",
+            str(config_file),
+            "--from-file",
+            str(dm_file),
+            "--ca-identifier",
+            "FOASF",
             # Note: no --event-type-version; should pick up v1 from config.
         ],
     )
@@ -1395,8 +1421,10 @@ def test_config_template_mentions_choices_base_url():
     assert "choices_base_url" in result.output
 
 
-def test_ca_identifier_validation_accepts_hyphens_and_underscores(tmp_path, monkeypatch):
-    """Hyphens and underscores are allowed; pure-alphanumeric is not the only valid form."""
+def test_ca_identifier_validation_accepts_hyphens_and_underscores(
+    tmp_path, monkeypatch
+):
+    """Hyphens and underscores are allowed in ca-identifier."""
     from click.testing import CliRunner
 
     from er_smart_sync.cli import main
@@ -1410,17 +1438,25 @@ def test_ca_identifier_validation_accepts_hyphens_and_underscores(tmp_path, monk
 
     def fake_make_sync(config, ctx=None):
         from er_smart_sync.synchronizer import ERSmartSynchronizer
+
         sync = ERSmartSynchronizer.__new__(ERSmartSynchronizer)
         sync._event_type_version = config.earthranger.event_type_version
         sync.sync_mode = "both"
         sync.skip_choices = False
         sync.datamodel_stats = {
-            "categories_created": 0, "categories_existing": 0,
-            "event_types_created": 0, "event_types_updated": 0,
-            "event_types_unchanged": 0, "event_types_skipped_by_mode": 0,
-            "event_types_skipped_by_conflict": 0, "event_types_errored": 0,
-            "choices_created": 0, "choices_updated": 0,
-            "choices_unchanged": 0, "choices_deactivated": 0, "choices_errored": 0,
+            "categories_created": 0,
+            "categories_existing": 0,
+            "event_types_created": 0,
+            "event_types_updated": 0,
+            "event_types_unchanged": 0,
+            "event_types_skipped_by_mode": 0,
+            "event_types_skipped_by_conflict": 0,
+            "event_types_errored": 0,
+            "choices_created": 0,
+            "choices_updated": 0,
+            "choices_unchanged": 0,
+            "choices_deactivated": 0,
+            "choices_errored": 0,
         }
         sync.push_smart_ca_datamodel_to_earthranger = lambda **kwargs: None
         sync.synchronize_datamodel = lambda: None
@@ -1434,14 +1470,21 @@ def test_ca_identifier_validation_accepts_hyphens_and_underscores(tmp_path, monk
             main,
             [
                 "datamodel",
-                "--from-file", str(dm_file),
-                "--er-endpoint", "https://x/api/v1.0",
-                "--er-token", "t",
-                "--er-id", "i",
-                "--ca-identifier", ident,
+                "--from-file",
+                str(dm_file),
+                "--er-endpoint",
+                "https://x/api/v1.0",
+                "--er-token",
+                "t",
+                "--er-id",
+                "i",
+                "--ca-identifier",
+                ident,
             ],
         )
-        assert result.exit_code == 0, f"identifier {ident!r} should be accepted; got: {result.output}"
+        assert result.exit_code == 0, (
+            f"identifier {ident!r} should be accepted; got: {result.output}"
+        )
 
 
 def test_ca_identifier_validation_rejects_special_chars(tmp_path, monkeypatch):
@@ -1457,11 +1500,16 @@ def test_ca_identifier_validation_rejects_special_chars(tmp_path, monkeypatch):
         main,
         [
             "datamodel",
-            "--from-file", str(dm_file),
-            "--er-endpoint", "https://x/api/v1.0",
-            "--er-token", "t",
-            "--er-id", "i",
-            "--ca-identifier", "has spaces",
+            "--from-file",
+            str(dm_file),
+            "--er-endpoint",
+            "https://x/api/v1.0",
+            "--er-token",
+            "t",
+            "--er-id",
+            "i",
+            "--ca-identifier",
+            "has spaces",
         ],
     )
     assert result.exit_code != 0
@@ -1481,10 +1529,14 @@ def test_ca_identifier_required_for_file_based_sync(tmp_path, monkeypatch):
         main,
         [
             "datamodel",
-            "--from-file", str(dm_file),
-            "--er-endpoint", "https://x/api/v1.0",
-            "--er-token", "t",
-            "--er-id", "i",
+            "--from-file",
+            str(dm_file),
+            "--er-endpoint",
+            "https://x/api/v1.0",
+            "--er-token",
+            "t",
+            "--er-id",
+            "i",
             # No --ca-identifier
         ],
     )
@@ -1503,7 +1555,6 @@ def test_choices_subcommand_accepts_cm_variant_mode(tmp_path, monkeypatch):
     captured = {}
 
     def fake_build_choice_sets(**kwargs):
-        from er_smart_sync.choices import ChoiceSet
 
         captured["cm_variant_mode"] = kwargs.get("cm_variant_mode")
         return []
@@ -1528,11 +1579,16 @@ def test_choices_subcommand_accepts_cm_variant_mode(tmp_path, monkeypatch):
         main,
         [
             "choices",
-            "--from-file", str(dm_file),
-            "--er-endpoint", "https://x/api/v1.0",
-            "--er-token", "t",
-            "--er-id", "i",
-            "--cm-variant-mode", "consolidate",
+            "--from-file",
+            str(dm_file),
+            "--er-endpoint",
+            "https://x/api/v1.0",
+            "--er-token",
+            "t",
+            "--er-id",
+            "i",
+            "--cm-variant-mode",
+            "consolidate",
         ],
     )
     assert result.exit_code == 0, result.output
@@ -1589,8 +1645,10 @@ def test_choices_subcommand_honors_config_cm_variant_mode_when_flag_omitted(
         main,
         [
             "choices",
-            "--config", str(config_file),
-            "--from-file", str(dm_file),
+            "--config",
+            str(config_file),
+            "--from-file",
+            str(dm_file),
         ],
     )
     assert result.exit_code == 0, result.output
@@ -1625,9 +1683,10 @@ def test_inspect_datamodel_accepts_cm_variant_mode(tmp_path, monkeypatch):
         "er_smart_sync.cli.build_choice_sets",
         fake_build_choice_sets,
     )
-    # Patch inside the cli module's import scope (cli imports lazily from smart_to_er_v2)
+    # Patch cli module's lazy import scope for smart_to_er_v2
     monkeypatch.setattr(
-        "er_smart_sync.smart_to_er_v2.build_event_types_v2", fake_build_v2,
+        "er_smart_sync.smart_to_er_v2.build_event_types_v2",
+        fake_build_v2,
     )
 
     dm_file = tmp_path / "dm.xml"
@@ -1638,12 +1697,18 @@ def test_inspect_datamodel_accepts_cm_variant_mode(tmp_path, monkeypatch):
         main,
         [
             "inspect-datamodel",
-            "--from-file", str(dm_file),
-            "--ca-identifier", "TEST",
-            "--er-endpoint", "https://er.example.com/api/v1.0",
-            "--er-token", "x",
-            "--event-type-version", "v2",
-            "--cm-variant-mode", "consolidate",
+            "--from-file",
+            str(dm_file),
+            "--ca-identifier",
+            "TEST",
+            "--er-endpoint",
+            "https://er.example.com/api/v1.0",
+            "--er-token",
+            "x",
+            "--event-type-version",
+            "v2",
+            "--cm-variant-mode",
+            "consolidate",
         ],
     )
     assert result.exit_code == 0, result.output

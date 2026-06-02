@@ -923,18 +923,25 @@ def test_upsert_choices_patches_drifted_ordernum():
 
     client = _mock_er_client_for_choices(
         existing_results={
-            "count": 2, "next": None,
+            "count": 2,
+            "next": None,
             "results": [
                 {
-                    "id": "uuid-r", "model": "activity.event",
-                    "field": "etxxx_color", "value": "red",
-                    "display": "Red", "ordernum": 1,  # was second
+                    "id": "uuid-r",
+                    "model": "activity.event",
+                    "field": "etxxx_color",
+                    "value": "red",
+                    "display": "Red",
+                    "ordernum": 1,  # was second
                     "is_active": True,
                 },
                 {
-                    "id": "uuid-b", "model": "activity.event",
-                    "field": "etxxx_color", "value": "blue",
-                    "display": "Blue", "ordernum": 0,  # was first
+                    "id": "uuid-b",
+                    "model": "activity.event",
+                    "field": "etxxx_color",
+                    "value": "blue",
+                    "display": "Blue",
+                    "ordernum": 0,  # was first
                     "is_active": True,
                 },
             ],
@@ -1078,10 +1085,20 @@ def test_build_choice_sets_consolidate_emits_discriminator():
     cm = {
         "cm_uuid": "cm1",
         "categories": [
-            {"path": "carcass.lp", "hkeyPath": "animals.carcass", "display": "Large Predator Carcass",
-             "id": "n1", "attributes": []},
-            {"path": "carcass.sp", "hkeyPath": "animals.carcass", "display": "Small Predator Carcass",
-             "id": "n2", "attributes": []},
+            {
+                "path": "carcass.lp",
+                "hkeyPath": "animals.carcass",
+                "display": "Large Predator Carcass",
+                "id": "n1",
+                "attributes": [],
+            },
+            {
+                "path": "carcass.sp",
+                "hkeyPath": "animals.carcass",
+                "display": "Small Predator Carcass",
+                "id": "n2",
+                "attributes": [],
+            },
         ],
         "attributes": [],
     }
@@ -1101,17 +1118,30 @@ def test_build_choice_sets_consolidate_emits_discriminator():
 
 def test_build_choice_sets_split_emits_no_discriminator():
     from er_smart_sync.choices import build_choice_sets
+
     cm = {
         "cm_uuid": "cm1",
         "categories": [
-            {"path": "carcass.lp", "hkeyPath": "animals.carcass", "display": "Large Predator Carcass",
-             "id": "n1", "attributes": []},
-            {"path": "carcass.sp", "hkeyPath": "animals.carcass", "display": "Small Predator Carcass",
-             "id": "n2", "attributes": []},
+            {
+                "path": "carcass.lp",
+                "hkeyPath": "animals.carcass",
+                "display": "Large Predator Carcass",
+                "id": "n1",
+                "attributes": [],
+            },
+            {
+                "path": "carcass.sp",
+                "hkeyPath": "animals.carcass",
+                "display": "Small Predator Carcass",
+                "id": "n2",
+                "attributes": [],
+            },
         ],
         "attributes": [],
     }
-    sets = build_choice_sets(dm={"attributes": []}, cm=cm, ca_uuid="ca1", cm_variant_mode="split")
+    sets = build_choice_sets(
+        dm={"attributes": []}, cm=cm, ca_uuid="ca1", cm_variant_mode="split"
+    )
     assert all(not s.field.endswith("_variant") for s in sets)
 
 
@@ -1128,8 +1158,6 @@ def test_split_variant_group_choice_fields_match_schema_refs():
     """
     from er_smart_sync.choices import (
         build_choice_sets,
-        derive_choice_field,
-        _variant_disambiguator,
     )
     from er_smart_sync.smart_to_er_v2 import build_event_types_v2
 
@@ -1187,8 +1215,7 @@ def test_split_variant_group_choice_fields_match_schema_refs():
         ref_field = ref_url.split("field=")[-1]
         ref_fields.append(ref_field)
         assert ref_field in choice_fields, (
-            f"Schema $ref field {ref_field!r} not in ChoiceSet fields "
-            f"{choice_fields!r}"
+            f"Schema $ref field {ref_field!r} not in ChoiceSet fields {choice_fields!r}"
         )
 
     # The two variants must produce DISTINCT $ref fields.
@@ -1208,23 +1235,39 @@ def test_consolidate_discriminator_disambiguates_colliding_displays():
     cm = {
         "cm_uuid": "cm1",
         "categories": [
-            {"path": "carcass.a1", "hkeyPath": "animals.carcass",
-             "display": "Carcass: A", "id": "n1",
-             "attributes": [{"key": "age", "is_active": True}]},
-            {"path": "carcass.a2", "hkeyPath": "animals.carcass",
-             "display": "Carcass-A", "id": "n2",
-             "attributes": [{"key": "age", "is_active": True}]},
+            {
+                "path": "carcass.a1",
+                "hkeyPath": "animals.carcass",
+                "display": "Carcass: A",
+                "id": "n1",
+                "attributes": [{"key": "age", "is_active": True}],
+            },
+            {
+                "path": "carcass.a2",
+                "hkeyPath": "animals.carcass",
+                "display": "Carcass-A",
+                "id": "n2",
+                "attributes": [{"key": "age", "is_active": True}],
+            },
         ],
         "attributes": [],
     }
-    dm = {"attributes": [{"key": "age", "type": "NUMERIC", "display": "Age",
-                           "isrequired": False, "options": None}]}
+    dm = {
+        "attributes": [
+            {
+                "key": "age",
+                "type": "NUMERIC",
+                "display": "Age",
+                "isrequired": False,
+                "options": None,
+            }
+        ]
+    }
 
-    sets = build_choice_sets(dm=dm, cm=cm, ca_uuid="ca1",
-                             cm_variant_mode="consolidate")
-    ets = build_event_types_v2(dm=dm, cm=cm, ca_uuid="ca1",
-                               ca_identifier="CA",
-                               cm_variant_mode="consolidate")
+    sets = build_choice_sets(dm=dm, cm=cm, ca_uuid="ca1", cm_variant_mode="consolidate")
+    ets = build_event_types_v2(
+        dm=dm, cm=cm, ca_uuid="ca1", ca_identifier="CA", cm_variant_mode="consolidate"
+    )
 
     disc = next(s for s in sets if s.field.endswith("_variant"))
     values = [o.value for o in disc.options]
@@ -1253,18 +1296,27 @@ def test_build_choice_sets_handles_missing_hkey_path():
         "cm_uuid": "cm1",
         "categories": [
             # No hkeyPath; only path.
-            {"path": "incident", "display": "Incident", "id": "n1",
-             "attributes": [{"key": "kind", "is_active": True}]},
+            {
+                "path": "incident",
+                "display": "Incident",
+                "id": "n1",
+                "attributes": [{"key": "kind", "is_active": True}],
+            },
         ],
         "attributes": [],
     }
-    dm = {"attributes": [{"key": "kind", "type": "LIST",
-                          "display": "Kind",
-                          "isrequired": False,
-                          "options": [{"key": "a", "display": "A",
-                                       "isActive": True}]}]}
+    dm = {
+        "attributes": [
+            {
+                "key": "kind",
+                "type": "LIST",
+                "display": "Kind",
+                "isrequired": False,
+                "options": [{"key": "a", "display": "A", "isActive": True}],
+            }
+        ]
+    }
     # Should not raise.
-    sets = build_choice_sets(dm=dm, cm=cm, ca_uuid="ca1",
-                             cm_variant_mode="split")
+    sets = build_choice_sets(dm=dm, cm=cm, ca_uuid="ca1", cm_variant_mode="split")
     # And the kind attribute's ChoiceSet should still be emitted.
     assert any(s.field.endswith("_kind") for s in sets)

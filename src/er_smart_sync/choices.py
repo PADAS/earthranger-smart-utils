@@ -124,7 +124,8 @@ def _discriminator_option_value(display: str, node_id: str | None) -> str:
         digest = hashlib.sha256(node_id.encode("utf-8")).hexdigest()[:8]
         return _shorten_value(f"{base}_{digest}")
     logger.warning(
-        "CM node %r has no id; discriminator option value uses display only and may collide",
+        "CM node %r has no id; discriminator option value uses display only"
+        " and may collide",
         display,
         extra=dict(display=display),
     )
@@ -288,7 +289,9 @@ def build_choice_sets(
                 is_leaf = _is_leaf_node(cat_paths, cat.path)
                 is_active = bool(cm) or (cat.is_active and is_leaf)
                 if is_active:
-                    path_for_value = (cat.hkeyPath or cat.path or "") if cm else (cat.path or "")
+                    path_for_value = (
+                        (cat.hkeyPath or cat.path or "") if cm else (cat.path or "")
+                    )
                     et_value = event_type_value_for(
                         category_path=path_for_value,
                         ca_uuid=ca_uuid,
@@ -306,7 +309,9 @@ def build_choice_sets(
                     members_to_process.append((cat, base_et_value))
 
             for cat, et_value in members_to_process:
-                path_for_value = (cat.hkeyPath or cat.path or "") if cm else (cat.path or "")
+                path_for_value = (
+                    (cat.hkeyPath or cat.path or "") if cm else (cat.path or "")
+                )
                 path_components = path_for_value.split(".")
                 leaf_attrs = list(cat.attributes or [])
                 if not cm:
@@ -345,13 +350,15 @@ def build_choice_sets(
         # Group CM categories by hkeyPath; each variant group (>1) gets a
         # discriminator ChoiceSet whose options are the variant displays.
         disc_groups: dict[str, list[dict]] = {}
-        for c in (cm.get("categories") or []):
+        for c in cm.get("categories") or []:
             key = c.get("hkeyPath") or c.get("path") or ""
             disc_groups.setdefault(key, []).append(c)
         for disc_hkey, members in disc_groups.items():
             if len(members) < 2:
                 continue
-            value = event_type_value_for(category_path=disc_hkey, ca_uuid=ca_uuid, cm=cm)
+            value = event_type_value_for(
+                category_path=disc_hkey, ca_uuid=ca_uuid, cm=cm
+            )
             field = derive_choice_field(value, "variant")
             options = tuple(
                 ChoiceOption(
@@ -513,14 +520,19 @@ def upsert_choices(
                 )
             logger.debug(
                 "Choice set %d/%d field=%s (duplicate, skipping)",
-                idx, total, cs.field,
+                idx,
+                total,
+                cs.field,
             )
             continue
         seen_fields[cs.field] = cs
 
         logger.info(
             "Choice set %d/%d field=%s (%d options)",
-            idx, total, cs.field, len(cs.options),
+            idx,
+            total,
+            cs.field,
+            len(cs.options),
         )
         try:
             _upsert_one_set(er_client=er_client, cs=cs, stats=stats)
@@ -537,10 +549,12 @@ def upsert_choices(
             stats.errored += 1
 
     logger.info(
-        "Choices done: created=%d updated=%d unchanged=%d "
-        "deactivated=%d errored=%d",
-        stats.created, stats.updated, stats.unchanged,
-        stats.deactivated, stats.errored,
+        "Choices done: created=%d updated=%d unchanged=%d deactivated=%d errored=%d",
+        stats.created,
+        stats.updated,
+        stats.unchanged,
+        stats.deactivated,
+        stats.errored,
     )
     return stats
 

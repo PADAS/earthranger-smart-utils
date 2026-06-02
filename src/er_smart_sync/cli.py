@@ -33,7 +33,7 @@ _CA_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9_-]{2,30}$")
 
 
 def _validate_ca_identifier(ctx, param, value):
-    """Click callback: enforce 2-30 chars (alphanumeric, hyphen, underscore) on --ca-identifier."""
+    """Click callback: enforce 2-30 chars (alphanumeric, hyphen, underscore)."""
     if value is None:
         return None
     if not _CA_IDENTIFIER_RE.match(value):
@@ -80,6 +80,7 @@ def _set_network_timeout(seconds: float | None) -> None:
     if seconds is None or seconds <= 0:
         return
     import socket
+
     socket.setdefaulttimeout(seconds)
 
 
@@ -280,13 +281,14 @@ def _validate_config(config: SyncConfig) -> None:
     "--cm-uuid",
     "cm_uuid",
     default=None,
-    help="Configurable-model UUID. Required when loading multiple configurable models for the same SMART CA to avoid event-type value collisions. Defaults to the zero UUID.",
+    help="Configurable-model UUID. Required when loading multiple CMs for the same"
+    " SMART CA to avoid event-type collisions. Defaults to zero UUID.",
 )
 @click.option(
     "--include-base-datamodel",
     is_flag=True,
     default=False,
-    help="Also push the base data model as its own ER event category in addition to the configurable model. No effect unless --cm-from-file is given.",
+    help="Also push the base data model as its own ER event category. Only with --cm.",
 )
 @click.option(
     "--ca-identifier",
@@ -304,7 +306,7 @@ def _validate_config(config: SyncConfig) -> None:
     "--mode",
     type=click.Choice(["both", "create-only", "update-only"]),
     default="both",
-    help="Restrict to creating only new event types, updating only existing ones, or both.",
+    help="Restrict to create-only, update-only, or both (default).",
 )
 @click.option(
     "--event-type-version",
@@ -1010,7 +1012,8 @@ def _extract_id(label: str) -> str:
     "--cm-uuid",
     "cm_uuid",
     default=None,
-    help="Configurable-model UUID (used with --cm-from-file). Required when loading multiple configurable models for the same SMART CA to avoid event-type value collisions. Defaults to the zero UUID.",
+    help="CM UUID (with --cm-from-file). Required for multiple CMs on same SMART CA to"
+    " avoid value collisions. Defaults to zero UUID.",
 )
 @click.option(
     "--ca-identifier",
@@ -1027,7 +1030,7 @@ def _extract_id(label: str) -> str:
     "--event-type-version",
     type=click.Choice(["v1", "v2"]),
     default=None,
-    help="Which event-type schema shape to print. Overrides --config or the default (v2).",
+    help="Schema shape (v1 or v2). Overrides --config; defaults to v2.",
 )
 @click.option(
     "--cm-variant-mode",
@@ -1059,10 +1062,10 @@ def inspect_datamodel_cmd(
     event_type_version,
     cm_variant_mode,
 ):
-    """Show the EarthRanger event types that *would* be created/updated from a SMART data model.
+    """Show EarthRanger event types that would be created/updated.
 
-    Performs zero writes against EarthRanger. The output groups event types by
-    category and lists each event type's schema fields, types, and enum values.
+    Performs zero writes. Output groups event types by category with schema
+    fields, types, and enum values.
     """
     config = _build_config(
         config_file=config_file,

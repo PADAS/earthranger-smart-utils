@@ -39,7 +39,6 @@ def _group_by_hkey(cats: list[Category]) -> dict[str, list[Category]]:
     return groups
 
 
-
 class ERV2EventType(BaseModel):
     """Wire model for an ER v2 event-type POST/PATCH payload.
 
@@ -125,7 +124,9 @@ def build_event_types_v2(
                 event_types.append(et)
         else:  # split
             for cat in group:
-                et = _build_one(cat=cat, value_disambiguator=_variant_disambiguator(cat), **common)
+                et = _build_one(
+                    cat=cat, value_disambiguator=_variant_disambiguator(cat), **common
+                )
                 if et is not None:
                     event_types.append(et)
     return event_types
@@ -154,10 +155,9 @@ def _build_consolidated(
       that variant's attributes and an IS_EXACTLY condition on the discriminator
       that hides it when its variant is not selected.
 
-    Variant attribute keys are namespaced as ``{section_id_with_underscores}_{attr_key}``
-    where the section_id's hyphens are converted to underscores (e.g.,
-    ``section-2`` → ``section_2_age``) to satisfy JSON Schema's ``^\\w+$``
-    property-name rules. The attribute key itself is left unchanged. This
+    Variant attribute keys use ``{section_id}_{attr_key}`` naming; section_id
+    hyphens become underscores (e.g., ``section-2`` → ``section_2_age``) to
+    satisfy JSON Schema ``^\\w+$`` rules. The attribute key is unchanged. This
     namespacing avoids silent overwrite when two variants share an attribute
     key (a common SMART pattern).
     """
@@ -222,14 +222,20 @@ def _build_consolidated(
             "label": cat.display,
             "columns": 1,
             "isActive": True,
-            "leftColumn": [{"name": k, "type": "field"} for k in namespaced_field_order],
+            "leftColumn": [
+                {"name": k, "type": "field"} for k in namespaced_field_order
+            ],
             "rightColumn": [],
-            "conditions": [{
-                "field": discriminator,
-                "id": f"condition-{i}",
-                "operator": "IS_EXACTLY",
-                "value": _discriminator_option_value(display=cat.display, node_id=cat.id),
-            }],
+            "conditions": [
+                {
+                    "field": discriminator,
+                    "id": f"condition-{i}",
+                    "operator": "IS_EXACTLY",
+                    "value": _discriminator_option_value(
+                        display=cat.display, node_id=cat.id
+                    ),
+                }
+            ],
         }
 
     # Discriminator UI field: always-visible section-1; depends on variant sections.
