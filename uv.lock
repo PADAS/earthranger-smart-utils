@@ -434,7 +434,7 @@ requires-dist = [
     { name = "pytest-mock", marker = "extra == 'dev'" },
     { name = "pyyaml" },
     { name = "ruff", marker = "extra == 'dev'" },
-    { name = "smartconnect-client", specifier = ">=1.11.0,<2.0" },
+    { name = "smartconnect-client", specifier = ">=1.11.2,<2.0" },
     { name = "ty", marker = "extra == 'dev'" },
 ]
 provides-extras = ["gcp", "tracing", "dev", "docs"]
@@ -1671,7 +1671,7 @@ wheels = [
 
 [[package]]
 name = "smartconnect-client"
-version = "1.11.1"
+version = "1.11.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "dateparser" },
@@ -1687,9 +1687,9 @@ dependencies = [
     { name = "timezonefinder" },
     { name = "untangle" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/38/47/e5fe4959659db5ab1aea453de3a6370107643f164aa681f7a49116403a22/smartconnect_client-1.11.1.tar.gz", hash = "sha256:638027c1095982569b95c0933e6cf7d143129d7386a0f186f1407b110d0b2c2c", size = 18739, upload-time = "2026-05-16T00:01:29.36Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/99/ba/36eb895b0c503cf6201412fbd0498efcb54f2e20c0601e35fe7f415371c9/smartconnect_client-1.11.2.tar.gz", hash = "sha256:e1337995f4729b2778d9174e9e3d43570312993e9540bca56f9abcac3d80473d", size = 18854, upload-time = "2026-06-01T16:08:17.477Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/3d/34/98bbda46456f0c7c704eaa9c5dab2344377c426475a662785eb5fd4fbcd1/smartconnect_client-1.11.1-py3-none-any.whl", hash = "sha256:c3913fc696a8c359f1b123bafe4fb0348a5ecc9e419362c557f7d944516563ab", size = 24835, upload-time = "2026-05-16T00:01:27.825Z" },
+    { url = "https://files.pythonhosted.org/packages/38/88/9115022121817b7e101018c2a8b5fbf1a8c8426236275b15ae844d9821a1/smartconnect_client-1.11.2-py3-none-any.whl", hash = "sha256:4ec8e1035807a90c46504318d6a4f9fca420cd1d4c2a77b520ed799443f76a07", size = 24956, upload-time = "2026-06-01T16:08:16.226Z" },
 ]
 
 [[package]]

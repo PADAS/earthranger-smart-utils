@@ -33,7 +33,7 @@ _CA_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9_-]{2,30}$")
 
 
 def _validate_ca_identifier(ctx, param, value):
-    """Click callback: enforce 2-30 chars (alphanumeric, hyphen, underscore) on --ca-identifier."""
+    """Click callback: enforce 2-30 chars (alphanumeric, hyphen, underscore)."""
     if value is None:
         return None
     if not _CA_IDENTIFIER_RE.match(value):
@@ -80,6 +80,7 @@ def _set_network_timeout(seconds: float | None) -> None:
     if seconds is None or seconds <= 0:
         return
     import socket
+
     socket.setdefaulttimeout(seconds)
 
 
@@ -280,13 +281,18 @@ def _validate_config(config: SyncConfig) -> None:
     "--cm-uuid",
     "cm_uuid",
     default=None,
-    help="Configurable-model UUID. Required when loading multiple configurable models for the same SMART CA to avoid event-type value collisions. Defaults to the zero UUID.",
+    help="Configurable-model UUID. Required when loading multiple CMs for the same"
+    " SMART CA to avoid event-type collisions. Defaults to zero UUID.",
 )
 @click.option(
     "--include-base-datamodel",
     is_flag=True,
     default=False,
-    help="Also push the base data model as its own ER event category in addition to the configurable model. No effect unless --cm-from-file is given.",
+    help=(
+        "Also push the base data model as its own ER event category, "
+        "in addition to the configurable model. No effect unless "
+        "--cm-from-file is given."
+    ),
 )
 @click.option(
     "--ca-identifier",
@@ -304,13 +310,23 @@ def _validate_config(config: SyncConfig) -> None:
     "--mode",
     type=click.Choice(["both", "create-only", "update-only"]),
     default="both",
-    help="Restrict to creating only new event types, updating only existing ones, or both.",
+    help="Restrict to create-only, update-only, or both (default).",
 )
 @click.option(
     "--event-type-version",
     type=click.Choice(["v1", "v2"]),
     default=None,
     help="EarthRanger event-type API version. Overrides --config or the default (v2).",
+)
+@click.option(
+    "--cm-variant-mode",
+    type=click.Choice(["split", "consolidate"]),
+    default=None,
+    help=(
+        "How to map CM variant groups (categories sharing an hkeyPath) to "
+        "ER event types: 'split' (one per variant, default) or 'consolidate' "
+        "(one event type + variant selector + conditional sections). v2 only."
+    ),
 )
 @click.option(
     "--skip-choices",
@@ -344,6 +360,7 @@ def datamodel(
     ca_identifier,
     mode,
     event_type_version,
+    cm_variant_mode,
     skip_choices,
 ):
     """Sync SMART data models to EarthRanger as event categories/types."""
@@ -364,6 +381,9 @@ def datamodel(
 
     if event_type_version:
         config.earthranger.event_type_version = event_type_version
+
+    if cm_variant_mode:
+        config.earthranger.cm_variant_mode = cm_variant_mode
 
     if cm_file and not datamodel_file:
         raise click.UsageError("--cm-from-file requires --from-file")
@@ -476,6 +496,16 @@ def datamodel(
     default=None,
     help="Configurable-model UUID. Defaults to the zero UUID.",
 )
+@click.option(
+    "--cm-variant-mode",
+    type=click.Choice(["split", "consolidate"]),
+    default=None,
+    help=(
+        "How to map CM variant groups (categories sharing an hkeyPath) to "
+        "ER event types: 'split' (one per variant, default) or 'consolidate' "
+        "(one event type + variant selector + conditional sections). v2 only."
+    ),
+)
 @click.pass_context
 def choices(
     ctx,
@@ -494,6 +524,7 @@ def choices(
     datamodel_file,
     cm_file,
     cm_uuid,
+    cm_variant_mode,
 ):
     """Upsert SMART option sets as EarthRanger Choice records.
 
@@ -567,6 +598,7 @@ def choices(
         dm=dm.export_as_dict(),
         cm=cm.export_as_dict() if cm else None,
         ca_uuid=_FILE_BASED_CA_UUID,
+        cm_variant_mode=cm_variant_mode or config.earthranger.cm_variant_mode,
     )
 
     stats = upsert_choices(er_client=sync.er_client, choice_sets=choice_sets)
@@ -786,6 +818,12 @@ earthranger:
   # that haven't enabled v2.
   event_type_version: v2
 
+  # How CM variant groups (categories sharing an hkeyPath) map to ER event
+  # types. "split" (default) creates one event type per variant. "consolidate"
+  # creates a single event type with a discriminator dropdown and per-variant
+  # conditional sections. v2 only; ignored for v1 event types.
+  cm_variant_mode: split
+
   # URL prefix used in v2 event-type schema $refs (e.g.
   # "{choices_base_url}/choices.json?field=<field>"). Default matches ER's
   # standard /api/v2.0/schemas layout.
@@ -978,7 +1016,8 @@ def _extract_id(label: str) -> str:
     "--cm-uuid",
     "cm_uuid",
     default=None,
-    help="Configurable-model UUID (used with --cm-from-file). Required when loading multiple configurable models for the same SMART CA to avoid event-type value collisions. Defaults to the zero UUID.",
+    help="CM UUID (with --cm-from-file). Required for multiple CMs on same SMART CA to"
+    " avoid value collisions. Defaults to zero UUID.",
 )
 @click.option(
     "--ca-identifier",
@@ -995,7 +1034,17 @@ def _extract_id(label: str) -> str:
     "--event-type-version",
     type=click.Choice(["v1", "v2"]),
     default=None,
-    help="Which event-type schema shape to print. Overrides --config or the default (v2).",
+    help="Schema shape (v1 or v2). Overrides --config; defaults to v2.",
+)
+@click.option(
+    "--cm-variant-mode",
+    type=click.Choice(["split", "consolidate"]),
+    default=None,
+    help=(
+        "How to map CM variant groups (categories sharing an hkeyPath) to "
+        "ER event types: 'split' (one per variant, default) or 'consolidate' "
+        "(one event type + variant selector + conditional sections). v2 only."
+    ),
 )
 def inspect_datamodel_cmd(
     config_file,
@@ -1015,11 +1064,12 @@ def inspect_datamodel_cmd(
     cm_uuid,
     ca_identifier,
     event_type_version,
+    cm_variant_mode,
 ):
-    """Show the EarthRanger event types that *would* be created/updated from a SMART data model.
+    """Show EarthRanger event types that would be created/updated.
 
-    Performs zero writes against EarthRanger. The output groups event types by
-    category and lists each event type's schema fields, types, and enum values.
+    Performs zero writes. Output groups event types by category with schema
+    fields, types, and enum values.
     """
     config = _build_config(
         config_file=config_file,
@@ -1105,18 +1155,23 @@ def inspect_datamodel_cmd(
     if event_type_version == "v2":
         from .smart_to_er_v2 import build_event_types_v2
 
+        # CLI flag overrides config; otherwise inherit from config.
+        resolved_variant_mode = cm_variant_mode or config.earthranger.cm_variant_mode
+
         event_types = build_event_types_v2(
             dm=dm.export_as_dict(),
             cm=cm.export_as_dict() if cm else None,
             ca_uuid=ca_uuid,
             ca_identifier=ca_identifier,
             choices_base_url=config.earthranger.choices_base_url,
+            cm_variant_mode=resolved_variant_mode,
         )
         _print_event_type_summary_v2(event_types, ca_identifier=ca_identifier)
         choice_sets = build_choice_sets(
             dm=dm.export_as_dict(),
             cm=cm.export_as_dict() if cm else None,
             ca_uuid=ca_uuid,
+            cm_variant_mode=resolved_variant_mode,
         )
         _print_choice_set_summary(choice_sets)
     else:

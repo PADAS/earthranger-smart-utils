@@ -92,5 +92,6 @@ nav:
     - CA identifier: concepts/ca-identifier.md
     - Event-type version: concepts/event-type-version.md
     - Choices: concepts/choices.md
+    - CM variant groups: concepts/cm-variants.md
   - Troubleshooting: troubleshooting.md
   - Changelog: changelog.md
