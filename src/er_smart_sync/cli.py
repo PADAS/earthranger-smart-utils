@@ -288,7 +288,11 @@ def _validate_config(config: SyncConfig) -> None:
     "--include-base-datamodel",
     is_flag=True,
     default=False,
-    help="Also push the base data model as its own ER event category. Only with --cm.",
+    help=(
+        "Also push the base data model as its own ER event category, "
+        "in addition to the configurable model. No effect unless "
+        "--cm-from-file is given."
+    ),
 )
 @click.option(
     "--ca-identifier",
