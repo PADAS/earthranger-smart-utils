@@ -315,3 +315,89 @@ def test_source_choice_sets_follows_pagination():
     assert cs.field == "et1_species"
     assert [o.value for o in cs.options] == ["a", "b"]
     assert source._get.call_count == 2
+
+
+# ── _normalize_v2_schema_for_post ──────────────────────────────
+
+
+def test_normalize_v2_schema_adds_unevaluated_and_drops_additional():
+    # This is the exact shape ER's GET returns: additionalProperties marker,
+    # no unevaluatedProperties (which ER's POST meta-schema requires).
+    schema = {
+        "json": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {"a": {"type": "string"}},
+            "required": ["a"],
+        },
+        "ui": {"fields": {}},
+    }
+    out = er_to_er._normalize_v2_schema_for_post(schema)
+    jb = out["json"]
+    assert jb["unevaluatedProperties"] is False
+    assert "additionalProperties" not in jb
+    # Everything else is preserved untouched.
+    assert jb["properties"] == {"a": {"type": "string"}}
+    assert jb["required"] == ["a"]
+    assert jb["type"] == "object"
+    assert out["ui"] == {"fields": {}}
+
+
+def test_normalize_v2_schema_mirrors_additional_true():
+    schema = {"json": {"additionalProperties": True, "properties": {}}}
+    jb = er_to_er._normalize_v2_schema_for_post(schema)["json"]
+    assert jb["unevaluatedProperties"] is True
+    assert "additionalProperties" not in jb
+
+
+def test_normalize_v2_schema_preserves_existing_unevaluated():
+    schema = {"json": {"unevaluatedProperties": False, "properties": {}}}
+    jb = er_to_er._normalize_v2_schema_for_post(schema)["json"]
+    assert jb["unevaluatedProperties"] is False
+
+
+def test_normalize_v2_schema_no_json_block_is_noop():
+    assert er_to_er._normalize_v2_schema_for_post({}) == {}
+    assert er_to_er._normalize_v2_schema_for_post({"ui": {}}) == {"ui": {}}
+
+
+def test_copy_event_type_v2_repairs_schema_for_post(monkeypatch):
+    # Source returns ER's GET shape (additionalProperties, no unevaluatedProperties).
+    src = _src_v2_event_type()
+    schema = {
+        "json": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "species": {"anyOf": [{"$ref": "/c/choices.json?field=et1_species"}]}
+            },
+            "required": [],
+        },
+        "ui": {},
+    }
+    src["schema"] = json.dumps(schema)
+
+    source = MagicMock()
+    source.get_event_types.return_value = [src]
+    dest = _dest_with_category()
+    monkeypatch.setattr(er_to_er, "upsert_choices", lambda **k: ChoicesStats())
+    monkeypatch.setattr(
+        er_to_er, "_source_choice_sets", lambda *, source_client, fields: []
+    )
+
+    copy_event_type(
+        source_client=source,
+        dest_client=dest,
+        value="ca_lion",
+        target_category="target_cat",
+        version="v2",
+    )
+
+    posted = dest.post_event_type.call_args.kwargs["event_type"]
+    jb = posted["schema"]["json"]
+    assert jb["unevaluatedProperties"] is False
+    assert "additionalProperties" not in jb
+    # The choice $ref in properties survives normalization untouched.
+    assert "species" in jb["properties"]

@@ -135,6 +135,36 @@ def _as_dict(raw) -> dict:
     return {}
 
 
+def _normalize_v2_schema_for_post(schema: dict) -> dict:
+    """Make a GET'd v2 schema valid for ER's POST/PATCH meta-schema.
+
+    ER's v2 event-type endpoint requires the ``json`` block to declare a
+    closed schema via ``unevaluatedProperties``. ER's GET response omits it,
+    instead returning the older ``additionalProperties`` marker, so copying a
+    v2 schema GET -> POST verbatim fails meta-schema validation with
+    "'unevaluatedProperties' is a required property at json".
+
+    This restores ``unevaluatedProperties`` (mirroring a legacy boolean
+    ``additionalProperties`` marker when present, else defaulting to ``False``
+    for a closed schema) and drops the now-redundant ``additionalProperties``,
+    so the envelope matches the shape ``smart_to_er_v2.build_event_types_v2``
+    POSTs successfully. Returns the schema unchanged when it has no dict
+    ``json`` block.
+    """
+    if not isinstance(schema, dict):
+        return schema
+    json_block = schema.get("json")
+    if not isinstance(json_block, dict):
+        return schema
+    if "unevaluatedProperties" not in json_block:
+        legacy = json_block.get("additionalProperties")
+        json_block["unevaluatedProperties"] = (
+            legacy if isinstance(legacy, bool) else False
+        )
+    json_block.pop("additionalProperties", None)
+    return schema
+
+
 def copy_event_type(
     *,
     source_client,
@@ -178,6 +208,10 @@ def copy_event_type(
 
     stats = CopyEventTypeStats()
     schema_dict = _as_dict(src.get("schema")) if version == "v2" else {}
+    if version == "v2":
+        # ER's GET drops the unevaluatedProperties marker its POST requires;
+        # repair the envelope so the round-tripped schema validates on write.
+        schema_dict = _normalize_v2_schema_for_post(schema_dict)
 
     # 3. Copy referenced choices (v2 only — v1 embeds enums inline).
     if copy_choices and version == "v2":
