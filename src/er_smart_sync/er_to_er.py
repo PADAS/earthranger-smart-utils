@@ -177,7 +177,7 @@ def copy_event_type(
         )
 
     stats = CopyEventTypeStats()
-    schema_dict = _as_dict(src.get("schema"))
+    schema_dict = _as_dict(src.get("schema")) if version == "v2" else {}
 
     # 3. Copy referenced choices (v2 only — v1 embeds enums inline).
     if copy_choices and version == "v2":
@@ -207,14 +207,14 @@ def copy_event_type(
             schema=schema_dict,
         )
     else:
-        # EREventType.allow_population_by_field_name is False, so pass the
-        # alias "schema" (a JSON string) rather than event_schema.
+        # v1 EREventType stores the schema as a JSON string under the
+        # "schema" alias (event_schema field).
         event_type = EREventType(
             value=src["value"],
             display=src["display"],
             category=target_category,
             is_active=bool(src.get("is_active", True)),
-            **{"schema": src.get("schema")},
+            schema=src.get("schema"),
         )
 
     if existing_dest is not None:

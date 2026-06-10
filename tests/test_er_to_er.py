@@ -205,14 +205,11 @@ def test_copy_event_type_source_not_found():
         )
 
 
-def test_copy_event_type_target_category_missing(monkeypatch):
+def test_copy_event_type_target_category_missing():
     source = MagicMock()
     source.get_event_types.return_value = [_src_v2_event_type()]
     dest = MagicMock()
     dest.get_event_categories.return_value = [{"value": "something_else"}]
-    monkeypatch.setattr(
-        er_to_er, "_source_choice_sets", lambda *, source_client, fields: []
-    )
     with pytest.raises(TargetCategoryMissing):
         copy_event_type(
             source_client=source,
