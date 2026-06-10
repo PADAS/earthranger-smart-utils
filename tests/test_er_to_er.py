@@ -9,6 +9,7 @@ import pytest
 
 from er_smart_sync import er_to_er  # noqa: F401
 from er_smart_sync.choices import ChoiceSet, ChoicesStats
+from er_smart_sync.defaults import DryRunERClient
 from er_smart_sync.er_to_er import (
     CopyEventTypeStats,  # noqa: F401
     EventTypeNotFound,  # noqa: F401
@@ -248,3 +249,69 @@ def test_copy_event_type_patches_when_value_exists(monkeypatch):
     assert patched["id"] == "99999999-9999-9999-9999-999999999999"
     assert patched["category"] == "target_cat"
     dest.post_event_type.assert_not_called()
+
+
+def test_copy_event_type_dry_run_makes_no_dest_writes(monkeypatch):
+    """DryRunERClient intercepts all dest writes; the inner mock stays clean."""
+    inner = MagicMock()
+    inner.get_event_categories.return_value = [{"value": "target_cat"}]
+    inner.get_event_types.return_value = []  # create path
+    dry = DryRunERClient(inner)
+
+    source = MagicMock()
+    source.get_event_types.return_value = [_src_v2_event_type()]
+
+    def fake_upsert(*, er_client, choice_sets):
+        # Perform a write via the dest client to prove dry-run intercepts it.
+        er_client._post(path="choices", payload={"x": 1})
+        return ChoicesStats(created=1)
+
+    monkeypatch.setattr(er_to_er, "upsert_choices", fake_upsert)
+    monkeypatch.setattr(
+        er_to_er,
+        "_source_choice_sets",
+        lambda *, source_client, fields: [ChoiceSet(field="et1_species", options=())],
+    )
+
+    stats = copy_event_type(
+        source_client=source,
+        dest_client=dry,
+        value="ca_lion",
+        target_category="target_cat",
+        version="v2",
+    )
+
+    assert stats.event_type_action == "created"
+
+    # Inner client must have received NO write calls.
+    inner.post_event_type.assert_not_called()
+    inner.patch_event_type.assert_not_called()
+    inner._post.assert_not_called()
+
+    # DryRunERClient must have recorded both intercepted writes.
+    intercepted_names = [name for (name, _args, _kwargs) in dry.calls]
+    assert "post_event_type" in intercepted_names
+    assert "_post" in intercepted_names
+
+
+def test_source_choice_sets_follows_pagination():
+    """_source_choice_sets follows the ``next`` pagination chain on the source."""
+    page1 = {
+        "results": [{"value": "a", "display": "A", "is_active": True, "ordernum": 0}],
+        "next": "choices?page=2",
+    }
+    page2 = {
+        "results": [{"value": "b", "display": "B", "is_active": True, "ordernum": 1}],
+        "next": None,
+    }
+
+    source = MagicMock()
+    source._get.side_effect = [page1, page2]
+
+    sets = er_to_er._source_choice_sets(source_client=source, fields=["et1_species"])
+
+    assert len(sets) == 1
+    cs = sets[0]
+    assert cs.field == "et1_species"
+    assert [o.value for o in cs.options] == ["a", "b"]
+    assert source._get.call_count == 2
