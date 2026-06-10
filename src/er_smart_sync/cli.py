@@ -8,6 +8,7 @@ import yaml
 from .choices import build_choice_sets, upsert_choices
 from .config import EarthRangerConfig, SmartConnectConfig, SyncConfig
 from .defaults import DryRunERClient, JsonFileStateStore, NullPublisher
+from .er_to_er import EventTypeNotFound, TargetCategoryMissing, copy_event_type
 from .synchronizer import ERSmartSynchronizer
 
 logger = logging.getLogger(__name__)
@@ -160,6 +161,19 @@ def _make_synchronizer(
             "Dry run mode: no writes will be sent to ER or to the broker.", err=True
         )
     return sync
+
+
+def _make_er_client(*, endpoint, token, username, password):
+    """Construct a bare ERClient for one ER site (used by copy-event-type)."""
+    from erclient import ERClient
+
+    return ERClient(
+        service_root=endpoint,
+        username=username,
+        password=password,
+        token=token,
+        client_id="das_web_client",
+    )
 
 
 # ── Shared options ──────────────────────────────────────────────
@@ -723,6 +737,112 @@ def patrols(
         observations_topic=topic,
     )
     sync.synchronize_er_patrols()
+
+
+# ── copy-event-type subcommand (ER → ER) ────────────────────────
+
+
+@main.command("copy-event-type")
+@click.option("--source-endpoint", required=True, help="Source EarthRanger API URL")
+@click.option("--source-token", default="", help="Source ER API token")
+@click.option("--source-username", default="", help="Source ER username")
+@click.option("--source-password", default="", help="Source ER password")
+@click.option(
+    "--event-type-value",
+    required=True,
+    help="`value` of the event type to copy from the source",
+)
+@click.option("--dest-endpoint", required=True, help="Destination EarthRanger API URL")
+@click.option("--dest-token", default="", help="Destination ER API token")
+@click.option("--dest-username", default="", help="Destination ER username")
+@click.option("--dest-password", default="", help="Destination ER password")
+@click.option(
+    "--target-event-category",
+    required=True,
+    help="`value` of the destination event category to attach the copy to "
+    "(must already exist on the destination)",
+)
+@click.option(
+    "--version",
+    "version",
+    type=click.Choice(["v1", "v2"]),
+    default="v2",
+    help="EarthRanger event-type API version on both sites. Default: v2.",
+)
+@click.pass_context
+def copy_event_type_cmd(
+    ctx,
+    source_endpoint,
+    source_token,
+    source_username,
+    source_password,
+    event_type_value,
+    dest_endpoint,
+    dest_token,
+    dest_username,
+    dest_password,
+    target_event_category,
+    version,
+):
+    """Copy one event type from a source ER site to a destination ER site.
+
+    For v2 event types, also copies the choice option-sets the schema
+    references onto the destination. The target category must already exist
+    on the destination. Honors the global --dry-run flag (no writes to the
+    destination).
+    """
+    if not source_token and not (source_username and source_password):
+        raise click.UsageError(
+            "source auth requires either --source-token or both "
+            "--source-username and --source-password."
+        )
+    if not dest_token and not (dest_username and dest_password):
+        raise click.UsageError(
+            "dest auth requires either --dest-token or both "
+            "--dest-username and --dest-password."
+        )
+
+    source_client = _make_er_client(
+        endpoint=source_endpoint,
+        token=source_token,
+        username=source_username,
+        password=source_password,
+    )
+    dest_client = _make_er_client(
+        endpoint=dest_endpoint,
+        token=dest_token,
+        username=dest_username,
+        password=dest_password,
+    )
+
+    if ctx.obj and ctx.obj.get("dry_run"):
+        dest_client = DryRunERClient(dest_client)
+        click.echo(
+            "Dry run mode: no writes will be sent to the destination ER.",
+            err=True,
+        )
+
+    try:
+        stats = copy_event_type(
+            source_client=source_client,
+            dest_client=dest_client,
+            value=event_type_value,
+            target_category=target_event_category,
+            version=version,
+        )
+    except (EventTypeNotFound, TargetCategoryMissing) as e:
+        raise click.ClickException(str(e)) from e
+
+    click.echo(f"Event type {event_type_value!r}: {stats.event_type_action}")
+    click.echo(f"Choice fields copied: {stats.choice_fields_copied}")
+    cs = stats.choices
+    click.echo(
+        f"Choices: created={cs.created} updated={cs.updated} "
+        f"unchanged={cs.unchanged} deactivated={cs.deactivated} "
+        f"errored={cs.errored}"
+    )
+    if cs.errored > 0:
+        raise click.ClickException(f"{cs.errored} choice operations failed")
 
 
 # ── validate-config subcommand ──────────────────────────────────
