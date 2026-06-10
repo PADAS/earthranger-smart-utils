@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Project Does
 
-er-smart-sync synchronizes data between **SMART Connect** (wildlife conservation monitoring) and **EarthRanger** (real-time data visualization for protected areas). It supports three sync flows:
+er-smart-sync synchronizes data between **SMART Connect** (wildlife conservation monitoring) and **EarthRanger** (real-time data visualization for protected areas). It supports four sync flows:
 
 1. **Datamodel sync** (SMART → ER): Push event categories and event types from SMART conservation areas to EarthRanger
 2. **Event sync** (ER → SMART): Poll EarthRanger events and publish them via message broker (Pub/Sub) for routing to SMART
