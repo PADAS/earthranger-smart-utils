@@ -16,7 +16,12 @@ import re
 from dataclasses import dataclass
 from dataclasses import field as _dc_field
 
-from .choices import ChoicesStats
+from .choices import (
+    ChoiceOption,
+    ChoiceSet,
+    ChoicesStats,
+    _fetch_existing,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +79,37 @@ def extract_choice_fields(schema: dict) -> list[str]:
             seen.add(f)
             result.append(f)
     return result
+
+
+def _source_choice_sets(*, source_client, fields: list[str]) -> list[ChoiceSet]:
+    """Read each choice field from the source and build ChoiceSets.
+
+    Reuses ``choices._fetch_existing`` (pagination + 400-as-empty handling).
+    Records are ordered by their source ``ordernum`` so upsert_choices
+    reassigns equivalent positions on the destination. Fields with no source
+    records are skipped with a warning (the dest field will render empty).
+    """
+    sets: list[ChoiceSet] = []
+    for field_name in fields:
+        records = _fetch_existing(er_client=source_client, field=field_name)
+        if not records:
+            logger.warning(
+                "Source has no choice records for field %r; the destination "
+                "event type may render an empty dropdown for it.",
+                field_name,
+            )
+            continue
+        records = sorted(records, key=lambda r: r.get("ordernum") or 0)
+        options = tuple(
+            ChoiceOption(
+                value=r["value"],
+                display=r.get("display") or r["value"],
+                is_active=bool(r.get("is_active", True)),
+            )
+            for r in records
+        )
+        sets.append(ChoiceSet(field=field_name, options=options))
+    return sets
 
 
 def copy_event_type(*args, **kwargs):
