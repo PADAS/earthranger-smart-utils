@@ -1749,19 +1749,25 @@ def test_copy_event_type_cmd_invokes_copy(monkeypatch):
 
     # ERClient is constructed inside the command; stub it so no network call.
     monkeypatch.setattr(cli_module, "_make_er_client", lambda **kw: MagicMock())
-    monkeypatch.setattr(cli_module, "copy_event_type", fake_copy, raising=False)
+    monkeypatch.setattr(cli_module, "copy_event_type", fake_copy)
 
     runner = CliRunner()
     result = runner.invoke(
         cli_module.main,
         [
             "copy-event-type",
-            "--source-endpoint", "https://src/api/v1.0",
-            "--source-token", "srctok",
-            "--event-type-value", "ca_lion",
-            "--dest-endpoint", "https://dst/api/v1.0",
-            "--dest-token", "dsttok",
-            "--target-event-category", "target_cat",
+            "--source-endpoint",
+            "https://src/api/v1.0",
+            "--source-token",
+            "srctok",
+            "--event-type-value",
+            "ca_lion",
+            "--dest-endpoint",
+            "https://dst/api/v1.0",
+            "--dest-token",
+            "dsttok",
+            "--target-event-category",
+            "target_cat",
         ],
     )
 
@@ -1783,11 +1789,16 @@ def test_copy_event_type_cmd_requires_auth():
         cli_module.main,
         [
             "copy-event-type",
-            "--source-endpoint", "https://src/api/v1.0",
-            "--event-type-value", "ca_lion",
-            "--dest-endpoint", "https://dst/api/v1.0",
-            "--dest-token", "dsttok",
-            "--target-event-category", "target_cat",
+            "--source-endpoint",
+            "https://src/api/v1.0",
+            "--event-type-value",
+            "ca_lion",
+            "--dest-endpoint",
+            "https://dst/api/v1.0",
+            "--dest-token",
+            "dsttok",
+            "--target-event-category",
+            "target_cat",
         ],
     )
     assert result.exit_code != 0

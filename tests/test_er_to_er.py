@@ -130,6 +130,7 @@ def test_copy_event_type_v2_creates_and_copies_choices(monkeypatch):
         return ChoicesStats(created=2)
 
     monkeypatch.setattr(er_to_er, "upsert_choices", fake_upsert)
+
     def fake_choice_sets(*, source_client, fields):
         return [ChoiceSet(field=f, options=()) for f in fields]
 
