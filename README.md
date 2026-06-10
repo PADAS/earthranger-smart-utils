@@ -18,6 +18,9 @@ a complete CLI reference, conceptual background, and troubleshooting.
   message broker.
 - **Patrol sync** (ER → SMART) — poll EarthRanger patrols with track points
   and attached files.
+- **Event-type copy** (ER → ER) — copy a single event type (and the v2
+  choices its schema references) from one EarthRanger site to another via
+  the `copy-event-type` CLI subcommand.
 
 ## Quick install
 

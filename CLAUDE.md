@@ -9,6 +9,9 @@ er-smart-sync synchronizes data between **SMART Connect** (wildlife conservation
 1. **Datamodel sync** (SMART → ER): Push event categories and event types from SMART conservation areas to EarthRanger
 2. **Event sync** (ER → SMART): Poll EarthRanger events and publish them via message broker (Pub/Sub) for routing to SMART
 3. **Patrol sync** (ER → SMART): Poll EarthRanger patrols (with track points, segment events, files) and publish them
+4. **Event-type copy** (ER → ER): Copy a single event type (and the v2
+   choices its schema references) from one EarthRanger site to another via
+   the `copy-event-type` CLI subcommand
 
 ## Commands
 
@@ -53,7 +56,7 @@ All three are pinned to specific wheel releases or minimum versions. Uses Pydant
 
 ### CLI
 
-The Click CLI (`cli.py`) has three subcommands: `datamodel`, `events`, `patrols`. Each accepts either a `--config` YAML file or individual `--smart-*` / `--er-*` flags.
+The Click CLI (`cli.py`) has four subcommands: `datamodel`, `events`, `patrols`, `copy-event-type`. Each accepts either a `--config` YAML file or individual `--smart-*` / `--er-*` flags (except `copy-event-type`, which uses `--source-*` / `--dest-*` / `--event-type-value` / `--target-event-category` flags and a `--version v1|v2` flag).
 
 ## Key Conventions
 
