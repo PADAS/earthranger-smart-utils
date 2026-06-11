@@ -1728,3 +1728,78 @@ def test_config_template_mentions_cm_variant_mode():
     assert result.exit_code == 0, result.output
     assert "cm_variant_mode" in result.output
     assert "split" in result.output
+
+
+def test_copy_event_type_cmd_invokes_copy(monkeypatch):
+    from click.testing import CliRunner
+
+    from er_smart_sync import cli as cli_module
+    from er_smart_sync.choices import ChoicesStats
+    from er_smart_sync.er_to_er import CopyEventTypeStats
+
+    captured = {}
+
+    def fake_copy(**kwargs):
+        captured.update(kwargs)
+        return CopyEventTypeStats(
+            event_type_action="created",
+            choice_fields_copied=1,
+            choices=ChoicesStats(created=3),
+        )
+
+    # ERClient is constructed inside the command; stub it so no network call.
+    monkeypatch.setattr(cli_module, "_make_er_client", lambda **kw: MagicMock())
+    monkeypatch.setattr(cli_module, "copy_event_type", fake_copy)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli_module.main,
+        [
+            "copy-event-type",
+            "--source-endpoint",
+            "https://src/api/v1.0",
+            "--source-token",
+            "srctok",
+            "--event-type-value",
+            "ca_lion",
+            "--dest-endpoint",
+            "https://dst/api/v1.0",
+            "--dest-token",
+            "dsttok",
+            "--target-event-category",
+            "target_cat",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["value"] == "ca_lion"
+    assert captured["target_category"] == "target_cat"
+    assert captured["version"] == "v2"
+    assert "created" in result.output
+    assert "created=3" in result.output
+
+
+def test_copy_event_type_cmd_requires_auth():
+    from click.testing import CliRunner
+
+    from er_smart_sync import cli as cli_module
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli_module.main,
+        [
+            "copy-event-type",
+            "--source-endpoint",
+            "https://src/api/v1.0",
+            "--event-type-value",
+            "ca_lion",
+            "--dest-endpoint",
+            "https://dst/api/v1.0",
+            "--dest-token",
+            "dsttok",
+            "--target-event-category",
+            "target_cat",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "source" in result.output.lower()
