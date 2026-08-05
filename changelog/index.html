@@ -1303,6 +1303,24 @@
         
       
       
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
       <a href="./" class="md-nav__link md-nav__link--active">
         
   
@@ -1319,6 +1337,86 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#032-2026-08-05" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.3.2 — 2026-08-05
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.3.2 — 2026-08-05">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fixed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#added" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#documentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Documentation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#earlier-releases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Earlier releases
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
       
     </li>
   
@@ -1343,6 +1441,75 @@
   
     
   
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#032-2026-08-05" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.3.2 — 2026-08-05
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.3.2 — 2026-08-05">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fixed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#added" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#documentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Documentation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#earlier-releases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Earlier releases
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
   
 </nav>
                   </div>
@@ -1376,12 +1543,63 @@
 
 
 <h1 id="changelog">Changelog<a class="headerlink" href="#changelog" title="Permanent link">&para;</a></h1>
-<p>Notable changes by version.</p>
-<div class="admonition note">
-<p class="admonition-title">Placeholder</p>
-<p>Full content is being written. Check back soon, or open the source markdown
-for what's planned.</p>
-</div>
+<p>Notable changes by version. Every release is also published to
+<a href="https://pypi.org/project/er-smart-sync/">PyPI</a> and tagged on
+<a href="https://github.com/PADAS/earthranger-smart-utils/releases">GitHub Releases</a>,
+which carry the full commit-level history.</p>
+<h2 id="032-2026-08-05">0.3.2 — 2026-08-05<a class="headerlink" href="#032-2026-08-05" title="Permanent link">&para;</a></h2>
+<h3 id="fixed">Fixed<a class="headerlink" href="#fixed" title="Permanent link">&para;</a></h3>
+<p><strong><code>smart.use_language_code</code> is now honored by file-based syncs.</strong>
+<code>datamodel --from-file</code>, <code>choices</code>, and <code>inspect-datamodel</code> built their SMART
+XML parsers from the <code>--smart-language</code> flag, whose default was <code>en</code>, and never
+read the value loaded from <code>--config</code>. Setting <code>use_language_code: es</code> in the
+config had no effect on those commands, so a data model carrying no English
+labels resolved every display name to the literal string <code>n/a</code> — and the sync
+pushed those to EarthRanger as if they were real names. <code>--smart-language</code> now
+overrides the config only when you pass it explicitly.
+(<a href="https://github.com/PADAS/earthranger-smart-utils/issues/13">#13</a>)</p>
+<p>If a site was already populated with <code>n/a</code> labels, no manual cleanup is needed:
+re-run with the correct language and the existing records are corrected in
+place. Event types and choices are both compared on <code>display</code> and patched when
+it differs.</p>
+<p><strong><code>--smart-version</code> is no longer ignored when <code>--config</code> is used.</strong> The flag
+carried a <code>7.0</code> default, so an explicitly passed value was indistinguishable
+from an absent one, and the config loader never applied it on top of a config
+read from file — <code>smart.version</code> from the YAML always won and the flag was
+silently discarded. This is the mirror image of the <code>use_language_code</code> bug
+above, where the flag won and the config value was dropped; both trace back to
+the same root, a flag default that hid whether the user had passed anything.</p>
+<p>The version one affected behavior rather than presentation: SMART versions
+below 7.5.3 need <code>smart_observation_uuid</code> patched onto outgoing events, so a
+silently discarded <code>--smart-version</code> could change what the sync actually sent.</p>
+<h3 id="added">Added<a class="headerlink" href="#added" title="Permanent link">&para;</a></h3>
+<p><strong>Data-model syncs warn when no display name resolves.</strong> SMART substitutes the
+literal <code>n/a</code> whenever no <code>&lt;names&gt;</code> entry matches the requested language; it
+does not raise or warn, so an unmatched language code produced a complete,
+valid-looking data model with every label set to <code>n/a</code>. <code>datamodel</code>, <code>choices</code>,
+and <code>inspect-datamodel</code> now detect that and name the codes the model actually
+declares:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>WARNING: All 645 SMART display names resolved to &quot;n/a&quot;: the data model has no
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>labels in language &#39;en&#39;. Available language code(s): es. Set
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>smart.use_language_code in your config (or pass --smart-language) to one of
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>these and re-run.
+</code></pre></div>
+<p>The warning requires a <em>wholesale</em> failure. A single untranslated label is
+normal SMART data and stays silent.</p>
+<h3 id="documentation">Documentation<a class="headerlink" href="#documentation" title="Permanent link">&para;</a></h3>
+<ul>
+<li><a href="../getting-started/config/">Configuration</a> gained a
+  <a href="../getting-started/config/#display-names-and-languages">Display names and languages</a>
+  section covering how to read the <code>&lt;languages&gt;</code> block in a data-model XML
+  before the first run.</li>
+<li><code>--smart-language</code> and <code>--smart-version</code> help text now states the actual
+  precedence: the flag overrides <code>--config</code>, and the built-in default applies
+  only when neither is set.</li>
+</ul>
+<h2 id="earlier-releases">Earlier releases<a class="headerlink" href="#earlier-releases" title="Permanent link">&para;</a></h2>
+<p><code>v0.3.1</code> and earlier predate this file. See
+<a href="https://github.com/PADAS/earthranger-smart-utils/releases">GitHub Releases</a>
+for their notes.</p>
 
 
 
