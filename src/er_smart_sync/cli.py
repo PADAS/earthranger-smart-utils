@@ -189,16 +189,17 @@ def smart_options(f):
         "--smart-version",
         default=None,
         help=(
-            "SMART Connect server version. Overrides smart.version from "
-            "--config; defaults to '7.0'."
+            "SMART Connect server version. Defaults to smart.version from "
+            "--config, or '7.0' when neither is set."
         ),
     )(f)
     f = click.option(
         "--smart-language",
         default=None,
         help=(
-            "Language code used to resolve SMART display names. Overrides "
-            "smart.use_language_code from --config; defaults to 'en'."
+            "Language code for resolving SMART display names. Defaults to "
+            "smart.use_language_code from --config, or 'en' when neither "
+            "is set."
         ),
     )(f)
     return f
