@@ -1,5 +1,6 @@
 import copy
 import json
+import logging
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
@@ -164,6 +165,66 @@ class TestDatamodelSync:
         mock_er_client.post_event_category.assert_called_once()
         posted = mock_er_client.post_event_category.call_args.kwargs["data"]
         assert posted["value"] == "test"
+
+    def test_push_warns_when_no_labels_resolve_in_configured_language(
+        self, sync_config, mock_er_client, caplog
+    ):
+        """GH #13: a language code that matches nothing turns every SMART label
+        into the literal "n/a". The sync still runs, but must say so loudly —
+        silently pushing 600+ event types named "n/a" is what made the original
+        report so hard to diagnose."""
+        mock_er_client.get_event_categories.return_value = []
+
+        dm = MagicMock()
+        dm.export_as_dict.return_value = {
+            "categories": [{"display": "n/a"}],
+            "attributes": [{"display": "n/a", "options": []}],
+        }
+
+        # sync_config fixture uses use_language_code="en".
+        with patch(
+            "er_smart_sync.synchronizer.build_event_types",
+            return_value=[],
+        ):
+            sync = ERSmartSynchronizer(
+                config=sync_config,
+                er_client=mock_er_client,
+                smart_client=MagicMock(),
+            )
+            with caplog.at_level(logging.WARNING, logger="er_smart_sync.synchronizer"):
+                sync.push_smart_ca_datamodel_to_earthranger(
+                    dm=dm, smart_ca_uuid="uuid", ca_identifier="TEST"
+                )
+
+        assert "resolved to" in caplog.text
+        assert "'en'" in caplog.text
+
+    def test_push_does_not_warn_when_labels_resolve(
+        self, sync_config, mock_er_client, caplog
+    ):
+        mock_er_client.get_event_categories.return_value = []
+
+        dm = MagicMock()
+        dm.export_as_dict.return_value = {
+            "categories": [{"display": "Roads"}],
+            "attributes": [],
+        }
+
+        with patch(
+            "er_smart_sync.synchronizer.build_event_types",
+            return_value=[],
+        ):
+            sync = ERSmartSynchronizer(
+                config=sync_config,
+                er_client=mock_er_client,
+                smart_client=MagicMock(),
+            )
+            with caplog.at_level(logging.WARNING, logger="er_smart_sync.synchronizer"):
+                sync.push_smart_ca_datamodel_to_earthranger(
+                    dm=dm, smart_ca_uuid="uuid", ca_identifier="TEST"
+                )
+
+        assert "resolved to" not in caplog.text
 
     def test_v1_event_type_uses_category_slug(self, sync_config, mock_er_client):
         """ER's event_type endpoint resolves `category` by slug for both v1

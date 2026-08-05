@@ -1803,3 +1803,339 @@ def test_copy_event_type_cmd_requires_auth():
     )
     assert result.exit_code != 0
     assert "source" in result.output.lower()
+
+
+# ── use_language_code plumbing (GH #13) ────────────────────────
+
+
+def _spanish_only_dm_xml() -> str:
+    """A data model whose display names exist only in Spanish."""
+    return """<?xml version="1.0" encoding="UTF-8"?>
+<DataModel>
+  <languages>
+    <languages code="es"/>
+  </languages>
+  <attributes>
+    <attribute key="condicion" isrequired="false" type="LIST">
+      <names language_code="es" value="CONDICION"/>
+      <values key="bueno" isactive="true">
+        <names language_code="es" value="BUENO"/>
+      </values>
+    </attribute>
+  </attributes>
+  <categories>
+    <category key="caminos" ismultiple="false" isactive="true">
+      <names language_code="es" value="CAMINOS"/>
+      <attributes attributekey="condicion" isactive="true"/>
+    </category>
+  </categories>
+</DataModel>
+"""
+
+
+def _spanish_only_cm_xml() -> str:
+    return """<?xml version="1.0" encoding="UTF-8"?>
+<ConfigurableModel>
+  <languages>
+    <language code="es" is_default="true"/>
+  </languages>
+  <name language_code="es" value="Modelo Configurable"/>
+  <nodes>
+    <node id="1111">
+      <name language_code="es" value="CORREDORES"/>
+      <node categoryKey="caminos" categoryHkey="caminos." id="2222">
+        <name language_code="es" value="CAMINOS"/>
+        <attribute attributeKey="condicion" id="3333" type="LIST" required="false">
+          <name language_code="es" value="CONDICION"/>
+          <option id="IS_VISIBLE" doubleValue="1.0"/>
+        </attribute>
+      </node>
+    </node>
+  </nodes>
+</ConfigurableModel>
+"""
+
+
+def _language_config_yaml(language_code: str) -> str:
+    return (
+        "smart:\n"
+        "  endpoint: ''\n"
+        "  login: ''\n"
+        "  password: ''\n"
+        f"  use_language_code: {language_code}\n"
+        "earthranger:\n"
+        "  id: i\n"
+        "  endpoint: https://er.example.com/api/v1.0\n"
+        "  token: t\n"
+        "  event_type_version: v2\n"
+    )
+
+
+def test_inspect_datamodel_uses_config_language_code(tmp_path):
+    """GH #13: `use_language_code` from the YAML config must reach the SMART
+    XML parsers. Previously the file-based paths passed the --smart-language
+    flag's "en" default instead, so a Spanish-only data model silently
+    resolved every label to "n/a"."""
+    dm_file = tmp_path / "dm.xml"
+    dm_file.write_text(_spanish_only_dm_xml())
+    cm_file = tmp_path / "cm.xml"
+    cm_file.write_text(_spanish_only_cm_xml())
+    config_file = tmp_path / "sync.yaml"
+    config_file.write_text(_language_config_yaml("es"))
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "inspect-datamodel",
+            "--config",
+            str(config_file),
+            "--from-file",
+            str(dm_file),
+            "--cm-from-file",
+            str(cm_file),
+            "--ca-identifier",
+            "cusuco",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "CAMINOS" in result.output
+    assert "n/a" not in result.output
+
+
+def test_smart_language_flag_overrides_config_language_code(tmp_path, monkeypatch):
+    """An explicit --smart-language must still win over the config file."""
+    captured: dict = {}
+
+    def fake_load_datamodel(self, filename):
+        captured["dm_language"] = self.use_language_code
+        dm = MagicMock()
+        dm.export_as_dict.return_value = {"categories": [], "attributes": []}
+        return dm
+
+    monkeypatch.setattr("smartconnect.SmartClient.load_datamodel", fake_load_datamodel)
+
+    dm_file = tmp_path / "dm.xml"
+    dm_file.write_text(_spanish_only_dm_xml())
+    config_file = tmp_path / "sync.yaml"
+    config_file.write_text(_language_config_yaml("es"))
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "inspect-datamodel",
+            "--config",
+            str(config_file),
+            "--smart-language",
+            "fr",
+            "--from-file",
+            str(dm_file),
+            "--ca-identifier",
+            "cusuco",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["dm_language"] == "fr"
+
+
+def test_choices_subcommand_uses_config_language_code(tmp_path, monkeypatch):
+    """The `choices` subcommand parses XML too, so it needs the same fix —
+    otherwise ER Choice display values are all written as "n/a"."""
+    captured: dict = {}
+
+    def fake_upsert(*, er_client, choice_sets):
+        from er_smart_sync.choices import ChoicesStats
+
+        captured["displays"] = [
+            option.display for cs in choice_sets for option in cs.options
+        ]
+        return ChoicesStats()
+
+    monkeypatch.setattr("er_smart_sync.cli.upsert_choices", fake_upsert)
+    monkeypatch.setattr(
+        "er_smart_sync.cli._make_synchronizer", lambda config, ctx=None: MagicMock()
+    )
+
+    dm_file = tmp_path / "dm.xml"
+    dm_file.write_text(_spanish_only_dm_xml())
+    config_file = tmp_path / "sync.yaml"
+    config_file.write_text(_language_config_yaml("es"))
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        ["choices", "--config", str(config_file), "--from-file", str(dm_file)],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["displays"] == ["BUENO"]
+
+
+def test_datamodel_from_file_uses_config_language_code(tmp_path, monkeypatch):
+    """End-to-end for the reported command shape: `datamodel --config ...
+    --from-file ... --cm-from-file ...` must push Spanish labels, not "n/a"."""
+    pushed: dict = {}
+
+    class FakeSync:
+        sync_mode = "both"
+        skip_choices = False
+        datamodel_stats: dict = {}
+
+        def push_smart_ca_datamodel_to_earthranger(
+            self, *, dm, smart_ca_uuid, ca_identifier, cm
+        ):
+            pushed["dm"] = dm.export_as_dict()
+            pushed["cm"] = cm.export_as_dict() if cm else None
+
+    monkeypatch.setattr(
+        "er_smart_sync.cli._make_synchronizer", lambda config, ctx=None: FakeSync()
+    )
+
+    dm_file = tmp_path / "dm.xml"
+    dm_file.write_text(_spanish_only_dm_xml())
+    cm_file = tmp_path / "cm.xml"
+    cm_file.write_text(_spanish_only_cm_xml())
+    config_file = tmp_path / "sync.yaml"
+    config_file.write_text(_language_config_yaml("es"))
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "datamodel",
+            "--config",
+            str(config_file),
+            "--from-file",
+            str(dm_file),
+            "--cm-from-file",
+            str(cm_file),
+            "--ca-identifier",
+            "cusuco",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert [c["display"] for c in pushed["dm"]["categories"]] == ["CAMINOS"]
+    assert [c["display"] for c in pushed["cm"]["categories"]] == ["CAMINOS"]
+
+
+def test_unresolved_language_warns_instead_of_silently_writing_na(
+    tmp_path, monkeypatch
+):
+    """GH #13 follow-on: when the requested language matches nothing, every
+    label becomes the literal "n/a". That must be reported loudly rather than
+    pushed to ER as if it were real data."""
+    monkeypatch.setattr(
+        "er_smart_sync.cli._make_synchronizer", lambda config, ctx=None: MagicMock()
+    )
+
+    dm_file = tmp_path / "dm.xml"
+    dm_file.write_text(_spanish_only_dm_xml())
+    config_file = tmp_path / "sync.yaml"
+    config_file.write_text(_language_config_yaml("en"))
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "inspect-datamodel",
+            "--config",
+            str(config_file),
+            "--from-file",
+            str(dm_file),
+            "--ca-identifier",
+            "cusuco",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    combined = result.output
+    assert "en" in combined
+    assert "language" in combined.lower()
+    assert "es" in combined
+
+
+# ── --smart-version override semantics ─────────────────────────
+
+
+def _version_config_yaml(version: str) -> str:
+    return (
+        "smart:\n"
+        "  endpoint: https://smart.example.org/server\n"
+        "  login: u\n"
+        "  password: p\n"
+        f'  version: "{version}"\n'
+        "earthranger:\n"
+        "  id: i\n"
+        "  endpoint: https://er.example.com/api/v1.0\n"
+        "  token: t\n"
+    )
+
+
+def _capture_smart_client_kwargs(monkeypatch, captured):
+    """Stand in for smartconnect.SmartClient and record its constructor kwargs."""
+    import smartconnect
+
+    class FakeSmartClient:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        def get_conservation_areas(self):
+            return []
+
+    monkeypatch.setattr(smartconnect, "SmartClient", FakeSmartClient)
+
+
+def test_smart_version_flag_overrides_config(tmp_path, monkeypatch):
+    """--smart-version must win over the config file. SMART versions below
+    7.5.3 need smart_observation_uuid patched onto events, so silently
+    dropping the flag changes sync behavior, not just a label."""
+    captured: dict = {}
+    _capture_smart_client_kwargs(monkeypatch, captured)
+
+    config_file = tmp_path / "sync.yaml"
+    config_file.write_text(_version_config_yaml("7.0"))
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        ["list-cas", "--config", str(config_file), "--smart-version", "7.5.7"],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["version"] == "7.5.7"
+
+
+def test_config_smart_version_used_when_flag_omitted(tmp_path, monkeypatch):
+    """Without the flag, the config's version stands — it must not be
+    clobbered by the flag's default."""
+    captured: dict = {}
+    _capture_smart_client_kwargs(monkeypatch, captured)
+
+    config_file = tmp_path / "sync.yaml"
+    config_file.write_text(_version_config_yaml("7.5.7"))
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["list-cas", "--config", str(config_file)])
+    assert result.exit_code == 0, result.output
+    assert captured["version"] == "7.5.7"
+
+
+def test_smart_version_defaults_without_config_file(monkeypatch):
+    """With no --config and no --smart-version, fall back to the documented
+    "7.0" default rather than passing None through to SmartClient."""
+    captured: dict = {}
+    _capture_smart_client_kwargs(monkeypatch, captured)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "list-cas",
+            "--smart-api",
+            "https://smart.example.org/server",
+            "--er-endpoint",
+            "https://er.example.com/api/v1.0",
+            "--er-token",
+            "t",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["version"] == "7.0"

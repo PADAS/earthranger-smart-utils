@@ -10,6 +10,7 @@ from .config import EarthRangerConfig, SmartConnectConfig, SyncConfig
 from .defaults import DryRunERClient, JsonFileStateStore, NullPublisher
 from .er_to_er import EventTypeNotFound, TargetCategoryMissing, copy_event_type
 from .synchronizer import ERSmartSynchronizer
+from .utils import describe_unresolved_language
 
 logger = logging.getLogger(__name__)
 
@@ -184,8 +185,23 @@ def smart_options(f):
     f = click.option("--smart-api", help="SMART Connect API URL")(f)
     f = click.option("--smart-username", help="SMART Connect username")(f)
     f = click.option("--smart-password", help="SMART Connect password")(f)
-    f = click.option("--smart-version", default="7.0", help="SMART version")(f)
-    f = click.option("--smart-language", default="en", help="Language code")(f)
+    f = click.option(
+        "--smart-version",
+        default=None,
+        help=(
+            "SMART Connect server version. Defaults to smart.version from "
+            "--config, or '7.0' when neither is set."
+        ),
+    )(f)
+    f = click.option(
+        "--smart-language",
+        default=None,
+        help=(
+            "Language code for resolving SMART display names. Defaults to "
+            "smart.use_language_code from --config, or 'en' when neither "
+            "is set."
+        ),
+    )(f)
     return f
 
 
@@ -207,8 +223,8 @@ def _build_config(
     smart_api=None,
     smart_username=None,
     smart_password=None,
-    smart_version="7.0",
-    smart_language="en",
+    smart_version=None,
+    smart_language=None,
     er_endpoint=None,
     er_token=None,
     er_username="",
@@ -218,6 +234,14 @@ def _build_config(
 ) -> SyncConfig:
     if config_file:
         config = _load_config_from_file(config_file)
+        # An explicit flag wins over the file; otherwise the file's value
+        # stands. Callers must read the resolved value off `config` rather
+        # than off the flag, or a config-only setting is silently dropped
+        # (GH #13).
+        if smart_language is not None:
+            config.smart.use_language_code = smart_language
+        if smart_version is not None:
+            config.smart.version = smart_version
     else:
         if not er_endpoint:
             raise click.UsageError("Either --config or --er-endpoint is required.")
@@ -231,8 +255,8 @@ def _build_config(
                 endpoint=smart_api or "",
                 login=smart_username or "",
                 password=smart_password or "",
-                version=smart_version,
-                use_language_code=smart_language,
+                version=smart_version or "7.0",
+                use_language_code=smart_language or "en",
                 ca_uuids=list(smart_ca_uuids) if smart_ca_uuids else [],
             ),
             earthranger=EarthRangerConfig(
@@ -425,14 +449,14 @@ def datamodel(
             api="https://tempuri.org/",
             username="",
             password="",
-            use_language_code=smart_language,
+            use_language_code=config.smart.use_language_code,
         )
         dm = sclient.load_datamodel(filename=datamodel_file)
 
         cm = None
         if cm_file:
             cm = ConfigurableDataModel(
-                use_language_code=smart_language,
+                use_language_code=config.smart.use_language_code,
                 cm_uuid=resolved_cm_uuid,
             )
             with open(cm_file) as f:
@@ -597,17 +621,23 @@ def choices(
         api="https://tempuri.org/",
         username="",
         password="",
-        use_language_code=smart_language,
+        use_language_code=config.smart.use_language_code,
     )
     dm = sclient.load_datamodel(filename=datamodel_file)
     cm = None
     if cm_file:
         cm = ConfigurableDataModel(
-            use_language_code=smart_language,
+            use_language_code=config.smart.use_language_code,
             cm_uuid=resolved_cm_uuid,
         )
         with open(cm_file) as f:
             cm.load(f.read())
+
+    if warning := describe_unresolved_language(
+        config.smart.use_language_code, [dm, cm]
+    ):
+        click.echo(f"WARNING: {warning}", err=True)
+
     choice_sets = build_choice_sets(
         dm=dm.export_as_dict(),
         cm=cm.export_as_dict() if cm else None,
@@ -893,6 +923,9 @@ smart:
   version: "7.5.7"
 
   # Language code used when resolving display names in the data model.
+  # Must match a language the SMART data model actually carries — SMART
+  # resolves every unmatched label to the literal "n/a". Check the
+  # <languages> block at the top of the data-model XML.
   use_language_code: en
 
   # Conservation-area UUIDs to sync. Required for the `datamodel`,
@@ -1221,7 +1254,7 @@ def inspect_datamodel_cmd(
             api="https://tempuri.org/",
             username="",
             password="",
-            use_language_code=smart_language,
+            use_language_code=config.smart.use_language_code,
         )
         dm = sclient.load_datamodel(filename=datamodel_file)
     elif smart_ca_uuid:
@@ -1261,11 +1294,16 @@ def inspect_datamodel_cmd(
     cm = None
     if cm_file:
         cm = ConfigurableDataModel(
-            use_language_code=smart_language,
+            use_language_code=config.smart.use_language_code,
             cm_uuid=_resolve_cm_uuid(cm_uuid),
         )
         with open(cm_file) as f:
             cm.load(f.read())
+
+    if warning := describe_unresolved_language(
+        config.smart.use_language_code, [dm, cm]
+    ):
+        click.echo(f"WARNING: {warning}", err=True)
 
     # For file-based runs, use the same synthetic UUID `datamodel --from-file`
     # uses, so inspect-datamodel previews match the actual sync output

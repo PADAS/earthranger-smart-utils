@@ -45,7 +45,7 @@ earthranger:
 | `endpoint` | when using `--smart-api` | Full SMART Connect server URL |
 | `login` / `password` | when using `--smart-api` | SMART credentials |
 | `version` | optional (defaults to `"7.0"`) | SMART Connect server version |
-| `use_language_code` | optional (defaults to `en`) | Language for resolving display names |
+| `use_language_code` | optional (defaults to `en`) | Language for resolving display names. Must match a language the data model actually carries — see [Display names and languages](#display-names-and-languages) |
 | `ca_uuids` | required for `datamodel`/`events`/`patrols` from API | List of CA UUIDs to sync |
 | `configurable_models_lists` | optional | Per-CA configurable-model overlay metadata |
 | `provider_key` | optional (defaults to `smart_connect`) | Routes messages downstream |
@@ -61,6 +61,34 @@ earthranger:
 | `client_id` | optional (default `das_web_client`) | OAuth client for password auth |
 | `event_type_version` | optional (default `v2`) | Which ER event-type API to use; see [Event-type version](../concepts/event-type-version.md) |
 | `choices_base_url` | optional (default `/api/v2.0/schemas`) | Prefix for v2 `$ref` URLs |
+
+## Display names and languages
+
+`use_language_code` selects which translation SMART uses for every event
+category, event type, field, and choice label. SMART data models are often
+single-language, and a code that matches nothing is **not** an error: SMART
+resolves each unmatched label to the literal string `n/a`, so the sync
+completes and EarthRanger fills up with event types displayed as `n/a`.
+
+Check what the model actually carries before your first run — the `<languages>`
+block at the top of the data-model XML lists them:
+
+```xml
+<languages>
+  <languages code="es"/>
+</languages>
+```
+
+A Spanish-only model like that one needs `use_language_code: es`. If every
+label fails to resolve, the CLI warns and names the codes it found:
+
+```
+WARNING: All 645 SMART display names resolved to "n/a": the data model has no
+labels in language 'en'. Available language code(s): es.
+```
+
+Use [`inspect-datamodel`](../cli-reference/inspect-datamodel.md) to confirm the
+labels look right before pushing anything to EarthRanger.
 
 ## Environment variables
 
