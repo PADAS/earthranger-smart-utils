@@ -27,7 +27,7 @@ but are not used by `choices` yet; `--smart-language` is the exception
 | `--from-file PATH` | **required** | Local SMART data model XML. |
 | `--cm-from-file PATH` | — | Configurable model overlay XML. |
 | `--cm-uuid UUID` | zero UUID | Configurable-model UUID. |
-| `--smart-language CODE` | `en` | Language code for XML parsing. |
+| `--smart-language CODE` | from config | Language code for XML parsing. |
 | `--er-endpoint URL` | from config | EarthRanger API root. |
 | `--er-token TOKEN` | from config | EarthRanger token. |
 | `--er-username` / `--er-password` | from config | Alternative to token. |

@@ -35,7 +35,7 @@ from .defaults import (
 )
 from .smart_to_er import build_event_types
 from .smart_to_er_v2 import ERV2EventType, build_event_types_v2
-from .utils import unicode_to_ascii
+from .utils import describe_unresolved_language, unicode_to_ascii
 
 logger = logging.getLogger(__name__)
 
@@ -344,8 +344,12 @@ class ERSmartSynchronizer:
         )
 
     def push_smart_ca_datamodel_to_earthranger(
-        self, *, dm=None, smart_ca_uuid: str | None = None,
-        ca_identifier: str | None = None, cm=None,
+        self,
+        *,
+        dm=None,
+        smart_ca_uuid: str | None = None,
+        ca_identifier: str | None = None,
+        cm=None,
     ) -> None:
         if not dm:
             raise ValueError("dm is required")
@@ -356,6 +360,15 @@ class ERSmartSynchronizer:
 
         dm_dict = dm.export_as_dict()
         cdm_dict = cm.export_as_dict() if cm else None
+
+        if warning := describe_unresolved_language(
+            self.config.smart.use_language_code, [dm, cm]
+        ):
+            logger.warning(
+                "%s Pushing these placeholder labels to ER anyway.",
+                warning,
+                extra=dict(ca_uuid=smart_ca_uuid),
+            )
 
         if self._event_type_version == "v2" and not self.skip_choices:
             choice_sets = build_choice_sets(
