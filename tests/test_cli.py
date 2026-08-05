@@ -2051,3 +2051,91 @@ def test_unresolved_language_warns_instead_of_silently_writing_na(
     assert "en" in combined
     assert "language" in combined.lower()
     assert "es" in combined
+
+
+# ── --smart-version override semantics ─────────────────────────
+
+
+def _version_config_yaml(version: str) -> str:
+    return (
+        "smart:\n"
+        "  endpoint: https://smart.example.org/server\n"
+        "  login: u\n"
+        "  password: p\n"
+        f'  version: "{version}"\n'
+        "earthranger:\n"
+        "  id: i\n"
+        "  endpoint: https://er.example.com/api/v1.0\n"
+        "  token: t\n"
+    )
+
+
+def _capture_smart_client_kwargs(monkeypatch, captured):
+    """Stand in for smartconnect.SmartClient and record its constructor kwargs."""
+    import smartconnect
+
+    class FakeSmartClient:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        def get_conservation_areas(self):
+            return []
+
+    monkeypatch.setattr(smartconnect, "SmartClient", FakeSmartClient)
+
+
+def test_smart_version_flag_overrides_config(tmp_path, monkeypatch):
+    """--smart-version must win over the config file. SMART versions below
+    7.5.3 need smart_observation_uuid patched onto events, so silently
+    dropping the flag changes sync behavior, not just a label."""
+    captured: dict = {}
+    _capture_smart_client_kwargs(monkeypatch, captured)
+
+    config_file = tmp_path / "sync.yaml"
+    config_file.write_text(_version_config_yaml("7.0"))
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        ["list-cas", "--config", str(config_file), "--smart-version", "7.5.7"],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["version"] == "7.5.7"
+
+
+def test_config_smart_version_used_when_flag_omitted(tmp_path, monkeypatch):
+    """Without the flag, the config's version stands — it must not be
+    clobbered by the flag's default."""
+    captured: dict = {}
+    _capture_smart_client_kwargs(monkeypatch, captured)
+
+    config_file = tmp_path / "sync.yaml"
+    config_file.write_text(_version_config_yaml("7.5.7"))
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["list-cas", "--config", str(config_file)])
+    assert result.exit_code == 0, result.output
+    assert captured["version"] == "7.5.7"
+
+
+def test_smart_version_defaults_without_config_file(monkeypatch):
+    """With no --config and no --smart-version, fall back to the documented
+    "7.0" default rather than passing None through to SmartClient."""
+    captured: dict = {}
+    _capture_smart_client_kwargs(monkeypatch, captured)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "list-cas",
+            "--smart-api",
+            "https://smart.example.org/server",
+            "--er-endpoint",
+            "https://er.example.com/api/v1.0",
+            "--er-token",
+            "t",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["version"] == "7.0"

@@ -185,7 +185,14 @@ def smart_options(f):
     f = click.option("--smart-api", help="SMART Connect API URL")(f)
     f = click.option("--smart-username", help="SMART Connect username")(f)
     f = click.option("--smart-password", help="SMART Connect password")(f)
-    f = click.option("--smart-version", default="7.0", help="SMART version")(f)
+    f = click.option(
+        "--smart-version",
+        default=None,
+        help=(
+            "SMART Connect server version. Overrides smart.version from "
+            "--config; defaults to '7.0'."
+        ),
+    )(f)
     f = click.option(
         "--smart-language",
         default=None,
@@ -215,7 +222,7 @@ def _build_config(
     smart_api=None,
     smart_username=None,
     smart_password=None,
-    smart_version="7.0",
+    smart_version=None,
     smart_language=None,
     er_endpoint=None,
     er_token=None,
@@ -226,12 +233,14 @@ def _build_config(
 ) -> SyncConfig:
     if config_file:
         config = _load_config_from_file(config_file)
-        # An explicit --smart-language wins over the file; otherwise the file's
-        # smart.use_language_code stands. Callers must read the resolved value
-        # off `config` rather than off the flag, or a config-only language is
-        # silently dropped (GH #13).
+        # An explicit flag wins over the file; otherwise the file's value
+        # stands. Callers must read the resolved value off `config` rather
+        # than off the flag, or a config-only setting is silently dropped
+        # (GH #13).
         if smart_language is not None:
             config.smart.use_language_code = smart_language
+        if smart_version is not None:
+            config.smart.version = smart_version
     else:
         if not er_endpoint:
             raise click.UsageError("Either --config or --er-endpoint is required.")
@@ -245,7 +254,7 @@ def _build_config(
                 endpoint=smart_api or "",
                 login=smart_username or "",
                 password=smart_password or "",
-                version=smart_version,
+                version=smart_version or "7.0",
                 use_language_code=smart_language or "en",
                 ca_uuids=list(smart_ca_uuids) if smart_ca_uuids else [],
             ),
