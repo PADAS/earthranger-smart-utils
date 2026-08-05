@@ -23,7 +23,7 @@
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
@@ -31,7 +31,7 @@
       
     
     
-      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
       
         
         <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
@@ -667,6 +667,17 @@
         
       </ul>
     </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#display-names-and-languages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Display names and languages
+      
+    </span>
+  </a>
   
 </li>
       
@@ -1559,6 +1570,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#display-names-and-languages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Display names and languages
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#environment-variables" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1733,7 +1755,7 @@ flags. The YAML form is recommended for repeatable runs.</p>
 <tr>
 <td><code>use_language_code</code></td>
 <td>optional (defaults to <code>en</code>)</td>
-<td>Language for resolving display names</td>
+<td>Language for resolving display names. Must match a language the data model actually carries — see <a href="#display-names-and-languages">Display names and languages</a></td>
 </tr>
 <tr>
 <td><code>ca_uuids</code></td>
@@ -1799,6 +1821,25 @@ flags. The YAML form is recommended for repeatable runs.</p>
 </tr>
 </tbody>
 </table>
+<h2 id="display-names-and-languages">Display names and languages<a class="headerlink" href="#display-names-and-languages" title="Permanent link">&para;</a></h2>
+<p><code>use_language_code</code> selects which translation SMART uses for every event
+category, event type, field, and choice label. SMART data models are often
+single-language, and a code that matches nothing is <strong>not</strong> an error: SMART
+resolves each unmatched label to the literal string <code>n/a</code>, so the sync
+completes and EarthRanger fills up with event types displayed as <code>n/a</code>.</p>
+<p>Check what the model actually carries before your first run — the <code>&lt;languages&gt;</code>
+block at the top of the data-model XML lists them:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nt">&lt;languages&gt;</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span><span class="nt">&lt;languages</span><span class="w"> </span><span class="na">code=</span><span class="s">&quot;es&quot;</span><span class="nt">/&gt;</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="nt">&lt;/languages&gt;</span>
+</code></pre></div>
+<p>A Spanish-only model like that one needs <code>use_language_code: es</code>. If every
+label fails to resolve, the CLI warns and names the codes it found:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>WARNING: All 645 SMART display names resolved to &quot;n/a&quot;: the data model has no
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>labels in language &#39;en&#39;. Available language code(s): es.
+</code></pre></div>
+<p>Use <a href="../../cli-reference/inspect-datamodel/"><code>inspect-datamodel</code></a> to confirm the
+labels look right before pushing anything to EarthRanger.</p>
 <h2 id="environment-variables">Environment variables<a class="headerlink" href="#environment-variables" title="Permanent link">&para;</a></h2>
 <p><code>--network-timeout</code> (the process-wide socket-timeout ceiling) can be set via the
 <code>ER_SMART_SYNC_NETWORK_TIMEOUT</code> environment variable. Useful for CI/CD where
@@ -1809,8 +1850,8 @@ in <code>sync.yaml</code> and pass <code>--event-type-version v1</code> on the c
 override for a specific run.</p>
 <h2 id="multiple-environments">Multiple environments<a class="headerlink" href="#multiple-environments" title="Permanent link">&para;</a></h2>
 <p>A common pattern: one YAML per environment.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>er-smart-sync<span class="w"> </span>datamodel<span class="w"> </span>--config<span class="w"> </span>configs/staging.yaml<span class="w"> </span>...
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>er-smart-sync<span class="w"> </span>datamodel<span class="w"> </span>--config<span class="w"> </span>configs/production.yaml<span class="w"> </span>...
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>er-smart-sync<span class="w"> </span>datamodel<span class="w"> </span>--config<span class="w"> </span>configs/staging.yaml<span class="w"> </span>...
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>er-smart-sync<span class="w"> </span>datamodel<span class="w"> </span>--config<span class="w"> </span>configs/production.yaml<span class="w"> </span>...
 </code></pre></div>
 <p>Keep credentials out of version control — <code>.env</code>-style files or your team's
 secret manager work fine.</p>
@@ -1875,7 +1916,7 @@ secret manager work fine.</p>
       <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.sections", "navigation.expand", "navigation.path", "navigation.top", "search.suggest", "search.highlight", "content.code.copy", "content.code.annotate", "content.action.edit", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>
