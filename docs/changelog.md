@@ -24,11 +24,17 @@ re-run with the correct language and the existing records are corrected in
 place. Event types and choices are both compared on `display` and patched when
 it differs.
 
-**`--smart-version` is no longer ignored when `--config` is used.** Same cause
-— the flag's `7.0` default always won over the config file. This one affected
-behavior rather than presentation: SMART versions below 7.5.3 need
-`smart_observation_uuid` patched onto outgoing events, so a dropped version
-could change what the sync actually sent.
+**`--smart-version` is no longer ignored when `--config` is used.** The flag
+carried a `7.0` default, so an explicitly passed value was indistinguishable
+from an absent one, and the config loader never applied it on top of a config
+read from file — `smart.version` from the YAML always won and the flag was
+silently discarded. This is the mirror image of the `use_language_code` bug
+above, where the flag won and the config value was dropped; both trace back to
+the same root, a flag default that hid whether the user had passed anything.
+
+The version one affected behavior rather than presentation: SMART versions
+below 7.5.3 need `smart_observation_uuid` patched onto outgoing events, so a
+silently discarded `--smart-version` could change what the sync actually sent.
 
 ### Added
 
