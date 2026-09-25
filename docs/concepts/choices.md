@@ -87,7 +87,9 @@ identities of one event type, so there is nothing to share.
     these to one config per key (first wins), so the sync — with or without
     sharing — uploads a single option list per attribute per CM. Lifting
     this requires smartconnect to expose the config identity; until then,
-    per-node curations of the same attribute are collapsed.
+    per-node curations of the same attribute are collapsed. The risks and
+    rollout order for that library change are captured in
+    [the smartconnect configId risk assessment](../superpowers/specs/2026-09-25-smartconnect-configid-risks.md).
 
 ## How `value` is derived
 
