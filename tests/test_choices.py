@@ -1490,3 +1490,71 @@ def test_build_choice_sets_handles_missing_hkey_path():
     sets = build_choice_sets(dm=dm, cm=cm, ca_uuid="ca1", cm_variant_mode="split")
     # And the kind attribute's ChoiceSet should still be emitted.
     assert any(s.field.endswith("_kind") for s in sets)
+
+
+# ── end-to-end: CM tree curation through the smartconnect parser ──
+
+
+CM_TREE_XML = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<ConfigurableModel xmlns="http://www.smartconservationsoftware.org/xml/1.0/dataentry">
+    <languages><language code="en"/></languages>
+    <name language_code="en" value="Tree CM"/>
+    <nodes>
+        <node id="n1" categoryKey="sighting" categoryHkey="sighting.">
+            <name language_code="en" value="Sighting"/>
+            <attribute attributeKey="region" configId="cfg-region" type="TREE">
+                <name language_code="en" value="Region"/>
+                <option id="IS_VISIBLE" doubleValue="1.0"/>
+            </attribute>
+        </node>
+    </nodes>
+    <attributeConfig id="cfg-region" attributeKey="region" isDefault="true">
+        <name language_code="en" value="Region"/>
+        <treeNode keyRef="chobe" hkeyRef="chobe." isActive="true">
+            <name language_code="en" value="Chobe"/>
+            <children keyRef="mabele" hkeyRef="chobe.mabele." isActive="true">
+                <name language_code="en" value="Mabele"/>
+            </children>
+            <children keyRef="kavimba" hkeyRef="chobe.kavimba." isActive="false">
+                <name language_code="en" value="Kavimba"/>
+            </children>
+        </treeNode>
+    </attributeConfig>
+</ConfigurableModel>"""
+
+
+def test_cm_tree_curation_end_to_end_through_smartconnect_parser():
+    """ERCS-8246 regression, real parser: a CM tree curation flattens to
+    CM-leaves with dotted keys that match base-DM TREE option keys, so the
+    overlay filters/flags the DM options instead of dropping every child.
+
+    Requires smartconnect-client >= 1.13.0 (tree-aware CM parsing).
+    """
+    from smartconnect.models import ConfigurableDataModel
+
+    from er_smart_sync.choices import build_choice_sets
+
+    cdm = ConfigurableDataModel(use_language_code="en", cm_uuid="cm-1")
+    cdm.load(CM_TREE_XML)
+    cm = cdm.export_as_dict()
+
+    dm = {
+        "categories": [_category("sighting", attributes=[_cat_attr("region")])],
+        "attributes": [
+            _attr(
+                "region",
+                "TREE",
+                options=[
+                    _option("chobe", "Chobe"),
+                    _option("chobe.mabele", "Mabele"),
+                    _option("chobe.kavimba", "Kavimba"),
+                ],
+            )
+        ],
+    }
+
+    result = build_choice_sets(dm=dm, cm=cm, ca_uuid=CA_UUID)
+    assert len(result) == 1
+    flags = {o.value: o.is_active for o in result[0].options}
+    # CM-leaves only, dotted keys sanitized; effective active flags applied.
+    assert flags == {"chobe_mabele": True, "chobe_kavimba": False}

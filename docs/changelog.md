@@ -24,9 +24,8 @@ base path surfaced leaves only. smartconnect-client ≥ 1.13.0 flattens CM
 tree curations to CM-leaves keyed by the same dotted paths as base-DM
 options, and emits effective active flags (a leaf under a deactivated
 branch arrives inactive). It also fixes MLIST attributes losing their
-options entirely in file-based datamodel parses. The pin bump lands with
-the smartconnect release; until then, CM tree curations keep the old
-parents-only behavior.
+options entirely in file-based datamodel parses. The smartconnect-client
+pin is now `>=1.13.0`, activating the converged behavior.
 
 ### Changed
 
