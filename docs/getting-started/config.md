@@ -27,7 +27,7 @@ smart:
 
 earthranger:
   id: my-tenant
-  endpoint: https://your-tenant.pamdas.org/api/v1.0
+  endpoint: your-tenant.pamdas.org
   token: ""
   login: ""
   password: ""
@@ -55,7 +55,7 @@ earthranger:
 | Field | Required? | Notes |
 |---|---|---|
 | `id` | required | Any string — used as a state-store key |
-| `endpoint` | required | EarthRanger API root (typically `.../api/v1.0`) |
+| `endpoint` | required | EarthRanger site: a bare domain (`site.pamdas.org`), scheme + host, or the full `.../api/v1.0` service root — all normalize to the service root |
 | `token` | one of token / login+password | Preferred for service accounts |
 | `login` + `password` | one of token / login+password | Falls back to OAuth |
 | `client_id` | optional (default `das_web_client`) | OAuth client for password auth |

@@ -7,6 +7,20 @@ which carry the full commit-level history.
 
 ## Unreleased
 
+### Added
+
+**The EarthRanger endpoint accepts a bare domain or scheme + host.**
+`site.pamdas.org`, `https://site.pamdas.org`, and the full
+`https://site.pamdas.org/api/v1.0` service root all normalize to the
+service-root form, everywhere an ER endpoint is accepted: the YAML
+`earthranger.endpoint` key, `--er-endpoint`, and `copy-event-type`'s
+`--source-endpoint`/`--dest-endpoint`. An explicit `http://` scheme is
+preserved for development servers.
+
+**`copy-event-type` is now documented** — in the
+[CLI reference](cli-reference/copy-event-type.md) and USAGE.md; the
+command itself shipped earlier (#12).
+
 ### Fixed
 
 **Inactive SMART options no longer migrate as active (ERCS-8246).** The
@@ -24,9 +38,8 @@ base path surfaced leaves only. smartconnect-client ≥ 1.13.0 flattens CM
 tree curations to CM-leaves keyed by the same dotted paths as base-DM
 options, and emits effective active flags (a leaf under a deactivated
 branch arrives inactive). It also fixes MLIST attributes losing their
-options entirely in file-based datamodel parses. The pin bump lands with
-the smartconnect release; until then, CM tree curations keep the old
-parents-only behavior.
+options entirely in file-based datamodel parses. The smartconnect-client
+pin is now `>=1.13.0`, activating the converged behavior.
 
 ### Changed
 

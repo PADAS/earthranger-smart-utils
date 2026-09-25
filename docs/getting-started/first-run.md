@@ -21,7 +21,7 @@ At minimum, set the `earthranger:` section:
 ```yaml
 earthranger:
   id: my-tenant            # any identifier; used for state tracking
-  endpoint: https://your-tenant.pamdas.org/api/v1.0
+  endpoint: your-tenant.pamdas.org
   token: "<your token>"    # OR provide login + password
 ```
 

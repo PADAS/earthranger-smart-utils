@@ -104,7 +104,7 @@ def derive_shared_choice_field(scope_key: str, attr_key: str) -> str:
     ``dm`` prefix distinguishes shared lists from legacy per-event-type
     ``et`` lists. Total length ≤ 40 chars (truncated if needed).
     """
-    digest = hashlib.sha256(f"{scope_key}:{attr_key}".encode("utf-8")).hexdigest()[:8]
+    digest = hashlib.sha256(f"{scope_key}:{attr_key}".encode()).hexdigest()[:8]
     sanitized = sanitize_choice_value(attr_key)
     field = f"dm{digest}_{sanitized}"
     if len(field) > 40:

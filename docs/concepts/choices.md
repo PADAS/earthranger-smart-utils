@@ -91,7 +91,7 @@ identities of one event type, so there is nothing to share.
     this requires smartconnect to expose the config identity; until then,
     per-node curations of the same attribute are collapsed. The risks and
     rollout order for that library change are captured in
-    [the smartconnect configId risk assessment](../superpowers/specs/2026-09-25-smartconnect-configid-risks.md).
+    [the smartconnect configId risk assessment](https://github.com/PADAS/earthranger-smart-utils/blob/main/docs/superpowers/specs/2026-09-25-smartconnect-configid-risks.md).
 
 ## How `value` is derived
 
@@ -274,10 +274,10 @@ model flattens to leaves here, and CM `attributeConfig` tree curations are
 flattened to CM-leaves by the smartconnect parser (≥ 1.13.0), keyed by the
 same dotted paths so the [CM overlay rules](#cm-overlay-rules) apply
 unchanged. Each option's SMART active flag is honored **effectively**: a
-leaf under a deactivated branch arrives with `is_active=false`. With older
-smartconnect releases, CM tree curations surface only top-level parents and
-DM tree options carry no active flag — upgrade the pin to get the fixed
-behavior.
+leaf under a deactivated branch arrives with `is_active=false`. The
+`smartconnect-client>=1.13.0` pin guarantees this parsing; older releases
+surfaced only top-level parents for CM tree curations and dropped the
+active flag for DM tree options.
 
 Two practical consequences for TREE attributes:
 
