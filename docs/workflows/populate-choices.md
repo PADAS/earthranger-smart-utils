@@ -17,13 +17,13 @@ via a `$ref` URL:
   "items": {
     "type": "string",
     "anyOf": [
-      {"$ref": "/api/v2.0/schemas/choices.json?field=et5e6b96f4_sector"}
+      {"$ref": "/api/v2.0/schemas/choices.json?field=dm5e6b96f4_sector"}
     ]
   }
 }
 ```
 
-For that `$ref` to resolve, the `Choice` records with `field=et5e6b96f4_sector`
+For that `$ref` to resolve, the `Choice` records with `field=dm5e6b96f4_sector`
 must exist in EarthRanger first. The `choices` subcommand creates them.
 
 See [ER Choice records](../concepts/choices.md) for the full background on

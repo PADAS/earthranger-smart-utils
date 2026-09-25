@@ -5,6 +5,30 @@ Notable changes by version. Every release is also published to
 [GitHub Releases](https://github.com/PADAS/earthranger-smart-utils/releases),
 which carry the full commit-level history.
 
+## Unreleased
+
+### Changed
+
+**Choice lists are now shared across the event types of a datamodel sync.**
+Previously every event type got its own copy of each dropdown's Choice
+records, even when the SMART data model defined one option list used by many
+categories — a large CA could create thousands of duplicate Choice rows.
+Choice `field` names now hash the (CA, CM) scope plus the attribute key
+instead of the event-type value (`dm{8-hex}_{attr_key}` replacing
+`et{8-hex}_{attr_key}`), so all event types built from one datamodel
+reference a single list per attribute.
+
+Sharing is deliberately bounded to one CA and one Configurable Model:
+different CAs can define the same attribute key with different options, and
+each CM curates its own option subsets, so neither shares lists with the
+other. The consolidate-mode variant discriminator remains per-event-type.
+
+Re-syncing an existing site re-points event-type schemas at the shared
+lists and leaves the legacy `et*_` Choice records in place (active but
+unreferenced); historical events are unaffected because stored option
+values are identical under both naming schemes. See
+[Concept: ER Choice records](concepts/choices.md#how-field-names-are-derived).
+
 ## 0.3.2 — 2026-08-05
 
 ### Fixed

@@ -331,8 +331,8 @@ def test_build_choice_sets_single_list_attribute():
     from er_smart_sync.choices import (
         ChoiceOption,
         build_choice_sets,
-        derive_choice_field,
-        event_type_value_for,
+        choice_scope_key,
+        derive_shared_choice_field,
     )
 
     dm = {
@@ -353,12 +353,9 @@ def test_build_choice_sets_single_list_attribute():
 
     assert len(result) == 1
     cs = result[0]
-    expected_etvalue = event_type_value_for(
-        category_path="wildlife",
-        ca_uuid=CA_UUID,
-        cm=None,
+    expected_field = derive_shared_choice_field(
+        choice_scope_key(ca_uuid=CA_UUID, cm=None), "species"
     )
-    expected_field = derive_choice_field(expected_etvalue, "species")
     assert cs.field == expected_field
     assert cs.options == (
         ChoiceOption(value="lion", display="Lion", is_active=True),
@@ -516,9 +513,13 @@ def test_build_choice_sets_skips_inactive_categories_without_cm():
     assert result == []
 
 
-def test_build_choice_sets_two_categories_distinct_fields():
-    """Same attribute in two leaf categories → two distinct field hashes."""
-    from er_smart_sync.choices import build_choice_sets
+def test_build_choice_sets_two_categories_share_one_field():
+    """Same attribute in two leaf categories → one shared ChoiceSet."""
+    from er_smart_sync.choices import (
+        build_choice_sets,
+        choice_scope_key,
+        derive_shared_choice_field,
+    )
 
     dm = {
         "categories": [
@@ -530,8 +531,132 @@ def test_build_choice_sets_two_categories_distinct_fields():
         ],
     }
     result = build_choice_sets(dm=dm, cm=None, ca_uuid=CA_UUID)
-    assert len(result) == 2
-    assert result[0].field != result[1].field
+    assert len(result) == 1
+    expected_field = derive_shared_choice_field(
+        choice_scope_key(ca_uuid=CA_UUID, cm=None), "species"
+    )
+    assert result[0].field == expected_field
+
+
+# ── shared choice fields ───────────────────────────────────────
+
+
+def test_choice_scope_key_no_cm():
+    from er_smart_sync.choices import choice_scope_key
+
+    assert choice_scope_key(ca_uuid="CA-1234", cm=None) == "ca-1234"
+
+
+def test_choice_scope_key_with_cm():
+    from er_smart_sync.choices import choice_scope_key
+
+    assert choice_scope_key(ca_uuid="CA-1", cm={"cm_uuid": "CM-9"}) == "ca-1_cm-9"
+
+
+def test_derive_shared_choice_field_format():
+    import re
+
+    from er_smart_sync.choices import derive_shared_choice_field
+
+    field = derive_shared_choice_field("ca-1", "species")
+    assert re.fullmatch(r"dm[0-9a-f]{8}_species", field)
+
+
+def test_derive_shared_choice_field_deterministic():
+    from er_smart_sync.choices import derive_shared_choice_field
+
+    assert derive_shared_choice_field("ca-1", "species") == derive_shared_choice_field(
+        "ca-1", "species"
+    )
+
+
+def test_derive_shared_choice_field_distinct_scopes_differ():
+    from er_smart_sync.choices import derive_shared_choice_field
+
+    a = derive_shared_choice_field("ca-1", "species")
+    b = derive_shared_choice_field("ca-2", "species")
+    c = derive_shared_choice_field("ca-1_cm-1", "species")
+    assert len({a, b, c}) == 3
+
+
+def test_derive_shared_choice_field_long_keys_sharing_prefix_differ():
+    """Two distinct attr keys whose sanitized forms share the first 29 chars
+    must not collide after the 40-char truncation — the hash covers the
+    attribute key as well as the scope (PR #16 review)."""
+    from er_smart_sync.choices import derive_shared_choice_field
+
+    a = derive_shared_choice_field("ca-1", "abcdefghijklmnopqrstuvwxyzabc_one")
+    b = derive_shared_choice_field("ca-1", "abcdefghijklmnopqrstuvwxyzabc_two")
+    assert a != b
+
+
+def test_derive_shared_choice_field_under_40_chars():
+    from er_smart_sync.choices import derive_shared_choice_field
+
+    field = derive_shared_choice_field("x" * 200, "y" * 200)
+    assert len(field) <= 40
+
+
+def test_build_choice_sets_cm_scoped_field():
+    """With a CM, the shared field embeds the (ca_uuid, cm_uuid) scope."""
+    from er_smart_sync.choices import (
+        build_choice_sets,
+        choice_scope_key,
+        derive_shared_choice_field,
+    )
+
+    dm = {
+        "categories": [_category("c", attributes=[_cat_attr("color")])],
+        "attributes": [_attr("color", "LIST", options=[_option("red")])],
+    }
+    cm = {
+        "cm_uuid": "cm-1",
+        "categories": [_category("c", attributes=[_cat_attr("color")])],
+        "attributes": [],
+    }
+    result = build_choice_sets(dm=dm, cm=cm, ca_uuid=CA_UUID)
+    assert len(result) == 1
+    expected_field = derive_shared_choice_field(
+        choice_scope_key(ca_uuid=CA_UUID, cm=cm), "color"
+    )
+    assert result[0].field == expected_field
+
+
+def test_build_choice_sets_inherited_attribute_shares_field_across_leaves():
+    """A parent-category attribute inherited by two leaves emits one set."""
+    from er_smart_sync.choices import build_choice_sets
+
+    dm = {
+        "categories": [
+            _category("animals", attributes=[_cat_attr("species")]),
+            _category("animals.sighting", attributes=[]),
+            _category("animals.carcass", attributes=[]),
+        ],
+        "attributes": [
+            _attr("species", "LIST", options=[_option("lion")]),
+        ],
+    }
+    result = build_choice_sets(dm=dm, cm=None, ca_uuid=CA_UUID)
+    assert len(result) == 1
+
+
+def test_build_choice_sets_attribute_only_on_inactive_category_skipped():
+    """An attribute referenced only by an inactive category emits no set."""
+    from er_smart_sync.choices import build_choice_sets
+
+    dm = {
+        "categories": [
+            _category("live", attributes=[_cat_attr("color")]),
+            _category("dead", attributes=[_cat_attr("size")], is_active=False),
+        ],
+        "attributes": [
+            _attr("color", "LIST", options=[_option("red")]),
+            _attr("size", "LIST", options=[_option("big")]),
+        ],
+    }
+    result = build_choice_sets(dm=dm, cm=None, ca_uuid=CA_UUID)
+    assert len(result) == 1
+    assert result[0].field.endswith("_color")
 
 
 # ── upsert_choices ─────────────────────────────────────────────
@@ -1150,11 +1275,10 @@ def test_split_variant_group_choice_fields_match_schema_refs():
     field names match the schema's $ref URLs. If they drift, ER renders
     empty dropdowns.
 
-    The bug: build_choice_sets used a bare (non-disambiguated) et_value for
-    every category, so both variants got the same Choice.field name. Meanwhile
-    build_event_types_v2 appended _variant_disambiguator(cat) to each variant's
-    event_type_value before hashing, producing two distinct $ref field names.
-    Neither matched the single ChoiceSet field emitted, causing silent failure.
+    Historically the two builders disagreed on the per-variant et_value
+    disambiguator, so no schema $ref matched an emitted ChoiceSet. With
+    shared (CA, CM)-scoped fields both variants reference the same list —
+    the invariant that every $ref resolves to an emitted set still holds.
     """
     from er_smart_sync.choices import (
         build_choice_sets,
@@ -1218,9 +1342,9 @@ def test_split_variant_group_choice_fields_match_schema_refs():
             f"Schema $ref field {ref_field!r} not in ChoiceSet fields {choice_fields!r}"
         )
 
-    # The two variants must produce DISTINCT $ref fields.
-    assert ref_fields[0] != ref_fields[1], (
-        "Both variants share the same $ref field — they are not disambiguated"
+    # Both variants use the same DM attribute, so they share one Choice list.
+    assert ref_fields[0] == ref_fields[1], (
+        "Variants using the same attribute must share one $ref field"
     )
 
 

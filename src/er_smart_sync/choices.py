@@ -2,7 +2,8 @@
 
 Owns the choices layer required by ER v2 event types:
 
-- Pure helpers: ``sanitize_choice_value``, ``derive_choice_field``,
+- Pure helpers: ``sanitize_choice_value``, ``choice_scope_key``,
+  ``derive_shared_choice_field``, ``derive_choice_field``,
   ``event_type_value_for``.
 - Plan-record dataclasses: ``ChoiceOption``, ``ChoiceSet``, ``ChoicesStats``.
 - DM walker: ``build_choice_sets``.
@@ -61,15 +62,51 @@ def sanitize_choice_value(option_key: str) -> str:
 
 
 def derive_choice_field(event_type_value: str, attr_key: str) -> str:
-    """Derive a stable Choice.field name.
+    """Derive a per-event-type Choice.field name (``et{8hex}_{attr_key}``).
 
-    Returns ``et{8hex}_{sanitized_attr_key}``. Total length ≤ 40 chars
-    (truncated if needed; collisions vanishingly rare since SMART attr keys
-    are well under 28 chars in practice).
+    Only the consolidate-mode variant discriminator still uses this scheme —
+    its options are the variant identities, so there is nothing to share.
+    Regular choice attributes use ``derive_shared_choice_field`` instead.
+    Total length ≤ 40 chars (truncated if needed).
     """
     digest = hashlib.sha256(event_type_value.encode("utf-8")).hexdigest()[:8]
     sanitized = sanitize_choice_value(attr_key)
     field = f"et{digest}_{sanitized}"
+    if len(field) > 40:
+        field = field[:40]
+    return field
+
+
+def choice_scope_key(*, ca_uuid: str, cm: dict | None) -> str:
+    """Scope identity for shared choice fields.
+
+    Choice lists are shared across the event types built from one datamodel
+    sync — never across CAs or across CMs, because each CM curates its own
+    option subsets (see docs/concepts/choices.md).
+
+    - Without CM: ``{ca_uuid}``
+    - With CM:    ``{ca_uuid}_{cm_uuid}``
+    """
+    if cm:
+        return f"{ca_uuid}_{cm['cm_uuid']}".lower()
+    return ca_uuid.lower()
+
+
+def derive_shared_choice_field(scope_key: str, attr_key: str) -> str:
+    """Derive the shared Choice.field name for a SMART attribute.
+
+    Returns ``dm{8hex}_{sanitized_attr_key}`` where the hash covers the
+    (CA, CM) scope key AND the attribute key — so every event type built
+    from the same datamodel references one Choice list per attribute, two
+    CAs (or two CMs) that reuse an attribute key stay collision-free, and
+    two long attribute keys whose sanitized forms share the 29 readable
+    chars that survive the 40-char cap still get distinct fields. The
+    ``dm`` prefix distinguishes shared lists from legacy per-event-type
+    ``et`` lists. Total length ≤ 40 chars (truncated if needed).
+    """
+    digest = hashlib.sha256(f"{scope_key}:{attr_key}".encode("utf-8")).hexdigest()[:8]
+    sanitized = sanitize_choice_value(attr_key)
+    field = f"dm{digest}_{sanitized}"
     if len(field) > 40:
         field = field[:40]
     return field
@@ -243,108 +280,50 @@ def build_choice_sets(
     ca_uuid: str,
     cm_variant_mode: str = "split",
 ) -> list[ChoiceSet]:
-    """Walk a SMART data model and emit one ChoiceSet per (event_type, choice attr).
+    """Walk a SMART data model and emit one shared ChoiceSet per choice attribute.
 
-    Mirrors the structure of ``smart_to_er_v2.build_event_types_v2`` so that
-    field names line up byte-for-byte. Does not produce event types; only
-    the choices plan.
+    Choice lists are shared across all event types built from one datamodel
+    sync: the field name hashes the (CA, CM) scope, not the event type, so an
+    attribute reused by many categories yields a single ChoiceSet that every
+    event type's schema references (see ``derive_shared_choice_field``). Does
+    not produce event types; only the choices plan.
 
-    For CM variant groups (categories sharing an hkeyPath):
-    - ``split`` mode: each variant gets its own ChoiceSets keyed on the
-      disambiguated ``et_value`` (base + ``_variant_disambiguator``), exactly
-      matching what ``build_event_types_v2`` embeds in the schema ``$ref`` URLs.
-    - ``consolidate`` mode: a single consolidated ChoiceSet is emitted for the
-      shared hkey plus a discriminator ChoiceSet whose options are the variant
-      displays.
+    ``cm_variant_mode="consolidate"`` additionally emits one per-variant-group
+    discriminator ChoiceSet (options = the variant displays); discriminators
+    stay keyed per event type since their options are the variant identities.
     """
     source = cm if cm else dm
     cats = parse_obj_as(list[Category], source.get("categories") or [])
     cat_paths = [cat.path for cat in cats]
     attributes = parse_obj_as(list[Attribute], dm.get("attributes") or [])
-
-    # When a CM is present, group categories by hkeyPath to replicate the
-    # same variant-aware dispatch that build_event_types_v2 performs.
-    if cm:
-        groups: dict[str, list[Category]] = {}
-        for cat in cats:
-            key = cat.hkeyPath or cat.path or ""
-            groups.setdefault(key, []).append(cat)
-    else:
-        # Without a CM, every category is its own singleton group.
-        groups = {(cat.path or ""): [cat] for cat in cats}
-
     attribute_configs = cm.get("attributes") if cm else None
+    scope_key = choice_scope_key(ca_uuid=ca_uuid, cm=cm)
+
+    # Collect attribute keys referenced by active categories, in first-seen
+    # order so output stays deterministic. With a CM every category is active;
+    # without one, only active leaf categories count and they inherit parent
+    # attributes.
+    attr_keys: dict[str, None] = {}
+    for cat in cats:
+        leaf_attrs = list(cat.attributes or [])
+        if not cm:
+            is_leaf = _is_leaf_node(cat_paths, cat.path)
+            if not (cat.is_active and is_leaf):
+                continue
+            leaf_attrs.extend(_inherited_attributes(cats, (cat.path or "").split(".")))
+        for cat_attr in leaf_attrs:
+            attr_keys.setdefault(cat_attr.key, None)
+
     result: list[ChoiceSet] = []
-
-    for hkey, group in groups.items():
-        is_variant_group = cm and len(group) > 1
-
-        if not is_variant_group or cm_variant_mode != "split":
-            # Singleton (or consolidate mode for variant groups): original flat logic.
-            # For consolidate-mode variant groups, process all members so we can
-            # enumerate every variant's attributes using the shared hkey-based et_value.
-            members_to_process: list[tuple[Category, str]] = []
-            if not is_variant_group:
-                cat = group[0]
-                is_leaf = _is_leaf_node(cat_paths, cat.path)
-                is_active = bool(cm) or (cat.is_active and is_leaf)
-                if is_active:
-                    path_for_value = (
-                        (cat.hkeyPath or cat.path or "") if cm else (cat.path or "")
-                    )
-                    et_value = event_type_value_for(
-                        category_path=path_for_value,
-                        ca_uuid=ca_uuid,
-                        cm=cm,
-                    )
-                    members_to_process.append((cat, et_value))
-            else:
-                # consolidate mode for a variant group: use the shared hkey value.
-                base_et_value = event_type_value_for(
-                    category_path=hkey,
-                    ca_uuid=ca_uuid,
-                    cm=cm,
-                )
-                for cat in group:
-                    members_to_process.append((cat, base_et_value))
-
-            for cat, et_value in members_to_process:
-                path_for_value = (
-                    (cat.hkeyPath or cat.path or "") if cm else (cat.path or "")
-                )
-                path_components = path_for_value.split(".")
-                leaf_attrs = list(cat.attributes or [])
-                if not cm:
-                    leaf_attrs.extend(_inherited_attributes(cats, path_components))
-                result.extend(
-                    _choice_sets_for_attrs(
-                        leaf_attrs=leaf_attrs,
-                        attributes=attributes,
-                        attribute_configs=attribute_configs,
-                        et_value=et_value,
-                    )
-                )
-        else:
-            # split mode for a variant group: each member gets a disambiguated et_value.
-            for cat in group:
-                base_et_value = event_type_value_for(
-                    category_path=hkey,
-                    ca_uuid=ca_uuid,
-                    cm=cm,
-                )
-                disambig = _variant_disambiguator(cat)
-                et_value = f"{base_et_value}_{disambig}"
-                # et_value is already lowercased by event_type_value_for, and
-                # _variant_disambiguator produces lowercase output, so no extra lower().
-                leaf_attrs = list(cat.attributes or [])
-                result.extend(
-                    _choice_sets_for_attrs(
-                        leaf_attrs=leaf_attrs,
-                        attributes=attributes,
-                        attribute_configs=attribute_configs,
-                        et_value=et_value,
-                    )
-                )
+    for key in attr_keys:
+        cs = _choice_set_for_attr(
+            key=key,
+            attributes=attributes,
+            attribute_configs=attribute_configs,
+            field=derive_shared_choice_field(scope_key, key),
+        )
+        if cs is not None:
+            result.append(cs)
 
     if cm and cm_variant_mode == "consolidate":
         # Group CM categories by hkeyPath; each variant group (>1) gets a
@@ -376,51 +355,39 @@ def build_choice_sets(
     return result
 
 
-def _choice_sets_for_attrs(
+def _choice_set_for_attr(
     *,
-    leaf_attrs: list,
+    key: str,
     attributes: list[Attribute],
     attribute_configs: list | None,
-    et_value: str,
-) -> list[ChoiceSet]:
-    """Emit ChoiceSets for every choice-bearing attribute in ``leaf_attrs``."""
-    result: list[ChoiceSet] = []
-    for cat_attr in leaf_attrs:
-        attribute = next(
-            (a for a in attributes if a.key == cat_attr.key),
-            None,
-        )
-        if attribute is None or attribute.type not in _CHOICE_TYPES:
-            continue
-        options = list(attribute.options or [])
-        if not options:
-            continue
+    field: str,
+) -> ChoiceSet | None:
+    """Build the ChoiceSet for one attribute key, or None if it bears no choices."""
+    attribute = next((a for a in attributes if a.key == key), None)
+    if attribute is None or attribute.type not in _CHOICE_TYPES:
+        return None
+    options = list(attribute.options or [])
+    if not options:
+        return None
 
-        options_cfg = _options_config_for(attribute_configs, cat_attr.key)
-        if options_cfg is not None:
-            choice_options = _options_from_cm_config(options, options_cfg)
-        else:
-            if attribute.type == "TREE":
-                options = _leaf_options(options)
-            choice_options = tuple(
-                ChoiceOption(
-                    value=_shorten_value(sanitize_choice_value(o.key)),
-                    display=_shorten_display(o.display),
-                    is_active=True,
-                )
-                for o in options
+    options_cfg = _options_config_for(attribute_configs, key)
+    if options_cfg is not None:
+        choice_options = _options_from_cm_config(options, options_cfg)
+    else:
+        if attribute.type == "TREE":
+            options = _leaf_options(options)
+        choice_options = tuple(
+            ChoiceOption(
+                value=_shorten_value(sanitize_choice_value(o.key)),
+                display=_shorten_display(o.display),
+                is_active=True,
             )
-
-        if not choice_options:
-            continue
-
-        result.append(
-            ChoiceSet(
-                field=derive_choice_field(et_value, cat_attr.key),
-                options=choice_options,
-            )
+            for o in options
         )
-    return result
+
+    if not choice_options:
+        return None
+    return ChoiceSet(field=field, options=choice_options)
 
 
 def _is_leaf_node(node_paths: list[str], cur_node: str) -> bool:

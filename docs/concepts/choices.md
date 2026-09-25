@@ -17,7 +17,7 @@ each option is a row:
 {
   "id": "<uuid>",
   "model": "activity.event",
-  "field": "et5e6b96f4_sector",
+  "field": "dm5e6b96f4_sector",
   "value": "jk001",
   "display": "Sector JK001",
   "ordernum": 0,
@@ -41,23 +41,57 @@ duplicate options for the same dropdown collide.
 
 ## How `field` names are derived
 
-For every event type with a choice attribute, we derive a stable `field`
-name:
+Choice lists are **shared across the event types built from one datamodel
+sync**. For every choice-bearing SMART attribute, we derive a single stable
+`field` name:
 
 ```
-et{8-hex}_{attr_key}
+dm{8-hex}_{attr_key}
 ```
 
-The 8 hex chars are `sha256(event_type_value)[:8]`. The attribute key is
-sanitized to `^\w+$`. The total is capped at 40 characters (ER's column
-limit).
+The 8 hex chars are `sha256("{scope_key}:{attr_key}")[:8]`, where the scope
+key is the CA UUID (or `{ca_uuid}_{cm_uuid}` when syncing a Configurable
+Model). The attribute key is sanitized to `^\w+$`. The total is capped at 40
+characters (ER's column limit); including the attribute key in the hash
+keeps two long keys distinct even when the cap truncates their readable
+suffixes to a shared prefix.
 
-Example: for event type `jkperu_incidents_caza_furtiva` and attribute
-`signo_de_caza`, the field name is `et5e6b96f4_signo_de_caza`.
+This mirrors SMART's own data model: options belong to the DM-level
+attribute, not to the category, so every category that references
+`signo_de_caza` sees the same option list — and in ER, every event type
+built from that datamodel references the same Choice records.
 
-The hash makes the name unique across all event types in a tenant, without
-needing a registry. The same SMART attribute referenced from two different
-event types gets two different field names — they're isolated by design.
+The scope hash keeps sharing bounded:
+
+- **Not across CAs.** Two conservation areas can define the same attribute
+  key with different options; their field names differ by CA UUID.
+- **Not across CMs.** A Configurable Model curates its own option subsets
+  (filter, reorder, deactivate), so each CM's lists are scoped by CM UUID
+  — including apart from the plain-DM lists of the same CA.
+
+One exception stays per-event-type: the consolidate-mode **variant
+discriminator** (`et{8-hex}_variant`) — its options *are* the variant
+identities of one event type, so there is nothing to share.
+
+!!! note "Legacy `et*_` fields"
+    Before choice sharing, every event type got its own copy of each list,
+    named `et{8-hex}_{attr_key}` with the hash over the event-type value.
+    Re-syncing a site created under that scheme re-points the event-type
+    schemas at the shared `dm*_` lists and leaves the old `et*_` lists in
+    place (active but unreferenced). Historical events are unaffected —
+    stored option **values** are identical under both schemes — and the
+    orphaned lists can be cleaned up manually if desired.
+
+!!! warning "Per-node CM curation is collapsed"
+    SMART allows a CM to curate the *same* attribute differently per node
+    (multiple `attributeConfig` entries for one `attributeKey`, referenced
+    via each node's `configId`). The smartconnect parser currently flattens
+    these to one config per key (first wins), so the sync — with or without
+    sharing — uploads a single option list per attribute per CM. Lifting
+    this requires smartconnect to expose the config identity; until then,
+    per-node curations of the same attribute are collapsed. The risks and
+    rollout order for that library change are captured in
+    [the smartconnect configId risk assessment](../superpowers/specs/2026-09-25-smartconnect-configid-risks.md).
 
 ## How `value` is derived
 
@@ -183,7 +217,7 @@ In a v2 event-type schema, choice fields look like:
   "items": {
     "type": "string",
     "anyOf": [
-      {"$ref": "/api/v2.0/schemas/choices.json?field=et5e6b96f4_signo_de_caza"}
+      {"$ref": "/api/v2.0/schemas/choices.json?field=dm5e6b96f4_signo_de_caza"}
     ]
   }
 }
