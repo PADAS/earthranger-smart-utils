@@ -7,6 +7,20 @@ which carry the full commit-level history.
 
 ## Unreleased
 
+### Added
+
+**The EarthRanger endpoint accepts a bare domain or scheme + host.**
+`site.pamdas.org`, `https://site.pamdas.org`, and the full
+`https://site.pamdas.org/api/v1.0` service root all normalize to the
+service-root form, everywhere an ER endpoint is accepted: the YAML
+`earthranger.endpoint` key, `--er-endpoint`, and `copy-event-type`'s
+`--source-endpoint`/`--dest-endpoint`. An explicit `http://` scheme is
+preserved for development servers.
+
+**`copy-event-type` is now documented** — in the
+[CLI reference](cli-reference/copy-event-type.md) and USAGE.md; the
+command itself shipped earlier (#12).
+
 ### Fixed
 
 **Inactive SMART options no longer migrate as active (ERCS-8246).** The

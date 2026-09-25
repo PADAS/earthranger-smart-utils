@@ -85,6 +85,7 @@ nav:
     - inspect-datamodel: cli-reference/inspect-datamodel.md
     - events: cli-reference/events.md
     - patrols: cli-reference/patrols.md
+    - copy-event-type: cli-reference/copy-event-type.md
     - validate-config: cli-reference/validate-config.md
     - list-cas: cli-reference/list-cas.md
     - config-template: cli-reference/config-template.md

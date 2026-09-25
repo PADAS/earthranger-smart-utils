@@ -124,10 +124,7 @@ def test_cm_variant_mode_rejects_unknown():
 # ── ER endpoint normalization ──────────────────────────────────
 
 
-import pytest as _pytest
-
-
-@_pytest.mark.parametrize(
+@pytest.mark.parametrize(
     "given,expected",
     [
         # Bare domain.

@@ -209,7 +209,13 @@ def smart_options(f):
 
 def er_options(f):
     """EarthRanger connection options."""
-    f = click.option("--er-endpoint", help="EarthRanger API URL")(f)
+    f = click.option(
+        "--er-endpoint",
+        help=(
+            "EarthRanger site: bare domain (site.pamdas.org), scheme + host, "
+            "or the full /api/v1.0 service root."
+        ),
+    )(f)
     f = click.option("--er-token", help="EarthRanger API token")(f)
     f = click.option("--er-username", default="", help="EarthRanger username")(f)
     f = click.option("--er-password", default="", help="EarthRanger password")(f)
@@ -775,7 +781,11 @@ def patrols(
 
 
 @main.command("copy-event-type")
-@click.option("--source-endpoint", required=True, help="Source EarthRanger API URL")
+@click.option(
+    "--source-endpoint",
+    required=True,
+    help="Source EarthRanger site (bare domain, scheme + host, or full API root)",
+)
 @click.option("--source-token", default="", help="Source ER API token")
 @click.option("--source-username", default="", help="Source ER username")
 @click.option("--source-password", default="", help="Source ER password")
@@ -784,7 +794,11 @@ def patrols(
     required=True,
     help="`value` of the event type to copy from the source",
 )
-@click.option("--dest-endpoint", required=True, help="Destination EarthRanger API URL")
+@click.option(
+    "--dest-endpoint",
+    required=True,
+    help="Destination EarthRanger site (bare domain, scheme + host, or full API root)",
+)
 @click.option("--dest-token", default="", help="Destination ER API token")
 @click.option("--dest-username", default="", help="Destination ER username")
 @click.option("--dest-password", default="", help="Destination ER password")
@@ -955,7 +969,8 @@ earthranger:
   id: my-er-instance
 
   # EarthRanger API root, e.g. https://site.pamdas.org/api/v1.0
-  endpoint: https://site.pamdas.org/api/v1.0
+  # Bare domain, scheme + host, or the full /api/v1.0 service root.
+  endpoint: site.pamdas.org
 
   # EarthRanger authentication. Provide either `token` OR (`login` and
   # `password`). Token is preferred.

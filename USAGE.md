@@ -5,6 +5,7 @@
 - **`datamodel`** — push SMART conservation-area data models into EarthRanger as event categories and event types.
 - **`events`** — poll EarthRanger events and publish them for routing to SMART.
 - **`patrols`** — poll EarthRanger patrols (with track points, segment events, and attached files) and publish them for routing to SMART.
+- **`copy-event-type`** — copy one event type (and, for v2, the choice lists its schema references) from one EarthRanger site to another.
 - **`validate-config`**, **`list-cas`**, **`inspect-datamodel`** — read-only diagnostic commands intended for support work.
 
 ## Install
@@ -46,12 +47,23 @@ smart:
 
 earthranger:
   id: my-er-instance         # opaque, used as the state-tracking key
-  endpoint: https://site.pamdas.org/api/v1.0
+  endpoint: site.pamdas.org       # or https://site.pamdas.org, or the full /api/v1.0 root
   token: er-api-token        # or use login + password
   client_id: das_web_client  # optional, defaults to das_web_client
 ```
 
 EarthRanger auth accepts either `--er-token` **or** the `--er-username`/`--er-password` pair. Token alone is preferred.
+
+The EarthRanger endpoint accepts any of these forms — all normalize to the
+full `https://site.pamdas.org/api/v1.0` service root:
+
+- `site.pamdas.org` (bare domain)
+- `https://site.pamdas.org` (scheme + host)
+- `https://site.pamdas.org/api/v1.0` (full service root, as before)
+
+An explicit `http://` scheme is preserved for development servers. The same
+forms work for `--er-endpoint`, the YAML `earthranger.endpoint` key, and
+`copy-event-type`'s `--source-endpoint`/`--dest-endpoint`.
 
 ## Global flags
 
@@ -89,7 +101,7 @@ er-smart-sync datamodel \
   --smart-password SMART-PASS \
   --smart-version 7.5.7 \
   --smart-ca-uuid 0a1b2c3d-... \
-  --er-endpoint  https://site.pamdas.org/api/v1.0 \
+  --er-endpoint  site.pamdas.org \
   --er-token     YOUR-ER-TOKEN
 ```
 
@@ -118,7 +130,7 @@ This:
 er-smart-sync datamodel \
   --from-file datamodel.xml \
   --ca-label "[FOASF]" \
-  --er-endpoint https://site.pamdas.org/api/v1.0 \
+  --er-endpoint site.pamdas.org \
   --er-token    YOUR-ER-TOKEN
 ```
 
@@ -133,7 +145,7 @@ er-smart-sync datamodel \
   --from-file datamodel.xml \
   --cm-from-file configurable_model.xml \
   --ca-label "[FOASF]" \
-  --er-endpoint https://site.pamdas.org/api/v1.0 \
+  --er-endpoint site.pamdas.org \
   --er-token    YOUR-ER-TOKEN
 ```
 
@@ -218,7 +230,7 @@ discriminator field and conditional sections. This flag is v2 only.
 
 ```bash
 er-smart-sync datamodel --cm-from-file cm.xml --cm-variant-mode consolidate \
-  --er-endpoint https://site.pamdas.org/api/v1.0 --er-token YOUR-ER-TOKEN
+  --er-endpoint site.pamdas.org --er-token YOUR-ER-TOKEN
 ```
 
 See [CM variant groups](docs/concepts/cm-variants.md) for slug formats,
@@ -255,7 +267,7 @@ separately and want to push event types without re-upserting.
 
 ```bash
 er-smart-sync events \
-  --er-endpoint https://site.pamdas.org/api/v1.0 \
+  --er-endpoint site.pamdas.org \
   --er-token    YOUR-ER-TOKEN \
   --topic       projects/my-gcp-project/topics/er-events \
   --state-file  /var/lib/er-smart-sync/state.json
@@ -280,7 +292,7 @@ What happens:
 
 ```bash
 er-smart-sync patrols \
-  --er-endpoint https://site.pamdas.org/api/v1.0 \
+  --er-endpoint site.pamdas.org \
   --er-token    YOUR-ER-TOKEN \
   --topic       projects/my-gcp-project/topics/er-patrols \
   --state-file  /var/lib/er-smart-sync/state.json
@@ -305,6 +317,29 @@ Behavior:
   `oversized` patrols are dropped when the broker rejects them (e.g. Pub/Sub message size limit). The error is logged and the loop continues.
 
 ---
+
+## Copying an event type between ER sites
+
+`copy-event-type` copies a single event type from a source EarthRanger site
+to a destination site — for v2, it also copies the choice option-sets the
+schema references. The target event category must already exist on the
+destination.
+
+```bash
+er-smart-sync copy-event-type \
+  --source-endpoint source-site.pamdas.org --source-token SOURCE-TOKEN \
+  --dest-endpoint   dest-site.pamdas.org   --dest-token   DEST-TOKEN \
+  --event-type-value      jkperu_incidents_caza_furtiva \
+  --target-event-category monitoring \
+  --version v2
+```
+
+- Auth per side: `--source-token` or `--source-username`/`--source-password`
+  (same for `--dest-*`).
+- `--version v1|v2` selects the event-type API used on both sites
+  (default `v2`).
+- Honors the global `--dry-run` flag: reads from the source, logs what it
+  would write to the destination.
 
 ## Diagnostic commands
 
@@ -345,7 +380,7 @@ er-smart-sync inspect-datamodel \
   --from-file    datamodel.xml \
   --cm-from-file configurable_model.xml \
   --ca-label     "[FOASF]" \
-  --er-endpoint  https://site.pamdas.org/api/v1.0 \
+  --er-endpoint  site.pamdas.org \
   --er-token     YOUR-ER-TOKEN
 ```
 

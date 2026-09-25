@@ -152,7 +152,7 @@ ERClient: 401 Bad credentials
 **Causes (in rough order of likelihood):**
 
 1. Wrong or expired `token`.
-2. `endpoint` is correct but missing `/api/v1.0`.
+2. `endpoint` points at the wrong site (a bare domain or scheme+host is fine — the `/api/v1.0` path is added automatically).
 3. Username/password used with the wrong `client_id`.
 
 **Diagnose with `validate-config`:**
