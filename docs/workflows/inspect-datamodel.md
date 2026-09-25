@@ -54,7 +54,7 @@ Event types: 18
       ...
 
 Choice sets: 60
-- field: et5e6b96f4_signo_de_caza
+- field: dm5e6b96f4_signo_de_caza
     options (4):
       - rastro: Rastro
       - trampa: Trampa
@@ -62,8 +62,10 @@ Choice sets: 60
 ```
 
 For each choice-bearing field, you'll see the derived `Choice.field` name
-(the `et<hash>_<attr>` part). This is what `datamodel` will POST as
-EarthRanger `Choice` records.
+(the `dm<hash>_<attr>` part). This is what `datamodel` will POST as
+EarthRanger `Choice` records. Choice lists are shared across the event
+types of a sync, so the choice-set count reflects distinct SMART
+attributes, not (event type × attribute) pairs.
 
 ## Reading v1 output
 

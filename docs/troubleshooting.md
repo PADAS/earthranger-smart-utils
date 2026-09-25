@@ -8,7 +8,7 @@ trace or warning above the failure point.
 
 ```
 WARNING: ERClient: Fail attempt 1 of 1: {"field": ["Select a valid choice.
-et5e6b96f4_sector is not one of the available choices."]}
+dm5e6b96f4_sector is not one of the available choices."]}
 ```
 
 **Cause:** ER's `/choices/?field=<X>` endpoint validates the `field=` query

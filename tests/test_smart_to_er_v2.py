@@ -194,8 +194,36 @@ def test_event_type_value_is_ca_scoped_and_lowercased():
 # ── Choice/enum types ────────────────────────────────────────────
 
 
+def test_choice_refs_shared_across_event_types():
+    """Two event types using the same DM attribute reference one shared
+    Choice.field in their schemas (per-CA scope, dm-prefixed)."""
+    from er_smart_sync.choices import choice_scope_key, derive_shared_choice_field
+
+    dm = {
+        "categories": [
+            _category("incidents", attributes=[_cat_attr("species")]),
+            _category("wildlife", attributes=[_cat_attr("species")]),
+        ],
+        "attributes": [
+            _attr("species", "LIST", options=[_option("lion")]),
+        ],
+    }
+    ets = build_event_types_v2(dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID)
+    assert len(ets) == 2
+
+    expected_field = derive_shared_choice_field(
+        choice_scope_key(ca_uuid=CA_UUID, cm=None), "species"
+    )
+    for et in ets:
+        ui_choices = et.event_schema["ui"]["fields"]["species"]["choices"]
+        assert ui_choices["existingChoiceList"] == [expected_field]
+        assert et.event_schema["json"]["properties"]["species"]["anyOf"] == [
+            {"$ref": f"/api/v2.0/schemas/choices.json?field={expected_field}"}
+        ]
+
+
 def test_list_single_value_emits_anyof_ref_and_choice_list():
-    from er_smart_sync.choices import derive_choice_field, event_type_value_for
+    from er_smart_sync.choices import choice_scope_key, derive_shared_choice_field
 
     dm = {
         "categories": [_category("c", attributes=[_cat_attr("color")])],
@@ -216,8 +244,8 @@ def test_list_single_value_emits_anyof_ref_and_choice_list():
         choices_base_url="/api/v2.0/schemas",
     )[0].event_schema
 
-    et_value = event_type_value_for(category_path="c", ca_uuid=CA_UUID, cm=None)
-    expected_field = derive_choice_field(et_value, "color")
+    scope = choice_scope_key(ca_uuid=CA_UUID, cm=None)
+    expected_field = derive_shared_choice_field(scope, "color")
 
     json_prop = schema["json"]["properties"]["color"]
     assert json_prop["type"] == "string"
@@ -247,7 +275,7 @@ def test_list_single_value_emits_anyof_ref_and_choice_list():
 
 
 def test_list_multi_value_emits_array_anyof_ref():
-    from er_smart_sync.choices import derive_choice_field, event_type_value_for
+    from er_smart_sync.choices import choice_scope_key, derive_shared_choice_field
 
     dm = {
         "categories": [
@@ -269,8 +297,8 @@ def test_list_multi_value_emits_array_anyof_ref():
         ca_identifier=CA_ID,
     )[0].event_schema
 
-    et_value = event_type_value_for(category_path="c", ca_uuid=CA_UUID, cm=None)
-    expected_field = derive_choice_field(et_value, "tags")
+    scope = choice_scope_key(ca_uuid=CA_UUID, cm=None)
+    expected_field = derive_shared_choice_field(scope, "tags")
 
     json_prop = schema["json"]["properties"]["tags"]
     assert json_prop["type"] == "array"
@@ -293,7 +321,7 @@ def test_list_multi_value_emits_array_anyof_ref():
 
 
 def test_mlist_emits_array_anyof_ref():
-    from er_smart_sync.choices import derive_choice_field, event_type_value_for
+    from er_smart_sync.choices import choice_scope_key, derive_shared_choice_field
 
     dm = {
         "categories": [_category("c", attributes=[_cat_attr("species")])],
@@ -313,8 +341,8 @@ def test_mlist_emits_array_anyof_ref():
         ca_identifier=CA_ID,
     )[0].event_schema
 
-    et_value = event_type_value_for(category_path="c", ca_uuid=CA_UUID, cm=None)
-    expected_field = derive_choice_field(et_value, "species")
+    scope = choice_scope_key(ca_uuid=CA_UUID, cm=None)
+    expected_field = derive_shared_choice_field(scope, "species")
 
     json_prop = schema["json"]["properties"]["species"]
     assert json_prop["type"] == "array"
@@ -327,7 +355,7 @@ def test_mlist_emits_array_anyof_ref():
 
 def test_tree_flattens_to_leaf_options():
     """TREE flattening still happens at the builder; choices module emits the leaves."""
-    from er_smart_sync.choices import derive_choice_field, event_type_value_for
+    from er_smart_sync.choices import choice_scope_key, derive_shared_choice_field
 
     dm = {
         "categories": [_category("c", attributes=[_cat_attr("region")])],
@@ -349,8 +377,8 @@ def test_tree_flattens_to_leaf_options():
         0
     ].event_schema
 
-    et_value = event_type_value_for(category_path="c", ca_uuid=CA_UUID, cm=None)
-    expected_field = derive_choice_field(et_value, "region")
+    scope = choice_scope_key(ca_uuid=CA_UUID, cm=None)
+    expected_field = derive_shared_choice_field(scope, "region")
 
     json_prop = schema["json"]["properties"]["region"]
     assert json_prop["anyOf"] == [
@@ -369,7 +397,7 @@ def test_cm_deactivates_all_options_still_emits_choice_list():
     field's wire type and break tenants that have historical events
     stored under the choice schema. Inactive options remain in the
     choices module's upsert (with is_active=False)."""
-    from er_smart_sync.choices import derive_choice_field, event_type_value_for
+    from er_smart_sync.choices import choice_scope_key, derive_shared_choice_field
 
     dm = {
         "categories": [_category("c", attributes=[_cat_attr("color")])],
@@ -402,8 +430,8 @@ def test_cm_deactivates_all_options_still_emits_choice_list():
         0
     ].event_schema
 
-    et_value = event_type_value_for(category_path="c", ca_uuid=CA_UUID, cm=cm)
-    expected_field = derive_choice_field(et_value, "color")
+    scope = choice_scope_key(ca_uuid=CA_UUID, cm=cm)
+    expected_field = derive_shared_choice_field(scope, "color")
 
     json_prop = schema["json"]["properties"]["color"]
     # Still CHOICE_LIST with anyOf $ref — NOT a plain string/TEXT fallback.
@@ -583,7 +611,7 @@ def test_build_event_types_v2_skips_inactive_non_cm_categories():
 
 def test_snapshot_full_mix_of_types():
     """Single event type with every supported SMART attribute type."""
-    from er_smart_sync.choices import derive_choice_field, event_type_value_for
+    from er_smart_sync.choices import choice_scope_key, derive_shared_choice_field
 
     dm = {
         "categories": [
@@ -684,13 +712,9 @@ def test_snapshot_full_mix_of_types():
     assert schema["json"]["properties"]["legacy_field"]["deprecated"] is True
 
     # Choice attribute uses anyOf $ref
-    et_value = event_type_value_for(
-        category_path="incidents",
-        ca_uuid="ca-snap",
-        cm=None,
-    )
-    expected_species_field = derive_choice_field(et_value, "species")
-    expected_tags_field = derive_choice_field(et_value, "tags")
+    scope = choice_scope_key(ca_uuid="ca-snap", cm=None)
+    expected_species_field = derive_shared_choice_field(scope, "species")
+    expected_tags_field = derive_shared_choice_field(scope, "tags")
     assert schema["json"]["properties"]["species"]["anyOf"] == [
         {"$ref": f"/api/v2.0/schemas/choices.json?field={expected_species_field}"}
     ]
@@ -701,7 +725,7 @@ def test_snapshot_full_mix_of_types():
     ]
 
     # TREE attribute: flattens to leaves and uses anyOf $ref like LIST single
-    expected_region_field = derive_choice_field(et_value, "region")
+    expected_region_field = derive_shared_choice_field(scope, "region")
     assert schema["json"]["properties"]["region"]["type"] == "string"
     assert schema["json"]["properties"]["region"]["anyOf"] == [
         {"$ref": f"/api/v2.0/schemas/choices.json?field={expected_region_field}"}

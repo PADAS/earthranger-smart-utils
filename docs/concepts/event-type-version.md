@@ -63,7 +63,7 @@ For every event type, `er-smart-sync` emits a meta-schema-valid v2 schema:
           "uniqueItems": true,
           "items": {
             "type": "string",
-            "anyOf": [{"$ref": "/api/v2.0/schemas/choices.json?field=et5e6b96f4_sector"}]
+            "anyOf": [{"$ref": "/api/v2.0/schemas/choices.json?field=dm5e6b96f4_sector"}]
           }
         }
       },

@@ -22,7 +22,9 @@ from smartconnect.models import Attribute, Category, CategoryAttribute
 from .choices import (
     _discriminator_option_value,
     _variant_disambiguator,
+    choice_scope_key,
     derive_choice_field,
+    derive_shared_choice_field,
     event_type_value_for,
 )
 
@@ -110,6 +112,7 @@ def build_event_types_v2(
         ca_uuid=ca_uuid,
         cm=cm,
         choices_base_url=choices_base_url,
+        scope_key=choice_scope_key(ca_uuid=ca_uuid, cm=cm),
     )
 
     event_types: list[ERV2EventType] = []
@@ -145,6 +148,7 @@ def _build_consolidated(
     ca_uuid: str,
     cm: dict | None,
     choices_base_url: str = "/api/v2.0/schemas",
+    scope_key: str = "",
 ) -> ERV2EventType | None:
     """Build a single consolidated event type for a group of CM variant categories.
 
@@ -175,18 +179,17 @@ def _build_consolidated(
     sections: dict = {}
     order: list[str] = [DISCRIMINATOR_SECTION_ID]
 
-    # Discriminator: a single-select CHOICE_LIST. _build_choice_property_pair
-    # derives the field name internally as derive_choice_field(value, "variant")
-    # — identical to `discriminator` above — and sets parent="section-1", which
-    # is exactly where the discriminator lives. Its options resolve at query
-    # time from the ChoiceSet emitted in Task 10.
+    # Discriminator: a single-select CHOICE_LIST on the per-event-type
+    # `discriminator` field (variant identities are never shared), with
+    # parent="section-1", which is exactly where the discriminator lives.
+    # Its options resolve at query time from the discriminator ChoiceSet
+    # emitted by build_choice_sets.
     disc_prop, disc_ui = _build_choice_property_pair(
         smart_type="LIST",
         display="Variant",
         is_multiple=False,
-        attr_key="variant",
+        field_name=discriminator,
         choices_base_url=choices_base_url,
-        event_type_value=value,
     )
     properties[discriminator] = disc_prop
 
@@ -204,7 +207,7 @@ def _build_consolidated(
             is_multiple=bool(cat.is_multiple),
             attribute_configs=attribute_configs,
             choices_base_url=choices_base_url,
-            event_type_value=value,
+            scope_key=scope_key,
         )
         # Namespace every variant attribute key to avoid collisions when two
         # variants share the same attribute.  Also re-parent ui fields to the
@@ -283,6 +286,7 @@ def _build_one(
     ca_uuid: str,
     cm: dict | None,
     choices_base_url: str = "/api/v2.0/schemas",
+    scope_key: str = "",
     value_disambiguator: str | None = None,
 ) -> ERV2EventType | None:
     is_leaf = _is_leaf_node(cat_paths, cat.path)
@@ -304,10 +308,6 @@ def _build_one(
         value = f"{value}_{value_disambiguator}"
     value = value.lower()
 
-    # Pass event_type_value down so choice properties can derive their
-    # Choice.field $ref URL.
-    et_value = value
-
     et = ERV2EventType(value=value, display=cat.display, is_active=True)
 
     leaf_attributes = list(cat.attributes or [])
@@ -326,7 +326,7 @@ def _build_one(
         is_multiple=bool(cat.is_multiple),
         attribute_configs=attribute_configs,
         choices_base_url=choices_base_url,
-        event_type_value=et_value,
+        scope_key=scope_key,
     )
     if not properties:
         logger.warning(
@@ -368,7 +368,7 @@ def _build_field_blocks(
     is_multiple: bool,
     attribute_configs: list | None,
     choices_base_url: str = "/api/v2.0/schemas",
-    event_type_value: str = "",
+    scope_key: str = "",
 ) -> tuple[dict, dict, list[str]]:
     """Return (json.properties, ui.fields, field_order_for_section).
 
@@ -395,7 +395,7 @@ def _build_field_blocks(
             is_multiple=is_multiple,
             attr_key=cat_attr.key,
             choices_base_url=choices_base_url,
-            event_type_value=event_type_value,
+            scope_key=scope_key,
         )
         if json_prop is None or ui_field is None:
             continue
@@ -416,7 +416,7 @@ def _build_property_pair(
     is_multiple: bool,
     attr_key: str = "",
     choices_base_url: str = "/api/v2.0/schemas",
-    event_type_value: str = "",
+    scope_key: str = "",
 ) -> tuple[dict | None, dict | None]:
     """Return (json_property, ui_field) or (None, None) to skip.
 
@@ -434,9 +434,8 @@ def _build_property_pair(
             smart_type=smart_type,
             display=display,
             is_multiple=is_multiple,
-            attr_key=attr_key,
+            field_name=derive_shared_choice_field(scope_key, attr_key),
             choices_base_url=choices_base_url,
-            event_type_value=event_type_value,
         )
 
     if smart_type in SCALAR_JSON:
@@ -462,13 +461,12 @@ def _build_choice_property_pair(
     smart_type: str,
     display: str,
     is_multiple: bool,
-    attr_key: str,
+    field_name: str,
     choices_base_url: str,
-    event_type_value: str,
 ) -> tuple[dict, dict]:
     """Emit the (json, ui) pair for a LIST/MLIST/TREE attribute as a
-    CHOICE_LIST referencing the choices module's ``$ref`` URL."""
-    field_name = derive_choice_field(event_type_value, attr_key)
+    CHOICE_LIST referencing the choices module's ``$ref`` URL for the
+    caller-derived ``field_name``."""
     ref_url = f"{choices_base_url}/choices.json?field={field_name}"
     is_array = smart_type == "MLIST" or (smart_type == "LIST" and is_multiple)
 
