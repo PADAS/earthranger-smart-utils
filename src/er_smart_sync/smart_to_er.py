@@ -256,7 +256,10 @@ def _attribute_property(
     if options_config is not None:
         options = _filter_options_by_config(options, options_config)
     else:
-        options = _leaf_options(options)
+        # Inline v1 enums have no inactive state, so inactive SMART options
+        # are excluded outright (ERCS-8246) — mirroring the CM path, which
+        # already filters on the overlay's isActive.
+        options = [o for o in _leaf_options(options) if o.is_active]
 
     if not options:
         return prop
