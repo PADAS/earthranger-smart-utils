@@ -376,11 +376,15 @@ def _choice_set_for_attr(
     else:
         if attribute.type == "TREE":
             options = _leaf_options(options)
+        # Honor the SMART active flag (ERCS-8246: inactive options previously
+        # migrated as active). Inactive options are emitted, not dropped, so
+        # the upsert deactivates existing records and historical events keep
+        # resolving.
         choice_options = tuple(
             ChoiceOption(
                 value=_shorten_value(sanitize_choice_value(o.key)),
                 display=_shorten_display(o.display),
-                is_active=True,
+                is_active=o.is_active,
             )
             for o in options
         )

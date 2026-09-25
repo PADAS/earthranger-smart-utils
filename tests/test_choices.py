@@ -538,6 +538,52 @@ def test_build_choice_sets_two_categories_share_one_field():
     assert result[0].field == expected_field
 
 
+def test_build_choice_sets_inactive_dm_option_emitted_inactive():
+    """A SMART option marked inactive arrives with is_active=False (no CM).
+
+    ERCS-8246: inactive options previously migrated as active because the
+    builder hardcoded is_active=True on the no-CM path.
+    """
+    from er_smart_sync.choices import build_choice_sets
+
+    dm = {
+        "categories": [_category("c", attributes=[_cat_attr("color")])],
+        "attributes": [
+            _attr(
+                "color",
+                "LIST",
+                options=[_option("red"), _option("blue", is_active=False)],
+            )
+        ],
+    }
+    result = build_choice_sets(dm=dm, cm=None, ca_uuid=CA_UUID)
+    flags = {o.value: o.is_active for o in result[0].options}
+    assert flags == {"red": True, "blue": False}
+
+
+def test_build_choice_sets_tree_leaf_active_flags_preserved():
+    """TREE leaves keep the (effective) active flags the parser supplies."""
+    from er_smart_sync.choices import build_choice_sets
+
+    dm = {
+        "categories": [_category("c", attributes=[_cat_attr("region")])],
+        "attributes": [
+            _attr(
+                "region",
+                "TREE",
+                options=[
+                    _option("natural"),
+                    _option("natural.disease"),
+                    _option("natural.oldage", is_active=False),
+                ],
+            )
+        ],
+    }
+    result = build_choice_sets(dm=dm, cm=None, ca_uuid=CA_UUID)
+    flags = {o.value: o.is_active for o in result[0].options}
+    assert flags == {"natural_disease": True, "natural_oldage": False}
+
+
 # ── shared choice fields ───────────────────────────────────────
 
 

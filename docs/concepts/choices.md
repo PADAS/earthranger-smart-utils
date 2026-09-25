@@ -269,6 +269,16 @@ SMART TREE attributes have parent/child option hierarchies (e.g. `africa →
 africa.kenya → africa.kenya.nairobi`). `er-smart-sync` **flattens to leaves**
 — only the deepest options become Choice records.
 
+Both migration paths converge on that shape (ERCS-8246): the base data
+model flattens to leaves here, and CM `attributeConfig` tree curations are
+flattened to CM-leaves by the smartconnect parser (≥ 1.13.0), keyed by the
+same dotted paths so the [CM overlay rules](#cm-overlay-rules) apply
+unchanged. Each option's SMART active flag is honored **effectively**: a
+leaf under a deactivated branch arrives with `is_active=false`. With older
+smartconnect releases, CM tree curations surface only top-level parents and
+DM tree options carry no active flag — upgrade the pin to get the fixed
+behavior.
+
 Two practical consequences for TREE attributes:
 
 - The flattened leaf's SMART `key` is the full dotted path

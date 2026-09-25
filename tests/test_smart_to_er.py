@@ -32,8 +32,8 @@ def _attr(
     }
 
 
-def _option(key: str, display: str | None = None):
-    return {"key": key, "display": display or key, "isActive": True}
+def _option(key: str, display: str | None = None, is_active: bool = True):
+    return {"key": key, "display": display or key, "isActive": is_active}
 
 
 def _category(
@@ -380,3 +380,68 @@ def test_configurable_model_skips_options_without_isactive():
     out = build_event_types(dm=dm, cm=cm, ca_uuid=CA_UUID, ca_identifier="X")
     prop = _schema(out[0])["properties"]["k"]
     assert prop["enum"] == ["b"]
+
+
+def test_inactive_dm_options_excluded_from_enum():
+    """ERCS-8246: inactive SMART options must not appear in v1 inline enums
+    (the CM path already filters them; the no-CM path did not)."""
+    dm = {
+        "categories": [
+            _category("incidents", attributes=[_cat_attr("species")]),
+        ],
+        "attributes": [
+            _attr(
+                "species",
+                "LIST",
+                options=[_option("lion"), _option("dodo", is_active=False)],
+            )
+        ],
+    }
+    out = build_event_types(dm=dm, ca_uuid=CA_UUID, ca_identifier="X")
+    prop = _schema(out[0])["properties"]["species"]
+    assert prop["enum"] == ["lion"]
+
+
+def test_inactive_tree_leaves_excluded_from_enum():
+    dm = {
+        "categories": [
+            _category("incidents", attributes=[_cat_attr("region")]),
+        ],
+        "attributes": [
+            _attr(
+                "region",
+                "TREE",
+                options=[
+                    _option("natural"),
+                    _option("natural.disease"),
+                    _option("natural.oldage", is_active=False),
+                ],
+            )
+        ],
+    }
+    out = build_event_types(dm=dm, ca_uuid=CA_UUID, ca_identifier="X")
+    prop = _schema(out[0])["properties"]["region"]
+    assert prop["enum"] == ["natural.disease"]
+
+
+def test_multi_list_all_options_inactive_keeps_array_type():
+    """Deactivating a multi-select LIST's last active option must not change
+    the field's wire type from array to string (#17 review) — existing
+    array-valued events would become incompatible with the schema."""
+    dm = {
+        "categories": [
+            _category("incidents", attributes=[_cat_attr("colors")], is_multiple=True),
+        ],
+        "attributes": [
+            _attr(
+                "colors",
+                "LIST",
+                options=[_option("red", is_active=False)],
+            )
+        ],
+    }
+    out = build_event_types(dm=dm, ca_uuid=CA_UUID, ca_identifier="X")
+    prop = _schema(out[0])["properties"]["colors"]
+    assert prop["type"] == "array"
+    assert prop["items"] == {"type": "string"}
+    assert "enum" not in prop
