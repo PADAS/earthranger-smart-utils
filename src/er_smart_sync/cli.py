@@ -168,8 +168,10 @@ def _make_er_client(*, endpoint, token, username, password):
     """Construct a bare ERClient for one ER site (used by copy-event-type)."""
     from erclient import ERClient
 
+    from .config import normalize_er_endpoint
+
     return ERClient(
-        service_root=endpoint,
+        service_root=normalize_er_endpoint(endpoint),
         username=username,
         password=password,
         token=token,

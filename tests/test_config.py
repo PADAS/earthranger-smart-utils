@@ -119,3 +119,39 @@ def test_cm_variant_mode_rejects_unknown():
             endpoint="https://x/api/v1.0",
             cm_variant_mode="nonsense",  # ty: ignore[invalid-argument-type]
         )
+
+
+# ── ER endpoint normalization ──────────────────────────────────
+
+
+import pytest as _pytest
+
+
+@_pytest.mark.parametrize(
+    "given,expected",
+    [
+        # Bare domain.
+        ("site.pamdas.org", "https://site.pamdas.org/api/v1.0"),
+        # Scheme + host, with and without trailing slash.
+        ("https://site.pamdas.org", "https://site.pamdas.org/api/v1.0"),
+        ("https://site.pamdas.org/", "https://site.pamdas.org/api/v1.0"),
+        # Full service root passes through (existing configs keep working).
+        ("https://site.pamdas.org/api/v1.0", "https://site.pamdas.org/api/v1.0"),
+        ("https://site.pamdas.org/api/v1.0/", "https://site.pamdas.org/api/v1.0"),
+        # Explicit http is preserved (dev servers).
+        ("http://localhost:8000", "http://localhost:8000/api/v1.0"),
+        # Whitespace tolerated.
+        ("  site.pamdas.org  ", "https://site.pamdas.org/api/v1.0"),
+    ],
+)
+def test_normalize_er_endpoint_forms(given, expected):
+    from er_smart_sync.config import normalize_er_endpoint
+
+    assert normalize_er_endpoint(given) == expected
+
+
+def test_er_config_normalizes_endpoint():
+    from er_smart_sync.config import EarthRangerConfig
+
+    cfg = EarthRangerConfig(id="x", endpoint="site.pamdas.org", token="t")
+    assert cfg.endpoint == "https://site.pamdas.org/api/v1.0"

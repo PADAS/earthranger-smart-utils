@@ -2,6 +2,28 @@ from typing import Literal
 
 import pydantic
 
+_ER_DEFAULT_API_PATH = "/api/v1.0"
+
+
+def normalize_er_endpoint(value: str) -> str:
+    """Normalize an EarthRanger endpoint to a full ERClient service root.
+
+    Accepts a bare domain (``site.pamdas.org``), a scheme + host
+    (``https://site.pamdas.org``), or a full service root
+    (``https://site.pamdas.org/api/v1.0``) and returns the service-root
+    form. An explicit ``http://`` scheme is preserved for dev servers; a
+    URL already carrying a path is passed through untouched.
+    """
+    endpoint = value.strip().rstrip("/")
+    if not endpoint:
+        return endpoint
+    if "://" not in endpoint:
+        endpoint = f"https://{endpoint}"
+    scheme, _, rest = endpoint.partition("://")
+    if "/" not in rest:  # host only — no path yet
+        endpoint = f"{endpoint}{_ER_DEFAULT_API_PATH}"
+    return endpoint
+
 
 class ConfigurableModelTranslation(pydantic.BaseModel):
     language_code: str = "en"
@@ -48,7 +70,9 @@ class EarthRangerConfig(pydantic.BaseModel):
     """
 
     id: str  # Opaque integration identifier, used for state tracking
-    endpoint: str  # e.g. https://site.pamdas.org/api/v1.0
+    # Accepts a bare domain, scheme+host, or full service root; normalized
+    # to e.g. https://site.pamdas.org/api/v1.0 (see normalize_er_endpoint).
+    endpoint: str
     login: str = ""
     password: str = ""
     token: str = ""
@@ -56,6 +80,10 @@ class EarthRangerConfig(pydantic.BaseModel):
     event_type_version: Literal["v1", "v2"] = "v2"
     cm_variant_mode: Literal["split", "consolidate"] = "split"
     choices_base_url: str = "/api/v2.0/schemas"
+
+    @pydantic.validator("endpoint")
+    def _normalize_endpoint(cls, v):
+        return normalize_er_endpoint(v)
 
     @pydantic.validator("event_type_version", pre=True)
     def _normalize_event_type_version(cls, v):
