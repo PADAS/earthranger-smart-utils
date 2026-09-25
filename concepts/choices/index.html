@@ -1005,6 +1005,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../cli-reference/copy-event-type/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    copy-event-type
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../cli-reference/validate-config/" class="md-nav__link">
         
   
@@ -1696,13 +1724,13 @@ names are derived, and what to do when things go wrong.</p>
 <p>In EarthRanger's database (and the <code>/api/v1.0/choices/</code> REST endpoint),
 each option is a row:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="p">{</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;uuid&gt;&quot;</span><span class="p">,</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span><span class="nt">&quot;model&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;activity.event&quot;</span><span class="p">,</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span><span class="nt">&quot;field&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;et5e6b96f4_sector&quot;</span><span class="p">,</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">  </span><span class="nt">&quot;value&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;jk001&quot;</span><span class="p">,</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">  </span><span class="nt">&quot;display&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Sector JK001&quot;</span><span class="p">,</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">  </span><span class="nt">&quot;ordernum&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">  </span><span class="nt">&quot;is_active&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">"id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;uuid&gt;"</span><span class="p">,</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span><span class="nt">"model"</span><span class="p">:</span><span class="w"> </span><span class="s2">"activity.event"</span><span class="p">,</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span><span class="nt">"field"</span><span class="p">:</span><span class="w"> </span><span class="s2">"dm5e6b96f4_sector"</span><span class="p">,</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">  </span><span class="nt">"value"</span><span class="p">:</span><span class="w"> </span><span class="s2">"jk001"</span><span class="p">,</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">  </span><span class="nt">"display"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Sector JK001"</span><span class="p">,</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">  </span><span class="nt">"ordernum"</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">  </span><span class="nt">"is_active"</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span>
 <a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="p">}</span>
 </code></pre></div>
 <ul>
@@ -1720,18 +1748,54 @@ each option is a row:</p>
 <p>ER enforces a unique constraint on <code>(tenant, model, field, value)</code> —
 duplicate options for the same dropdown collide.</p>
 <h2 id="how-field-names-are-derived">How <code>field</code> names are derived<a class="headerlink" href="#how-field-names-are-derived" title="Permanent link">&para;</a></h2>
-<p>For every event type with a choice attribute, we derive a stable <code>field</code>
-name:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>et{8-hex}_{attr_key}
+<p>Choice lists are <strong>shared across the event types built from one datamodel
+sync</strong>. For every choice-bearing SMART attribute, we derive a single stable
+<code>field</code> name:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>dm{8-hex}_{attr_key}
 </code></pre></div>
-<p>The 8 hex chars are <code>sha256(event_type_value)[:8]</code>. The attribute key is
-sanitized to <code>^\w+$</code>. The total is capped at 40 characters (ER's column
-limit).</p>
-<p>Example: for event type <code>jkperu_incidents_caza_furtiva</code> and attribute
-<code>signo_de_caza</code>, the field name is <code>et5e6b96f4_signo_de_caza</code>.</p>
-<p>The hash makes the name unique across all event types in a tenant, without
-needing a registry. The same SMART attribute referenced from two different
-event types gets two different field names — they're isolated by design.</p>
+<p>The 8 hex chars are <code>sha256("{scope_key}:{attr_key}")[:8]</code>, where the scope
+key is the CA UUID (or <code>{ca_uuid}_{cm_uuid}</code> when syncing a Configurable
+Model). The attribute key is sanitized to <code>^\w+$</code>. The total is capped at 40
+characters (ER's column limit); including the attribute key in the hash
+keeps two long keys distinct even when the cap truncates their readable
+suffixes to a shared prefix.</p>
+<p>This mirrors SMART's own data model: options belong to the DM-level
+attribute, not to the category, so every category that references
+<code>signo_de_caza</code> sees the same option list — and in ER, every event type
+built from that datamodel references the same Choice records.</p>
+<p>The scope hash keeps sharing bounded:</p>
+<ul>
+<li><strong>Not across CAs.</strong> Two conservation areas can define the same attribute
+  key with different options; their field names differ by CA UUID.</li>
+<li><strong>Not across CMs.</strong> A Configurable Model curates its own option subsets
+  (filter, reorder, deactivate), so each CM's lists are scoped by CM UUID
+  — including apart from the plain-DM lists of the same CA.</li>
+</ul>
+<p>One exception stays per-event-type: the consolidate-mode <strong>variant
+discriminator</strong> (<code>et{8-hex}_variant</code>) — its options <em>are</em> the variant
+identities of one event type, so there is nothing to share.</p>
+<div class="admonition note">
+<p class="admonition-title">Legacy <code>et*_</code> fields</p>
+<p>Before choice sharing, every event type got its own copy of each list,
+named <code>et{8-hex}_{attr_key}</code> with the hash over the event-type value.
+Re-syncing a site created under that scheme re-points the event-type
+schemas at the shared <code>dm*_</code> lists and leaves the old <code>et*_</code> lists in
+place (active but unreferenced). Historical events are unaffected —
+stored option <strong>values</strong> are identical under both schemes — and the
+orphaned lists can be cleaned up manually if desired.</p>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">Per-node CM curation is collapsed</p>
+<p>SMART allows a CM to curate the <em>same</em> attribute differently per node
+(multiple <code>attributeConfig</code> entries for one <code>attributeKey</code>, referenced
+via each node's <code>configId</code>). The smartconnect parser currently flattens
+these to one config per key (first wins), so the sync — with or without
+sharing — uploads a single option list per attribute per CM. Lifting
+this requires smartconnect to expose the config identity; until then,
+per-node curations of the same attribute are collapsed. The risks and
+rollout order for that library change are captured in
+<a href="https://github.com/PADAS/earthranger-smart-utils/blob/main/docs/superpowers/specs/2026-09-25-smartconnect-configid-risks.md">the smartconnect configId risk assessment</a>.</p>
+</div>
 <h2 id="how-value-is-derived">How <code>value</code> is derived<a class="headerlink" href="#how-value-is-derived" title="Permanent link">&para;</a></h2>
 <p>A choice's <code>value</code> is what ER stores on every event record that selects
 this option. It must be stable across syncs (changing it orphans historical
@@ -1773,7 +1837,7 @@ events) and match <code>^\w+$</code> (ER's column constraint).</p>
 <p><strong>Cap at 100 chars.</strong> ER's column is <code>varchar(100)</code>. If the sanitized
    value exceeds that, replace the tail with a deterministic hash suffix
    over the <strong>sanitized</strong> string (not the raw SMART key):</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">sanitized</span><span class="p">[:</span><span class="mi">91</span><span class="p">]</span> <span class="o">+</span> <span class="s2">&quot;_&quot;</span> <span class="o">+</span> <span class="n">hashlib</span><span class="o">.</span><span class="n">sha256</span><span class="p">(</span><span class="n">sanitized</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s2">&quot;utf-8&quot;</span><span class="p">))</span><span class="o">.</span><span class="n">hexdigest</span><span class="p">()[:</span><span class="mi">8</span><span class="p">]</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">sanitized</span><span class="p">[:</span><span class="mi">91</span><span class="p">]</span> <span class="o">+</span> <span class="s2">"_"</span> <span class="o">+</span> <span class="n">hashlib</span><span class="o">.</span><span class="n">sha256</span><span class="p">(</span><span class="n">sanitized</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s2">"utf-8"</span><span class="p">))</span><span class="o">.</span><span class="n">hexdigest</span><span class="p">()[:</span><span class="mi">8</span><span class="p">]</span>
 </code></pre></div>
 <p>Total length is exactly 100. The 91-char readable prefix aids
 debugging; the 8-hex tail (~4 billion buckets) makes collisions
@@ -1869,13 +1933,13 @@ a structural strategy that aims to preserve meaning:</p>
 CM's listing order, not the base DM's.</p>
 <h2 id="the-ref-url">The <code>$ref</code> URL<a class="headerlink" href="#the-ref-url" title="Permanent link">&para;</a></h2>
 <p>In a v2 event-type schema, choice fields look like:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nt">&quot;signo_de_caza&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;array&quot;</span><span class="p">,</span>
-<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">  </span><span class="nt">&quot;uniqueItems&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
-<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">  </span><span class="nt">&quot;items&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">    </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;string&quot;</span><span class="p">,</span>
-<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="w">    </span><span class="nt">&quot;anyOf&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
-<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="w">      </span><span class="p">{</span><span class="nt">&quot;$ref&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;/api/v2.0/schemas/choices.json?field=et5e6b96f4_signo_de_caza&quot;</span><span class="p">}</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nt">"signo_de_caza"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"array"</span><span class="p">,</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">  </span><span class="nt">"uniqueItems"</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">  </span><span class="nt">"items"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">    </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"string"</span><span class="p">,</span>
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="w">    </span><span class="nt">"anyOf"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="w">      </span><span class="p">{</span><span class="nt">"$ref"</span><span class="p">:</span><span class="w"> </span><span class="s2">"/api/v2.0/schemas/choices.json?field=dm5e6b96f4_signo_de_caza"</span><span class="p">}</span>
 <a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="w">    </span><span class="p">]</span>
 <a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="w">  </span><span class="p">}</span>
 <a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a><span class="p">}</span>
@@ -1958,6 +2022,15 @@ records. Without it, every v2 event-type POST would fail with
 <p>SMART TREE attributes have parent/child option hierarchies (e.g. <code>africa →
 africa.kenya → africa.kenya.nairobi</code>). <code>er-smart-sync</code> <strong>flattens to leaves</strong>
 — only the deepest options become Choice records.</p>
+<p>Both migration paths converge on that shape (ERCS-8246): the base data
+model flattens to leaves here, and CM <code>attributeConfig</code> tree curations are
+flattened to CM-leaves by the smartconnect parser (≥ 1.13.0), keyed by the
+same dotted paths so the <a href="#cm-overlay-rules">CM overlay rules</a> apply
+unchanged. Each option's SMART active flag is honored <strong>effectively</strong>: a
+leaf under a deactivated branch arrives with <code>is_active=false</code>. The
+<code>smartconnect-client&gt;=1.13.0</code> pin guarantees this parsing; older releases
+surfaced only top-level parents for CM tree curations and dropped the
+active flag for DM tree options.</p>
 <p>Two practical consequences for TREE attributes:</p>
 <ul>
 <li>The flattened leaf's SMART <code>key</code> is the full dotted path

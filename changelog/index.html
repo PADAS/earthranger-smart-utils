@@ -1003,6 +1003,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../cli-reference/copy-event-type/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    copy-event-type
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../cli-reference/validate-config/" class="md-nav__link">
         
   
@@ -1354,16 +1382,27 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#032-2026-08-05" class="md-nav__link">
+  <a href="#unreleased" class="md-nav__link">
     <span class="md-ellipsis">
       
-        0.3.2 — 2026-08-05
+        Unreleased
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="0.3.2 — 2026-08-05">
+    <nav class="md-nav" aria-label="Unreleased">
       <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
         
           <li class="md-nav__item">
   <a href="#fixed" class="md-nav__link">
@@ -1377,7 +1416,46 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#added" class="md-nav__link">
+  <a href="#changed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#032-2026-08-05" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.3.2 — 2026-08-05
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.3.2 — 2026-08-05">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fixed_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#added_1" class="md-nav__link">
     <span class="md-ellipsis">
       
         Added
@@ -1449,16 +1527,27 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#032-2026-08-05" class="md-nav__link">
+  <a href="#unreleased" class="md-nav__link">
     <span class="md-ellipsis">
       
-        0.3.2 — 2026-08-05
+        Unreleased
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="0.3.2 — 2026-08-05">
+    <nav class="md-nav" aria-label="Unreleased">
       <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
         
           <li class="md-nav__item">
   <a href="#fixed" class="md-nav__link">
@@ -1472,7 +1561,46 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#added" class="md-nav__link">
+  <a href="#changed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#032-2026-08-05" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.3.2 — 2026-08-05
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.3.2 — 2026-08-05">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fixed_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#added_1" class="md-nav__link">
     <span class="md-ellipsis">
       
         Added
@@ -1547,8 +1675,55 @@
 <a href="https://pypi.org/project/er-smart-sync/">PyPI</a> and tagged on
 <a href="https://github.com/PADAS/earthranger-smart-utils/releases">GitHub Releases</a>,
 which carry the full commit-level history.</p>
-<h2 id="032-2026-08-05">0.3.2 — 2026-08-05<a class="headerlink" href="#032-2026-08-05" title="Permanent link">&para;</a></h2>
+<h2 id="unreleased">Unreleased<a class="headerlink" href="#unreleased" title="Permanent link">&para;</a></h2>
+<h3 id="added">Added<a class="headerlink" href="#added" title="Permanent link">&para;</a></h3>
+<p><strong>The EarthRanger endpoint accepts a bare domain or scheme + host.</strong>
+<code>site.pamdas.org</code>, <code>https://site.pamdas.org</code>, and the full
+<code>https://site.pamdas.org/api/v1.0</code> service root all normalize to the
+service-root form, everywhere an ER endpoint is accepted: the YAML
+<code>earthranger.endpoint</code> key, <code>--er-endpoint</code>, and <code>copy-event-type</code>'s
+<code>--source-endpoint</code>/<code>--dest-endpoint</code>. An explicit <code>http://</code> scheme is
+preserved for development servers.</p>
+<p><strong><code>copy-event-type</code> is now documented</strong> — in the
+<a href="../cli-reference/copy-event-type/">CLI reference</a> and USAGE.md; the
+command itself shipped earlier (#12).</p>
 <h3 id="fixed">Fixed<a class="headerlink" href="#fixed" title="Permanent link">&para;</a></h3>
+<p><strong>Inactive SMART options no longer migrate as active (ERCS-8246).</strong> The
+v2 choices builder hardcoded <code>is_active=true</code> on the base-datamodel path,
+so options deactivated in SMART arrived active in EarthRanger (366 of 470
+species options on one reported migration). Choices now carry the SMART
+active flag; existing ER records are deactivated in place on the next
+sync. The v1 builder excludes inactive options from its inline enums,
+mirroring what its CM path already did.</p>
+<p><strong>TREE attributes migrate identically from the base datamodel and a
+Configurable Model (ERCS-8246).</strong> The CM path previously surfaced only
+top-level parent nodes — dropping every nested child option — while the
+base path surfaced leaves only. smartconnect-client ≥ 1.13.0 flattens CM
+tree curations to CM-leaves keyed by the same dotted paths as base-DM
+options, and emits effective active flags (a leaf under a deactivated
+branch arrives inactive). It also fixes MLIST attributes losing their
+options entirely in file-based datamodel parses. The smartconnect-client
+pin is now <code>&gt;=1.13.0</code>, activating the converged behavior.</p>
+<h3 id="changed">Changed<a class="headerlink" href="#changed" title="Permanent link">&para;</a></h3>
+<p><strong>Choice lists are now shared across the event types of a datamodel sync.</strong>
+Previously every event type got its own copy of each dropdown's Choice
+records, even when the SMART data model defined one option list used by many
+categories — a large CA could create thousands of duplicate Choice rows.
+Choice <code>field</code> names now hash the (CA, CM) scope plus the attribute key
+instead of the event-type value (<code>dm{8-hex}_{attr_key}</code> replacing
+<code>et{8-hex}_{attr_key}</code>), so all event types built from one datamodel
+reference a single list per attribute.</p>
+<p>Sharing is deliberately bounded to one CA and one Configurable Model:
+different CAs can define the same attribute key with different options, and
+each CM curates its own option subsets, so neither shares lists with the
+other. The consolidate-mode variant discriminator remains per-event-type.</p>
+<p>Re-syncing an existing site re-points event-type schemas at the shared
+lists and leaves the legacy <code>et*_</code> Choice records in place (active but
+unreferenced); historical events are unaffected because stored option
+values are identical under both naming schemes. See
+<a href="../concepts/choices/#how-field-names-are-derived">Concept: ER Choice records</a>.</p>
+<h2 id="032-2026-08-05">0.3.2 — 2026-08-05<a class="headerlink" href="#032-2026-08-05" title="Permanent link">&para;</a></h2>
+<h3 id="fixed_1">Fixed<a class="headerlink" href="#fixed_1" title="Permanent link">&para;</a></h3>
 <p><strong><code>smart.use_language_code</code> is now honored by file-based syncs.</strong>
 <code>datamodel --from-file</code>, <code>choices</code>, and <code>inspect-datamodel</code> built their SMART
 XML parsers from the <code>--smart-language</code> flag, whose default was <code>en</code>, and never
@@ -1572,15 +1747,15 @@ the same root, a flag default that hid whether the user had passed anything.</p>
 <p>The version one affected behavior rather than presentation: SMART versions
 below 7.5.3 need <code>smart_observation_uuid</code> patched onto outgoing events, so a
 silently discarded <code>--smart-version</code> could change what the sync actually sent.</p>
-<h3 id="added">Added<a class="headerlink" href="#added" title="Permanent link">&para;</a></h3>
+<h3 id="added_1">Added<a class="headerlink" href="#added_1" title="Permanent link">&para;</a></h3>
 <p><strong>Data-model syncs warn when no display name resolves.</strong> SMART substitutes the
 literal <code>n/a</code> whenever no <code>&lt;names&gt;</code> entry matches the requested language; it
 does not raise or warn, so an unmatched language code produced a complete,
 valid-looking data model with every label set to <code>n/a</code>. <code>datamodel</code>, <code>choices</code>,
 and <code>inspect-datamodel</code> now detect that and name the codes the model actually
 declares:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>WARNING: All 645 SMART display names resolved to &quot;n/a&quot;: the data model has no
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>labels in language &#39;en&#39;. Available language code(s): es. Set
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>WARNING: All 645 SMART display names resolved to "n/a": the data model has no
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>labels in language 'en'. Available language code(s): es. Set
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>smart.use_language_code in your config (or pass --smart-language) to one of
 <a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>these and re-run.
 </code></pre></div>

@@ -1005,6 +1005,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../cli-reference/copy-event-type/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    copy-event-type
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../cli-reference/validate-config/" class="md-nav__link">
         
   
@@ -1625,8 +1653,8 @@
 here, check the verbose logs (<code>er-smart-sync -v ...</code>) and look for a stack
 trace or warning above the failure point.</p>
 <h2 id="400-is-not-one-of-the-available-choices"><code>400: ... is not one of the available choices</code><a class="headerlink" href="#400-is-not-one-of-the-available-choices" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>WARNING: ERClient: Fail attempt 1 of 1: {&quot;field&quot;: [&quot;Select a valid choice.
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>et5e6b96f4_sector is not one of the available choices.&quot;]}
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>WARNING: ERClient: Fail attempt 1 of 1: {"field": ["Select a valid choice.
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>dm5e6b96f4_sector is not one of the available choices."]}
 </code></pre></div>
 <p><strong>Cause:</strong> ER's <code>/choices/?field=&lt;X&gt;</code> endpoint validates the <code>field=</code> query
 value against the set of field names already in the database. For a fresh
@@ -1645,7 +1673,7 @@ Earlier versions of <code>er-smart-sync</code> didn't parse the string back to a
 before comparing, so the dict-vs-string comparison always reported a diff.</p>
 <p><strong>Status: fixed in 5648b65.</strong> Make sure you're on a current build:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>git<span class="w"> </span>pull
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">&quot;.[dev]&quot;</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">".[dev]"</span>
 </code></pre></div>
 <p>After the fix, a re-run of <code>datamodel</code> against unchanged input should
 report:</p>
@@ -1669,9 +1697,9 @@ it:</p>
 </code></pre></div>
 <p>Set to <code>0</code> to disable our timeout entirely and rely on each library's own.</p>
 <h2 id="could-not-extract-a-ca-identifier-from-smart-label"><code>Could not extract a CA identifier from SMART label ...</code><a class="headerlink" href="#could-not-extract-a-ca-identifier-from-smart-label" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>ValueError: Could not extract a CA identifier from SMART label &#39;My Reserve&#39;
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>ValueError: Could not extract a CA identifier from SMART label 'My Reserve'
 <a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>(ca_uuid=some-ca-uuid). The label must contain a bracketed short code, e.g.
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>&#39;Foasf Reserve [FOASF]&#39;. Fix the label in SMART Connect, or use --from-file
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>'Foasf Reserve [FOASF]'. Fix the label in SMART Connect, or use --from-file
 <a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>with an explicit --ca-identifier.
 </code></pre></div>
 <p><strong>Cause:</strong> API-based runs derive the identifier from the bracketed code in
@@ -1688,7 +1716,7 @@ extract.</p>
 </code></pre></div>
 <p>See <a href="../concepts/ca-identifier/">Concept: CA identifier</a> for the full story.</p>
 <h2 id="duplicate-key-conflict-on-event-type-post">Duplicate-key conflict on event-type POST<a class="headerlink" href="#duplicate-key-conflict-on-event-type-post" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>WARNING: Event type value &#39;jkperu_incidents_caza_furtiva&#39; exists in this
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>WARNING: Event type value 'jkperu_incidents_caza_furtiva' exists in this
 <a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>tenant as v1; skipping the v1 push to avoid cross-version corruption.
 <a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>Convert it via POST /api/v2.0/activity/eventtypes/migrate/ before retrying
 <a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>v1.
@@ -1713,7 +1741,7 @@ with a <code>$ref</code>, even when the CM has deactivated every option. The Cho
 records are still upserted (just marked <code>is_active=False</code>); ER renders an
 empty dropdown until ops re-activate them.</p>
 <p>If you're seeing this on an old build, update:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>git<span class="w"> </span>pull<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">&quot;.[dev]&quot;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>git<span class="w"> </span>pull<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">".[dev]"</span>
 </code></pre></div>
 <h2 id="authentication-fails-on-earthranger">Authentication fails on EarthRanger<a class="headerlink" href="#authentication-fails-on-earthranger" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>ERClient: 401 Bad credentials
@@ -1721,7 +1749,7 @@ empty dropdown until ops re-activate them.</p>
 <p><strong>Causes (in rough order of likelihood):</strong></p>
 <ol>
 <li>Wrong or expired <code>token</code>.</li>
-<li><code>endpoint</code> is correct but missing <code>/api/v1.0</code>.</li>
+<li><code>endpoint</code> points at the wrong site (a bare domain or scheme+host is fine — the <code>/api/v1.0</code> path is added automatically).</li>
 <li>Username/password used with the wrong <code>client_id</code>.</li>
 </ol>
 <p><strong>Diagnose with <code>validate-config</code>:</strong></p>

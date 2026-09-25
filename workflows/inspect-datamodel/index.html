@@ -1121,6 +1121,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../cli-reference/copy-event-type/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    copy-event-type
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../cli-reference/validate-config/" class="md-nav__link">
         
   
@@ -1645,15 +1673,17 @@ fields):</p>
 <a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>      ...
 <a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>
 <a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>Choice sets: 60
-<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>- field: et5e6b96f4_signo_de_caza
+<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>- field: dm5e6b96f4_signo_de_caza
 <a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a>    options (4):
 <a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a>      - rastro: Rastro
 <a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a>      - trampa: Trampa
 <a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a>      - ...
 </code></pre></div>
 <p>For each choice-bearing field, you'll see the derived <code>Choice.field</code> name
-(the <code>et&lt;hash&gt;_&lt;attr&gt;</code> part). This is what <code>datamodel</code> will POST as
-EarthRanger <code>Choice</code> records.</p>
+(the <code>dm&lt;hash&gt;_&lt;attr&gt;</code> part). This is what <code>datamodel</code> will POST as
+EarthRanger <code>Choice</code> records. Choice lists are shared across the event
+types of a sync, so the choice-set count reflects distinct SMART
+attributes, not (event type × attribute) pairs.</p>
 <h2 id="reading-v1-output">Reading v1 output<a class="headerlink" href="#reading-v1-output" title="Permanent link">&para;</a></h2>
 <p>If you pass <code>--event-type-version v1</code>, the output is closer to v1's inline-
 enum format:</p>
@@ -1665,7 +1695,7 @@ enum format:</p>
 <a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>- jkperu_incidents_caza_furtiva
 <a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>    display: Caza furtiva
 <a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>    fields:
-<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>      signo_de_caza: array (enum=[&#39;rastro&#39;, &#39;trampa&#39;, &#39;red&#39;, &#39;cazador&#39;])
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>      signo_de_caza: array (enum=['rastro', 'trampa', 'red', 'cazador'])
 <a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>      ...
 </code></pre></div>
 <p>No separate Choice section — v1 embeds the options directly in the schema.</p>
