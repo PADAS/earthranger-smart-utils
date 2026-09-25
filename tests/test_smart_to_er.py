@@ -422,3 +422,26 @@ def test_inactive_tree_leaves_excluded_from_enum():
     out = build_event_types(dm=dm, ca_uuid=CA_UUID, ca_identifier="X")
     prop = _schema(out[0])["properties"]["region"]
     assert prop["enum"] == ["natural.disease"]
+
+
+def test_multi_list_all_options_inactive_keeps_array_type():
+    """Deactivating a multi-select LIST's last active option must not change
+    the field's wire type from array to string (#17 review) — existing
+    array-valued events would become incompatible with the schema."""
+    dm = {
+        "categories": [
+            _category("incidents", attributes=[_cat_attr("colors")], is_multiple=True),
+        ],
+        "attributes": [
+            _attr(
+                "colors",
+                "LIST",
+                options=[_option("red", is_active=False)],
+            )
+        ],
+    }
+    out = build_event_types(dm=dm, ca_uuid=CA_UUID, ca_identifier="X")
+    prop = _schema(out[0])["properties"]["colors"]
+    assert prop["type"] == "array"
+    assert prop["items"] == {"type": "string"}
+    assert "enum" not in prop

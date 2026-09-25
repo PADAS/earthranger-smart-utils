@@ -249,6 +249,15 @@ def _attribute_property(
         # code did) hides the attribute even on historical events.
         prop["readOnly"] = True
 
+    # Shape the multi-select wire type before any empty-options return: a
+    # LIST that allows multiple values is an array even when no (active)
+    # options remain, otherwise deactivating the last option would flip the
+    # field from array to string and orphan existing array-valued events.
+    is_multi = smart_type == "MLIST" or (smart_type == "LIST" and allow_multi)
+    if is_multi:
+        prop["type"] = "array"
+        prop["items"] = {"type": "string"}
+
     options = list(attribute.options or [])
     if not options:
         return prop
@@ -267,9 +276,8 @@ def _attribute_property(
     enum_keys = [o.key for o in options]
     enum_names = {o.key: o.display for o in options}
 
-    if smart_type == "MLIST" or (smart_type == "LIST" and allow_multi):
+    if is_multi:
         # Multi-value selection: array of enum strings.
-        prop["type"] = "array"
         prop["items"] = {
             "type": "string",
             "enum": enum_keys,
