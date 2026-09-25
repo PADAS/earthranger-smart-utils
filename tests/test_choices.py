@@ -579,6 +579,17 @@ def test_derive_shared_choice_field_distinct_scopes_differ():
     assert len({a, b, c}) == 3
 
 
+def test_derive_shared_choice_field_long_keys_sharing_prefix_differ():
+    """Two distinct attr keys whose sanitized forms share the first 29 chars
+    must not collide after the 40-char truncation — the hash covers the
+    attribute key as well as the scope (PR #16 review)."""
+    from er_smart_sync.choices import derive_shared_choice_field
+
+    a = derive_shared_choice_field("ca-1", "abcdefghijklmnopqrstuvwxyzabc_one")
+    b = derive_shared_choice_field("ca-1", "abcdefghijklmnopqrstuvwxyzabc_two")
+    assert a != b
+
+
 def test_derive_shared_choice_field_under_40_chars():
     from er_smart_sync.choices import derive_shared_choice_field
 

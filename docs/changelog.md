@@ -13,9 +13,10 @@ which carry the full commit-level history.
 Previously every event type got its own copy of each dropdown's Choice
 records, even when the SMART data model defined one option list used by many
 categories — a large CA could create thousands of duplicate Choice rows.
-Choice `field` names now hash the (CA, CM) scope instead of the event-type
-value (`dm{8-hex}_{attr_key}` replacing `et{8-hex}_{attr_key}`), so all
-event types built from one datamodel reference a single list per attribute.
+Choice `field` names now hash the (CA, CM) scope plus the attribute key
+instead of the event-type value (`dm{8-hex}_{attr_key}` replacing
+`et{8-hex}_{attr_key}`), so all event types built from one datamodel
+reference a single list per attribute.
 
 Sharing is deliberately bounded to one CA and one Configurable Model:
 different CAs can define the same attribute key with different options, and

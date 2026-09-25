@@ -96,13 +96,15 @@ def derive_shared_choice_field(scope_key: str, attr_key: str) -> str:
     """Derive the shared Choice.field name for a SMART attribute.
 
     Returns ``dm{8hex}_{sanitized_attr_key}`` where the hash covers the
-    (CA, CM) scope key — so every event type built from the same datamodel
-    references one Choice list per attribute, while two CAs (or two CMs)
-    that reuse an attribute key stay collision-free. The ``dm`` prefix
-    distinguishes shared lists from legacy per-event-type ``et`` lists.
-    Total length ≤ 40 chars (truncated if needed).
+    (CA, CM) scope key AND the attribute key — so every event type built
+    from the same datamodel references one Choice list per attribute, two
+    CAs (or two CMs) that reuse an attribute key stay collision-free, and
+    two long attribute keys whose sanitized forms share the 29 readable
+    chars that survive the 40-char cap still get distinct fields. The
+    ``dm`` prefix distinguishes shared lists from legacy per-event-type
+    ``et`` lists. Total length ≤ 40 chars (truncated if needed).
     """
-    digest = hashlib.sha256(scope_key.encode("utf-8")).hexdigest()[:8]
+    digest = hashlib.sha256(f"{scope_key}:{attr_key}".encode("utf-8")).hexdigest()[:8]
     sanitized = sanitize_choice_value(attr_key)
     field = f"dm{digest}_{sanitized}"
     if len(field) > 40:
