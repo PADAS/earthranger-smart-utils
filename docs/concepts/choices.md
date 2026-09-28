@@ -290,9 +290,24 @@ Two practical consequences for TREE attributes:
   [`display` shortening](#how-display-is-derived) handles via the
   last-segment rule.
 
-Matching v1 behavior. ER's `Choice` model supports `sub_choice_of` for
-hierarchical relations, but using it would change downstream behavior. Out
-of scope for now.
+!!! note "Decision (2026-09-28): the flat dropdown stays as-is"
+    In ER, a TREE attribute renders as a flat dropdown — SMART's hierarchy
+    (e.g. *Birds → Philippine Hawk-eagle*) is not shown, though the
+    depth-first option order is preserved via `ordernum`. We evaluated the
+    interim options and decided to leave it flat:
+
+    - **`Choice.sub_choice_of`** exists in ER's data model but is consumed
+      only by the Django-side choices machinery (admin optgroups); the
+      event-form renderer (das-web-react) never reads it, so populating it
+      from the sync would change nothing in the form.
+    - **Hierarchy-prefixed display labels** (`Birds › Philippine
+      Hawk-eagle …`) would make the flat list legible but eat into the
+      100-char display cap and leak the prefix into every place ER shows
+      the selected value (event details, feed, exports).
+
+    Real hierarchical dropdowns in the event form are core EarthRanger
+    work, tracked as **ERA-14005** (see also ERCS-8246, which requested
+    them). Revisit this decision when that lands.
 
 ## Related
 
