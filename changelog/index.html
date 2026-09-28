@@ -1382,15 +1382,15 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#unreleased" class="md-nav__link">
+  <a href="#040-2026-09-28" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Unreleased
+        0.4.0 — 2026-09-28
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Unreleased">
+    <nav class="md-nav" aria-label="0.4.0 — 2026-09-28">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -1415,11 +1415,28 @@
   
 </li>
         
-          <li class="md-nav__item">
-  <a href="#fixed_1" class="md-nav__link">
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#033-2026-09-25" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Fixed
+        0.3.3 — 2026-09-25
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.3.3 — 2026-09-25">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#changed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
       
     </span>
   </a>
@@ -1427,10 +1444,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#changed" class="md-nav__link">
+  <a href="#fixed_1" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Changed
+        Fixed
       
     </span>
   </a>
@@ -1538,15 +1555,15 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#unreleased" class="md-nav__link">
+  <a href="#040-2026-09-28" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Unreleased
+        0.4.0 — 2026-09-28
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Unreleased">
+    <nav class="md-nav" aria-label="0.4.0 — 2026-09-28">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -1571,11 +1588,28 @@
   
 </li>
         
-          <li class="md-nav__item">
-  <a href="#fixed_1" class="md-nav__link">
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#033-2026-09-25" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Fixed
+        0.3.3 — 2026-09-25
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.3.3 — 2026-09-25">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#changed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
       
     </span>
   </a>
@@ -1583,10 +1617,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#changed" class="md-nav__link">
+  <a href="#fixed_1" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Changed
+        Fixed
       
     </span>
   </a>
@@ -1697,7 +1731,7 @@
 <a href="https://pypi.org/project/er-smart-sync/">PyPI</a> and tagged on
 <a href="https://github.com/PADAS/earthranger-smart-utils/releases">GitHub Releases</a>,
 which carry the full commit-level history.</p>
-<h2 id="unreleased">Unreleased<a class="headerlink" href="#unreleased" title="Permanent link">&para;</a></h2>
+<h2 id="040-2026-09-28">0.4.0 — 2026-09-28<a class="headerlink" href="#040-2026-09-28" title="Permanent link">&para;</a></h2>
 <h3 id="fixed">Fixed<a class="headerlink" href="#fixed" title="Permanent link">&para;</a></h3>
 <p><strong>Leaf categories that re-declare an inherited attribute no longer produce
 rejected event types.</strong> SMART lets a leaf category override an attribute it
@@ -1708,6 +1742,15 @@ event type with <code>Invalid JSON Schema: ... has non-unique elements at
 ui.sections.section-1.leftColumn</code>, and the inherited active entry clobbered
 the leaf's disable-override. First declaration (the leaf's own) now wins in
 both the v2 and v1 builders.</p>
+<p><strong>TREE attributes migrate identically from the base datamodel and a
+Configurable Model (ERCS-8246).</strong> The CM path previously surfaced only
+top-level parent nodes — dropping every nested child option — while the
+base path surfaced leaves only. smartconnect-client ≥ 1.13.0 flattens CM
+tree curations to CM-leaves keyed by the same dotted paths as base-DM
+options, and emits effective active flags (a leaf under a deactivated
+branch arrives inactive). It also fixes MLIST attributes losing their
+options entirely in file-based datamodel parses. The smartconnect-client
+pin is now <code>&gt;=1.14.0</code>, activating the converged behavior.</p>
 <h3 id="added">Added<a class="headerlink" href="#added" title="Permanent link">&para;</a></h3>
 <p><strong>The EarthRanger endpoint accepts a bare domain or scheme + host.</strong>
 <code>site.pamdas.org</code>, <code>https://site.pamdas.org</code>, and the full
@@ -1719,23 +1762,7 @@ preserved for development servers.</p>
 <p><strong><code>copy-event-type</code> is now documented</strong> — in the
 <a href="../cli-reference/copy-event-type/">CLI reference</a> and USAGE.md; the
 command itself shipped earlier (#12).</p>
-<h3 id="fixed_1">Fixed<a class="headerlink" href="#fixed_1" title="Permanent link">&para;</a></h3>
-<p><strong>Inactive SMART options no longer migrate as active (ERCS-8246).</strong> The
-v2 choices builder hardcoded <code>is_active=true</code> on the base-datamodel path,
-so options deactivated in SMART arrived active in EarthRanger (366 of 470
-species options on one reported migration). Choices now carry the SMART
-active flag; existing ER records are deactivated in place on the next
-sync. The v1 builder excludes inactive options from its inline enums,
-mirroring what its CM path already did.</p>
-<p><strong>TREE attributes migrate identically from the base datamodel and a
-Configurable Model (ERCS-8246).</strong> The CM path previously surfaced only
-top-level parent nodes — dropping every nested child option — while the
-base path surfaced leaves only. smartconnect-client ≥ 1.13.0 flattens CM
-tree curations to CM-leaves keyed by the same dotted paths as base-DM
-options, and emits effective active flags (a leaf under a deactivated
-branch arrives inactive). It also fixes MLIST attributes losing their
-options entirely in file-based datamodel parses. The smartconnect-client
-pin is now <code>&gt;=1.13.0</code>, activating the converged behavior.</p>
+<h2 id="033-2026-09-25">0.3.3 — 2026-09-25<a class="headerlink" href="#033-2026-09-25" title="Permanent link">&para;</a></h2>
 <h3 id="changed">Changed<a class="headerlink" href="#changed" title="Permanent link">&para;</a></h3>
 <p><strong>Choice lists are now shared across the event types of a datamodel sync.</strong>
 Previously every event type got its own copy of each dropdown's Choice
@@ -1754,6 +1781,14 @@ lists and leaves the legacy <code>et*_</code> Choice records in place (active bu
 unreferenced); historical events are unaffected because stored option
 values are identical under both naming schemes. See
 <a href="../concepts/choices/#how-field-names-are-derived">Concept: ER Choice records</a>.</p>
+<h3 id="fixed_1">Fixed<a class="headerlink" href="#fixed_1" title="Permanent link">&para;</a></h3>
+<p><strong>Inactive SMART options no longer migrate as active (ERCS-8246).</strong> The
+v2 choices builder hardcoded <code>is_active=true</code> on the base-datamodel path,
+so options deactivated in SMART arrived active in EarthRanger (366 of 470
+species options on one reported migration). Choices now carry the SMART
+active flag; existing ER records are deactivated in place on the next
+sync. The v1 builder excludes inactive options from its inline enums,
+mirroring what its CM path already did.</p>
 <h2 id="032-2026-08-05">0.3.2 — 2026-08-05<a class="headerlink" href="#032-2026-08-05" title="Permanent link">&para;</a></h2>
 <h3 id="fixed_2">Fixed<a class="headerlink" href="#fixed_2" title="Permanent link">&para;</a></h3>
 <p><strong><code>smart.use_language_code</code> is now honored by file-based syncs.</strong>
