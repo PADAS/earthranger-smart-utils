@@ -2042,9 +2042,26 @@ active flag for DM tree options.</p>
   <a href="#how-display-is-derived"><code>display</code> shortening</a> handles via the
   last-segment rule.</li>
 </ul>
-<p>Matching v1 behavior. ER's <code>Choice</code> model supports <code>sub_choice_of</code> for
-hierarchical relations, but using it would change downstream behavior. Out
-of scope for now.</p>
+<div class="admonition note">
+<p class="admonition-title">Decision (2026-09-28): the flat dropdown stays as-is</p>
+<p>In ER, a TREE attribute renders as a flat dropdown — SMART's hierarchy
+(e.g. <em>Birds → Philippine Hawk-eagle</em>) is not shown, though the
+depth-first option order is preserved via <code>ordernum</code>. We evaluated the
+interim options and decided to leave it flat:</p>
+<ul>
+<li><strong><code>Choice.sub_choice_of</code></strong> exists in ER's data model but is consumed
+  only by the Django-side choices machinery (admin optgroups); the
+  event-form renderer (das-web-react) never reads it, so populating it
+  from the sync would change nothing in the form.</li>
+<li><strong>Hierarchy-prefixed display labels</strong> (<code>Birds › Philippine
+  Hawk-eagle …</code>) would make the flat list legible but eat into the
+  100-char display cap and leak the prefix into every place ER shows
+  the selected value (event details, feed, exports).</li>
+</ul>
+<p>Real hierarchical dropdowns in the event form are core EarthRanger
+work, tracked as <strong>ERA-14005</strong> (see also ERCS-8246, which requested
+them). Revisit this decision when that lands.</p>
+</div>
 <h2 id="related">Related<a class="headerlink" href="#related" title="Permanent link">&para;</a></h2>
 <ul>
 <li><a href="../../workflows/populate-choices/">Workflow: Populate choices</a></li>
