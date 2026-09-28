@@ -445,3 +445,27 @@ def test_multi_list_all_options_inactive_keeps_array_type():
     assert prop["type"] == "array"
     assert prop["items"] == {"type": "string"}
     assert "enum" not in prop
+
+
+def test_leaf_override_of_inherited_attribute_appears_once_v1():
+    """v1 shape of the same regression: the key must appear once in the
+    schema definition, with the leaf's own (disabled) declaration winning
+    over the inherited active one."""
+    dm = {
+        "categories": [
+            _category("threats", attributes=[_cat_attr("response")]),
+            _category(
+                "threats.fire",
+                attributes=[_cat_attr("response", is_active=False)],
+            ),
+        ],
+        "attributes": [
+            _attr("response", "TEXT", display="Response"),
+        ],
+    }
+    out = build_event_types(dm=dm, ca_uuid=CA_UUID, ca_identifier="X")
+    leaf_et = next(et for et in out if et.event_schema)
+    parsed = json.loads(leaf_et.event_schema)
+    schema = parsed["schema"]
+    assert schema["definition"].count("response") == 1
+    assert schema["properties"]["response"].get("readOnly") is True

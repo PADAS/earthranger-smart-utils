@@ -384,6 +384,13 @@ def _build_field_blocks(
 
     for cat_attr in leaf_attributes:
         key = cat_attr.key
+        # A leaf may re-declare an attribute it also inherits (SMART's
+        # per-leaf override, e.g. isactive=false to disable it). The leaf's
+        # own declaration comes first in leaf_attributes and wins; a second
+        # occurrence would both duplicate the section's leftColumn entry
+        # (ER rejects non-unique elements) and clobber the override.
+        if key in properties:
+            continue
         attribute = next((a for a in attributes if a.key == key), None)
         if attribute is None:
             logger.warning("Attribute %s not found in dm.attributes", key)

@@ -189,6 +189,11 @@ def _build_schema(
 
     for cat_attr in leaf_attributes:
         key = cat_attr.key
+        # First declaration wins: a leaf re-declaring an inherited attribute
+        # (SMART's per-leaf override) must not appear twice in the schema
+        # definition or have its override clobbered by the inherited entry.
+        if key in properties:
+            continue
         attribute = next((a for a in attributes if a.key == key), None)
         if attribute is None:
             logger.warning("Attribute not found in data model", extra=dict(key=key))
