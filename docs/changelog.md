@@ -7,6 +7,18 @@ which carry the full commit-level history.
 
 ## Unreleased
 
+### Fixed
+
+**Leaf categories that re-declare an inherited attribute no longer produce
+rejected event types.** SMART lets a leaf category override an attribute it
+inherits from a parent (commonly `isactive="false"` to disable it per
+leaf). Both builders concatenated the leaf's own attributes with the
+inherited ones, so the attribute appeared twice — ER rejected every such v2
+event type with `Invalid JSON Schema: ... has non-unique elements at
+ui.sections.section-1.leftColumn`, and the inherited active entry clobbered
+the leaf's disable-override. First declaration (the leaf's own) now wins in
+both the v2 and v1 builders.
+
 ### Added
 
 **The EarthRanger endpoint accepts a bare domain or scheme + host.**

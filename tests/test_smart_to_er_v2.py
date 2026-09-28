@@ -1156,3 +1156,33 @@ def test_consolidate_schema_matches_meta_schema_constraints():
                 f"field {fname!r} conditionalDependents references {dep!r}"
                 " which is not in sections"
             )
+
+
+def test_leaf_override_of_inherited_attribute_appears_once():
+    """A leaf category re-declaring an inherited attribute (SMART's per-leaf
+    override, e.g. isactive=false to disable it) must yield ONE field entry,
+    with the leaf's own declaration winning.
+
+    Regression: the key landed twice in section-1.leftColumn (ER rejects
+    non-unique elements) and the inherited active entry overwrote the leaf's
+    disabled override.
+    """
+    dm = {
+        "categories": [
+            _category("threats", attributes=[_cat_attr("response")]),
+            _category(
+                "threats.fire",
+                attributes=[_cat_attr("response", is_active=False)],
+            ),
+        ],
+        "attributes": [
+            _attr("response", "TEXT", display="Response"),
+        ],
+    }
+    ets = build_event_types_v2(dm=dm, cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID)
+    assert len(ets) == 1  # only the leaf becomes an event type
+    schema = ets[0].event_schema
+    left = [e["name"] for e in schema["ui"]["sections"]["section-1"]["leftColumn"]]
+    assert left == ["response"]
+    # The leaf's isactive=false override wins over the inherited active entry.
+    assert schema["json"]["properties"]["response"]["deprecated"] is True
