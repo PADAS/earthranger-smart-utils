@@ -5,7 +5,7 @@ Notable changes by version. Every release is also published to
 [GitHub Releases](https://github.com/PADAS/earthranger-smart-utils/releases),
 which carry the full commit-level history.
 
-## Unreleased
+## 0.4.0 — 2026-09-28
 
 ### Fixed
 
@@ -18,6 +18,16 @@ event type with `Invalid JSON Schema: ... has non-unique elements at
 ui.sections.section-1.leftColumn`, and the inherited active entry clobbered
 the leaf's disable-override. First declaration (the leaf's own) now wins in
 both the v2 and v1 builders.
+
+**TREE attributes migrate identically from the base datamodel and a
+Configurable Model (ERCS-8246).** The CM path previously surfaced only
+top-level parent nodes — dropping every nested child option — while the
+base path surfaced leaves only. smartconnect-client ≥ 1.13.0 flattens CM
+tree curations to CM-leaves keyed by the same dotted paths as base-DM
+options, and emits effective active flags (a leaf under a deactivated
+branch arrives inactive). It also fixes MLIST attributes losing their
+options entirely in file-based datamodel parses. The smartconnect-client
+pin is now `>=1.14.0`, activating the converged behavior.
 
 ### Added
 
@@ -33,25 +43,7 @@ preserved for development servers.
 [CLI reference](cli-reference/copy-event-type.md) and USAGE.md; the
 command itself shipped earlier (#12).
 
-### Fixed
-
-**Inactive SMART options no longer migrate as active (ERCS-8246).** The
-v2 choices builder hardcoded `is_active=true` on the base-datamodel path,
-so options deactivated in SMART arrived active in EarthRanger (366 of 470
-species options on one reported migration). Choices now carry the SMART
-active flag; existing ER records are deactivated in place on the next
-sync. The v1 builder excludes inactive options from its inline enums,
-mirroring what its CM path already did.
-
-**TREE attributes migrate identically from the base datamodel and a
-Configurable Model (ERCS-8246).** The CM path previously surfaced only
-top-level parent nodes — dropping every nested child option — while the
-base path surfaced leaves only. smartconnect-client ≥ 1.13.0 flattens CM
-tree curations to CM-leaves keyed by the same dotted paths as base-DM
-options, and emits effective active flags (a leaf under a deactivated
-branch arrives inactive). It also fixes MLIST attributes losing their
-options entirely in file-based datamodel parses. The smartconnect-client
-pin is now `>=1.13.0`, activating the converged behavior.
+## 0.3.3 — 2026-09-25
 
 ### Changed
 
@@ -74,6 +66,16 @@ lists and leaves the legacy `et*_` Choice records in place (active but
 unreferenced); historical events are unaffected because stored option
 values are identical under both naming schemes. See
 [Concept: ER Choice records](concepts/choices.md#how-field-names-are-derived).
+
+### Fixed
+
+**Inactive SMART options no longer migrate as active (ERCS-8246).** The
+v2 choices builder hardcoded `is_active=true` on the base-datamodel path,
+so options deactivated in SMART arrived active in EarthRanger (366 of 470
+species options on one reported migration). Choices now carry the SMART
+active flag; existing ER records are deactivated in place on the next
+sync. The v1 builder excludes inactive options from its inline enums,
+mirroring what its CM path already did.
 
 ## 0.3.2 — 2026-08-05
 
