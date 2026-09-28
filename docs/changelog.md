@@ -19,6 +19,16 @@ ui.sections.section-1.leftColumn`, and the inherited active entry clobbered
 the leaf's disable-override. First declaration (the leaf's own) now wins in
 both the v2 and v1 builders.
 
+**TREE attributes migrate identically from the base datamodel and a
+Configurable Model (ERCS-8246).** The CM path previously surfaced only
+top-level parent nodes — dropping every nested child option — while the
+base path surfaced leaves only. smartconnect-client ≥ 1.13.0 flattens CM
+tree curations to CM-leaves keyed by the same dotted paths as base-DM
+options, and emits effective active flags (a leaf under a deactivated
+branch arrives inactive). It also fixes MLIST attributes losing their
+options entirely in file-based datamodel parses. The smartconnect-client
+pin is now `>=1.14.0`, activating the converged behavior.
+
 ### Added
 
 **The EarthRanger endpoint accepts a bare domain or scheme + host.**
@@ -32,16 +42,6 @@ preserved for development servers.
 **`copy-event-type` is now documented** — in the
 [CLI reference](cli-reference/copy-event-type.md) and USAGE.md; the
 command itself shipped earlier (#12).
-
-**TREE attributes migrate identically from the base datamodel and a
-Configurable Model (ERCS-8246).** The CM path previously surfaced only
-top-level parent nodes — dropping every nested child option — while the
-base path surfaced leaves only. smartconnect-client ≥ 1.13.0 flattens CM
-tree curations to CM-leaves keyed by the same dotted paths as base-DM
-options, and emits effective active flags (a leaf under a deactivated
-branch arrives inactive). It also fixes MLIST attributes losing their
-options entirely in file-based datamodel parses. The smartconnect-client
-pin is now `>=1.13.0`, activating the converged behavior.
 
 ## 0.3.3 — 2026-09-25
 
