@@ -426,6 +426,9 @@ class ERSmartSynchronizer:
                 choices_base_url=self.config.earthranger.choices_base_url,
                 cm_variant_mode=self._cm_variant_mode,
             )
+            if self._er_v1_event_types_cache is None and self._migration_enabled():
+                # Direct push (e.g. --from-file): no run-level snapshot yet.
+                self._er_v1_event_types_cache = self._fetch_legacy_v1_snapshot()
             if not self._migrate_legacy_for(event_types):
                 return
         else:

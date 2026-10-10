@@ -758,6 +758,68 @@ def test_cm_variant_mode_flag_overrides_config(tmp_path, monkeypatch):
     assert captured["sync"]._cm_variant_mode == "consolidate"
 
 
+def test_from_file_migrates_legacy_v1_unless_disabled(tmp_path, monkeypatch):
+    """--from-file lazily snapshots v1 types, so migration runs; the flag disables it."""
+    from er_smart_sync.synchronizer import ERSmartSynchronizer
+
+    value = "test_cm_a"
+    er_client = MagicMock()
+
+    def fake_get_event_types(**kwargs):
+        return [{"value": value}] if kwargs.get("version") == "v1" else []
+
+    er_client.get_event_types.side_effect = fake_get_event_types
+    er_client._post.return_value = [
+        {"event_type": value, "v2_schema": {}, "warnings": [], "errors": []}
+    ]
+
+    def fake_make_sync(config, ctx=None):
+        sync = ERSmartSynchronizer(
+            config=config, er_client=er_client, smart_client=MagicMock()
+        )
+        sync.skip_choices = True
+        et = MagicMock()
+        et.value = value
+        monkeypatch.setattr(
+            "er_smart_sync.synchronizer.build_event_types_v2",
+            lambda **kwargs: [et],
+        )
+        sync.create_or_update_er_event_types = lambda **kwargs: None
+        return sync
+
+    monkeypatch.setattr("er_smart_sync.cli._make_synchronizer", fake_make_sync)
+    dm = MagicMock()
+    dm.export_as_dict.return_value = {"categories": [], "attributes": []}
+    monkeypatch.setattr(
+        "smartconnect.SmartClient.load_datamodel",
+        lambda self, filename: dm,
+    )
+    dm_file = tmp_path / "dm.xml"
+    dm_file.write_text("<datamodel/>")
+    args = [
+        "datamodel",
+        "--from-file",
+        str(dm_file),
+        "--er-endpoint",
+        "https://x/api/v1.0",
+        "--er-token",
+        "t",
+        "--er-id",
+        "i",
+        "--ca-identifier",
+        "TEST",
+    ]
+
+    result = CliRunner().invoke(main, args)
+    assert result.exit_code == 0, result.output
+    er_client._post.assert_called_once()
+
+    er_client._post.reset_mock()
+    result = CliRunner().invoke(main, [*args, "--no-migrate-legacy-v1"])
+    assert result.exit_code == 0, result.output
+    er_client._post.assert_not_called()
+
+
 def test_inspect_datamodel_v2_prints_field_types(tmp_path, monkeypatch):
     dm_mock = MagicMock()
     dm_mock.export_as_dict.return_value = {

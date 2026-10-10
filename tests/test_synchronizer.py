@@ -1908,6 +1908,27 @@ class TestLegacyV1Migration:
         mock_er_client._post.assert_called_once()
         create_mock.assert_called_once()
 
+    def test_direct_push_lazily_snapshots_v1(self, sync_config_v2, mock_er_client):
+        sync = self._sync(sync_config_v2, mock_er_client)
+        assert sync._er_v1_event_types_cache is None
+        mock_er_client.get_event_types.return_value = [{"value": "x"}]
+        mock_er_client._post.return_value = [
+            {"event_type": "x", "v2_schema": {}, "warnings": [], "errors": []}
+        ]
+        dm = MagicMock()
+        dm.export_as_dict.return_value = {"categories": [], "attributes": []}
+        with (
+            patch(
+                "er_smart_sync.synchronizer.build_event_types_v2",
+                return_value=[self._et("x")],
+            ),
+            patch.object(sync, "create_or_update_er_event_types"),
+        ):
+            sync.push_smart_ca_datamodel_to_earthranger(
+                dm=dm, smart_ca_uuid="uuid", ca_identifier="TEST"
+            )
+        mock_er_client._post.assert_called_once()
+
     def test_post_exception_aborts_only_this_ca(self, sync_config_v2, mock_er_client):
         sync = self._sync(sync_config_v2, mock_er_client)
         sync._er_v1_event_types_cache = [{"value": "ca_cm_a"}]
