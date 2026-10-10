@@ -759,7 +759,7 @@ def test_cm_variant_mode_flag_overrides_config(tmp_path, monkeypatch):
 
 
 def test_from_file_migrates_legacy_v1_unless_disabled(tmp_path, monkeypatch):
-    """--from-file lazily snapshots v1 types, so migration runs; the flag disables it."""
+    """--from-file lazily snapshots v1 types so migration runs; flag disables it."""
     from er_smart_sync.synchronizer import ERSmartSynchronizer
 
     value = "test_cm_a"
