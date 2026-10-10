@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 import pytest
+from erclient.er_errors import ERClientNotFound
 
 from er_smart_sync.defaults import NullTracing
 from er_smart_sync.state import SyncState
@@ -1780,6 +1781,13 @@ class TestLegacyV1Migration:
         mock_er_client.get_event_types.side_effect = Exception("410 Gone")
         sync = self._sync(sync_config_v2, mock_er_client)
         assert sync._fetch_legacy_v1_snapshot() == []
+        assert sync.datamodel_stats["legacy_v1_snapshot_errored"] == 1
+
+    def test_snapshot_not_found_is_quiet(self, sync_config_v2, mock_er_client):
+        mock_er_client.get_event_types.side_effect = ERClientNotFound()
+        sync = self._sync(sync_config_v2, mock_er_client)
+        assert sync._fetch_legacy_v1_snapshot() == []
+        assert sync.datamodel_stats["legacy_v1_snapshot_errored"] == 0
 
     def test_migrates_only_colliding_values_and_refreshes_v2_cache(
         self, sync_config_v2, mock_er_client
@@ -1932,13 +1940,78 @@ class TestLegacyV1Migration:
         assert sync.datamodel_stats["event_types_migrate_errored"] == 1
         assert sync._er_v1_event_types_cache == [{"value": "ca_cm_b"}]
 
-    def test_result_without_event_type_is_ignored(self, sync_config_v2, mock_er_client):
+    def test_result_without_event_type_counts_as_missing(
+        self, sync_config_v2, mock_er_client
+    ):
         sync = self._sync(sync_config_v2, mock_er_client)
         sync._er_v1_event_types_cache = [{"value": "ca_cm_a"}]
         mock_er_client._post.return_value = [{"errors": []}]
         assert sync._migrate_legacy_for([self._et("ca_cm_a")]) is False
         assert sync.datamodel_stats["event_types_migrated"] == 0
         assert sync.datamodel_stats["event_types_migrate_errored"] == 1
+
+    def test_duplicate_values_are_sent_once(self, sync_config_v2, mock_er_client):
+        sync = self._sync(sync_config_v2, mock_er_client)
+        sync._er_v1_event_types_cache = [{"value": "ca_cm_a"}]
+        mock_er_client._post.return_value = [
+            {"event_type": "ca_cm_a", "v2_schema": {}, "warnings": [], "errors": []}
+        ]
+        ok = sync._migrate_legacy_for([self._et("ca_cm_a"), self._et("ca_cm_a")])
+        assert ok is True
+        payload = mock_er_client._post.call_args.kwargs["payload"]
+        assert payload["event_types"] == ["ca_cm_a"]
+        assert sync.datamodel_stats["event_types_migrated"] == 1
+
+    def test_already_v2_failure_counts_as_migrated(
+        self, sync_config_v2, mock_er_client
+    ):
+        sync = self._sync(sync_config_v2, mock_er_client)
+        sync._er_v1_event_types_cache = [{"value": "ca_cm_a"}]
+        sync._er_event_types_cache = []
+        mock_er_client._post.return_value = [
+            {
+                "event_type": "ca_cm_a",
+                "v2_schema": None,
+                "warnings": [],
+                "errors": [{"code": "version_validation", "message": "not V1"}],
+            }
+        ]
+        mock_er_client.get_event_types.return_value = [{"value": "ca_cm_a"}]
+        assert sync._migrate_legacy_for([self._et("ca_cm_a")]) is True
+        assert sync.datamodel_stats["event_types_migrated"] == 1
+        assert sync.datamodel_stats["event_types_migrate_errored"] == 0
+        assert sync._er_v1_event_types_cache == []
+
+    def test_requests_are_chunked(self, sync_config_v2, mock_er_client):
+        values = [f"v{i}" for i in range(120)]
+        sync = self._sync(sync_config_v2, mock_er_client)
+        sync._er_v1_event_types_cache = [{"value": v} for v in values]
+
+        def fake_post(**kwargs):
+            return [
+                {"event_type": v, "v2_schema": {}, "warnings": [], "errors": []}
+                for v in kwargs["payload"]["event_types"]
+            ]
+
+        mock_er_client._post.side_effect = fake_post
+        ok = sync._migrate_legacy_for([self._et(v) for v in values])
+        assert ok is True
+        sizes = [
+            len(c.kwargs["payload"]["event_types"])
+            for c in mock_er_client._post.call_args_list
+        ]
+        assert sizes == [50, 50, 20]
+        assert sync.datamodel_stats["event_types_migrated"] == 120
+
+    def test_missing_endpoint_gives_clear_message(
+        self, sync_config_v2, mock_er_client, caplog
+    ):
+        sync = self._sync(sync_config_v2, mock_er_client)
+        sync._er_v1_event_types_cache = [{"value": "ca_cm_a"}]
+        mock_er_client._post.side_effect = ERClientNotFound()
+        assert sync._migrate_legacy_for([self._et("ca_cm_a")]) is False
+        assert sync.datamodel_stats["event_types_migrate_errored"] == 1
+        assert "2.146.1" in caplog.text
 
     def test_synchronize_datamodel_snapshots_and_clears_v1_cache(
         self, sync_config_v2, mock_er_client

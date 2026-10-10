@@ -124,7 +124,8 @@ This converts v1 records to v2 (or vice versa) without deleting them.
 Since 0.5.0 the datamodel sync does this for you when `event_type_version`
 is `v2` and `migrate_legacy_v1` is on (the default). If you see this
 warning on a v2 run, the flag is off or the migrate call failed earlier in
-the log; look for `could not be migrated`.
+the log; look for `could not be migrated` (it appears in all three failure
+paths: per-type errors, a failed migrate request, and missing results).
 
 ## CHOICE_LIST field rendered as plain text
 
