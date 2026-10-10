@@ -26,6 +26,7 @@ er-smart-sync datamodel [OPTIONS]
 | `--mode {both,create-only,update-only}` | `both` | Restrict to creating only new event types, updating only existing ones, or both. |
 | `--event-type-version {v1,v2}` | from config or v2 | Which ER event-type API version to target. |
 | `--skip-choices` | off | Skip the choices upsert phase (v2 only). Use if `er-smart-sync choices` was run separately. |
+| `--no-migrate-legacy-v1` | off | Do not convert colliding v1 event types via ER's migrate endpoint before pushing (v2 only). By default they are migrated in place so historical events stay attached. |
 | `--smart-api URL` | from config | SMART Connect API URL. Required for API-based runs. |
 | `--smart-username NAME` | from config | SMART login. |
 | `--smart-password PASSWORD` | from config | SMART password. |

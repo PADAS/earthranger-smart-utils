@@ -384,6 +384,16 @@ def _validate_config(config: SyncConfig) -> None:
         "Use if you've already run `er-smart-sync choices` separately."
     ),
 )
+@click.option(
+    "--no-migrate-legacy-v1",
+    "no_migrate_legacy_v1",
+    is_flag=True,
+    default=False,
+    help=(
+        "Do not convert colliding v1 event types via ER's migrate endpoint "
+        "before pushing (v2 only). Default: migrate them."
+    ),
+)
 @click.pass_context
 def datamodel(
     ctx,
@@ -408,6 +418,7 @@ def datamodel(
     event_type_version,
     cm_variant_mode,
     skip_choices,
+    no_migrate_legacy_v1,
 ):
     """Sync SMART data models to EarthRanger as event categories/types."""
     config = _build_config(
@@ -430,6 +441,8 @@ def datamodel(
 
     if cm_variant_mode:
         config.earthranger.cm_variant_mode = cm_variant_mode
+    if no_migrate_legacy_v1:
+        config.earthranger.migrate_legacy_v1 = False
 
     if cm_file and not datamodel_file:
         raise click.UsageError("--cm-from-file requires --from-file")

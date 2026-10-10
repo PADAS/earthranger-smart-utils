@@ -2139,3 +2139,52 @@ def test_smart_version_defaults_without_config_file(monkeypatch):
     )
     assert result.exit_code == 0, result.output
     assert captured["version"] == "7.0"
+
+
+def test_datamodel_help_lists_no_migrate_legacy_v1():
+    runner = CliRunner()
+    result = runner.invoke(main, ["datamodel", "--help"])
+    assert result.exit_code == 0
+    assert "--no-migrate-legacy-v1" in result.output
+
+
+def test_no_migrate_legacy_v1_flag_disables_config(tmp_path, monkeypatch):
+    captured = {}
+
+    def fake_make_sync(config, ctx=None):
+        from er_smart_sync.synchronizer import ERSmartSynchronizer
+
+        sync = ERSmartSynchronizer.__new__(ERSmartSynchronizer)
+        sync.datamodel_stats = {}
+        sync.push_smart_ca_datamodel_to_earthranger = lambda **kwargs: None
+        sync.synchronize_datamodel = lambda: None
+        captured["config"] = config
+        return sync
+
+    monkeypatch.setattr("er_smart_sync.cli._make_synchronizer", fake_make_sync)
+    monkeypatch.setattr(
+        "smartconnect.SmartClient.load_datamodel", lambda self, filename: MagicMock()
+    )
+    dm_file = tmp_path / "dm.xml"
+    dm_file.write_text("<datamodel/>")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "datamodel",
+            "--from-file",
+            str(dm_file),
+            "--er-endpoint",
+            "https://x/api/v1.0",
+            "--er-token",
+            "t",
+            "--er-id",
+            "i",
+            "--ca-identifier",
+            "TEST",
+            "--no-migrate-legacy-v1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["config"].earthranger.migrate_legacy_v1 is False
