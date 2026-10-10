@@ -17,10 +17,14 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import re
 from dataclasses import dataclass
 
 from pydantic import parse_obj_as
+from smartconnect.choices import (
+    CHOICE_VALUE_MAX_LEN,
+    sanitize_choice_value,  # noqa: F401  re-exported; the rule lives in smartconnect-client
+    shorten_choice_value,
+)
 from smartconnect.models import Attribute, Category, CategoryAttribute
 
 logger = logging.getLogger(__name__)
@@ -46,19 +50,6 @@ def _variant_disambiguator(cat: Category) -> str:
         extra=dict(display=cat.display, hkey=cat.hkeyPath),
     )
     return base
-
-
-def sanitize_choice_value(option_key: str) -> str:
-    """Map a SMART option key to a ``^\\w+$`` string.
-
-    SMART keys may contain ``.`` (TREE leaf paths), accents, apostrophes,
-    spaces. The Choice DB column requires letters/digits/underscores only.
-
-    This rule is **load-bearing**: changing it later requires backfilling
-    historical event records that store the resolved value string.
-    """
-    sanitized = re.sub(r"[^A-Za-z0-9]+", "_", option_key).strip("_").lower()
-    return sanitized or "_"
 
 
 def derive_choice_field(event_type_value: str, attr_key: str) -> str:
@@ -112,37 +103,25 @@ def derive_shared_choice_field(scope_key: str, attr_key: str) -> str:
     return field
 
 
-# ER's Choice table caps both `value` and `display` at varchar(100). Deep
-# SMART TREE leaves (whose key is a dotted concatenation of parent path
-# components) routinely exceed this after sanitize_choice_value collapses
-# dots to underscores. Truncate at build time so the upsert path's
-# (field, value) lookup and display-drift comparison stay consistent.
-_CHOICE_VALUE_DISPLAY_MAX = 100
+# ER's Choice table caps both `value` and `display` at varchar(100). The
+# value rule (sanitize, then hash-suffix over 100 chars) is owned by
+# smartconnect-client so cdip-routing can apply its inverse; only the
+# display shortening below is local.
+_CHOICE_VALUE_DISPLAY_MAX = CHOICE_VALUE_MAX_LEN
 _VALUE_HASH_LEN = 8
-# Readable prefix kept before the "_{hash}" suffix. Derived so the total
-# always equals _CHOICE_VALUE_DISPLAY_MAX: 100 - 1 (separator) - 8 (hash) = 91.
 _VALUE_PREFIX_LEN = _CHOICE_VALUE_DISPLAY_MAX - 1 - _VALUE_HASH_LEN
 
 
 def _shorten_value(sanitized: str) -> str:
-    """Hash-suffix overlong values; mirrors derive_choice_field's scheme.
-
-    Stable: same input always produces the same output. Two distinct
-    inputs that share a 91-char prefix get different hash tails, so
-    silent collisions are vanishingly rare. Logs at DEBUG because deep
-    TREEs can produce many shortenings per sync; the design is documented
-    in docs/concepts/choices.md and counts surface via datamodel_stats.
-    """
-    if len(sanitized) <= _CHOICE_VALUE_DISPLAY_MAX:
-        return sanitized
-    digest = hashlib.sha256(sanitized.encode("utf-8")).hexdigest()[:_VALUE_HASH_LEN]
-    shortened = f"{sanitized[:_VALUE_PREFIX_LEN]}_{digest}"
-    logger.debug(
-        "Shortened choice value (len %d → %d) via hash-suffix: %r",
-        len(sanitized),
-        len(shortened),
-        shortened,
-    )
+    """Hash-suffix overlong values via the shared smartconnect-client rule."""
+    shortened = shorten_choice_value(sanitized)
+    if shortened != sanitized:
+        logger.debug(
+            "Shortened choice value (len %d → %d) via hash-suffix: %r",
+            len(sanitized),
+            len(shortened),
+            shortened,
+        )
     return shortened
 
 
