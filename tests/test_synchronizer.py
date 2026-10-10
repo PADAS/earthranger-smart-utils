@@ -1738,3 +1738,164 @@ class TestEventTypeVersionWiring:
         assert any(
             "v2" in r.message and "exists" in r.message.lower() for r in caplog.records
         )
+
+
+class TestLegacyV1Migration:
+    MIGRATE_PATH = "activity/eventtypes/migrate/"
+
+    def _sync(self, config, mock_er_client):
+        sync = ERSmartSynchronizer(
+            config=config, er_client=mock_er_client, smart_client=MagicMock()
+        )
+        sync.skip_choices = True
+        return sync
+
+    @staticmethod
+    def _et(value):
+        et = MagicMock()
+        et.value = value
+        return et
+
+    def test_snapshot_skipped_on_v1(self, sync_config, mock_er_client):
+        sync = self._sync(sync_config, mock_er_client)
+        assert sync._fetch_legacy_v1_snapshot() == []
+        mock_er_client.get_event_types.assert_not_called()
+
+    def test_snapshot_skipped_when_disabled(self, sync_config_v2, mock_er_client):
+        sync_config_v2.earthranger.migrate_legacy_v1 = False
+        sync = self._sync(sync_config_v2, mock_er_client)
+        assert sync._fetch_legacy_v1_snapshot() == []
+        mock_er_client.get_event_types.assert_not_called()
+
+    def test_snapshot_fetches_v1_types(self, sync_config_v2, mock_er_client):
+        mock_er_client.get_event_types.return_value = [{"value": "ca_cm_a"}]
+        sync = self._sync(sync_config_v2, mock_er_client)
+        assert sync._fetch_legacy_v1_snapshot() == [{"value": "ca_cm_a"}]
+        mock_er_client.get_event_types.assert_called_once_with(
+            include_inactive=True, include_schema=False, version="v1"
+        )
+
+    def test_snapshot_failure_is_non_fatal(self, sync_config_v2, mock_er_client):
+        # After ER's v1 sunset the list endpoint errors; the v2 push must go on.
+        mock_er_client.get_event_types.side_effect = Exception("410 Gone")
+        sync = self._sync(sync_config_v2, mock_er_client)
+        assert sync._fetch_legacy_v1_snapshot() == []
+
+    def test_migrates_only_colliding_values_and_refreshes_v2_cache(
+        self, sync_config_v2, mock_er_client
+    ):
+        sync = self._sync(sync_config_v2, mock_er_client)
+        sync._er_v1_event_types_cache = [{"value": "ca_cm_a"}, {"value": "other"}]
+        sync._er_event_types_cache = []
+        mock_er_client._post.return_value = [
+            {"event_type": "ca_cm_a", "v2_schema": {}, "warnings": [], "errors": []}
+        ]
+        mock_er_client.get_event_types.return_value = [{"value": "ca_cm_a"}]
+
+        ok = sync._migrate_legacy_for([self._et("ca_cm_a"), self._et("ca_cm_b")])
+
+        assert ok is True
+        mock_er_client._post.assert_called_once_with(
+            path=self.MIGRATE_PATH,
+            payload={"dry_run": False, "event_types": ["ca_cm_a"]},
+            base_url=mock_er_client._api_root.return_value,
+        )
+        mock_er_client._api_root.assert_called_with("v2.0")
+        assert sync.datamodel_stats["event_types_migrated"] == 1
+        assert sync.datamodel_stats["event_types_migrate_errored"] == 0
+        assert sync._er_v1_event_types_cache == [{"value": "other"}]
+        mock_er_client.get_event_types.assert_called_with(
+            include_inactive=True, include_schema=True, version="v2"
+        )
+        assert sync._er_event_types_cache == [{"value": "ca_cm_a"}]
+
+    def test_no_collisions_makes_no_call(self, sync_config_v2, mock_er_client):
+        sync = self._sync(sync_config_v2, mock_er_client)
+        sync._er_v1_event_types_cache = [{"value": "other"}]
+        assert sync._migrate_legacy_for([self._et("ca_cm_a")]) is True
+        mock_er_client._post.assert_not_called()
+
+    def test_disabled_makes_no_call(self, sync_config_v2, mock_er_client):
+        sync_config_v2.earthranger.migrate_legacy_v1 = False
+        sync = self._sync(sync_config_v2, mock_er_client)
+        sync._er_v1_event_types_cache = [{"value": "ca_cm_a"}]
+        assert sync._migrate_legacy_for([self._et("ca_cm_a")]) is True
+        mock_er_client._post.assert_not_called()
+
+    def test_migration_error_aborts_push(self, sync_config_v2, mock_er_client):
+        sync = self._sync(sync_config_v2, mock_er_client)
+        sync._er_v1_event_types_cache = [{"value": "ca_cm_a"}, {"value": "ca_cm_b"}]
+        mock_er_client._post.return_value = [
+            {"event_type": "ca_cm_a", "v2_schema": {}, "warnings": [], "errors": []},
+            {
+                "event_type": "ca_cm_b",
+                "v2_schema": None,
+                "warnings": [],
+                "errors": [{"code": "version_validation", "message": "not V1"}],
+            },
+        ]
+        ok = sync._migrate_legacy_for([self._et("ca_cm_a"), self._et("ca_cm_b")])
+        assert ok is False
+        assert sync.datamodel_stats["event_types_migrated"] == 1
+        assert sync.datamodel_stats["event_types_migrate_errored"] == 1
+        # The converted one leaves the v1 snapshot; the failed one stays for the retry.
+        assert sync._er_v1_event_types_cache == [{"value": "ca_cm_b"}]
+
+    def test_dry_run_client_result_is_ignored(self, sync_config_v2, mock_er_client):
+        sync = self._sync(sync_config_v2, mock_er_client)
+        sync._er_v1_event_types_cache = [{"value": "ca_cm_a"}]
+        mock_er_client._post.return_value = {"id": "dry-run", "dry_run": True}
+        assert sync._migrate_legacy_for([self._et("ca_cm_a")]) is True
+        assert sync.datamodel_stats["event_types_migrated"] == 0
+        assert sync.datamodel_stats["event_types_migrate_errored"] == 0
+
+    def test_push_aborts_before_event_types_when_migration_fails(
+        self, sync_config_v2, mock_er_client
+    ):
+        sync = self._sync(sync_config_v2, mock_er_client)
+        sync._er_v1_event_types_cache = [{"value": "x"}]
+        mock_er_client._post.return_value = [
+            {
+                "event_type": "x",
+                "v2_schema": None,
+                "warnings": [],
+                "errors": [{"code": "e", "message": "m"}],
+            }
+        ]
+        dm = MagicMock()
+        dm.export_as_dict.return_value = {"categories": [], "attributes": []}
+        with (
+            patch(
+                "er_smart_sync.synchronizer.build_event_types_v2",
+                return_value=[self._et("x")],
+            ),
+            patch.object(sync, "create_or_update_er_event_types") as create_mock,
+        ):
+            sync.push_smart_ca_datamodel_to_earthranger(
+                dm=dm, smart_ca_uuid="uuid", ca_identifier="TEST"
+            )
+        create_mock.assert_not_called()
+
+    def test_synchronize_datamodel_snapshots_and_clears_v1_cache(
+        self, sync_config_v2, mock_er_client
+    ):
+        sync_config_v2.smart.ca_uuids = ["ca-1"]
+        sync = self._sync(sync_config_v2, mock_er_client)
+        mock_er_client.get_event_types.return_value = []
+        seen = {}
+
+        def fake_push(**kwargs):
+            seen["v1_cache"] = sync._er_v1_event_types_cache
+
+        with patch.object(
+            sync, "push_smart_datamodel_to_earthranger", side_effect=fake_push
+        ):
+            sync.synchronize_datamodel()
+
+        assert seen["v1_cache"] == []
+        assert sync._er_v1_event_types_cache is None
+        versions = [
+            c.kwargs.get("version")
+            for c in mock_er_client.get_event_types.call_args_list
+        ]
+        assert versions == ["v2", "v1"]
