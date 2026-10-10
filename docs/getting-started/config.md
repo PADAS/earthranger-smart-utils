@@ -33,6 +33,7 @@ earthranger:
   password: ""
   client_id: das_web_client
   event_type_version: v2          # v1 or v2; default v2
+  migrate_legacy_v1: true         # v2 only; convert colliding v1 event types before pushing
   choices_base_url: /api/v2.0/schemas
 ```
 
@@ -60,6 +61,7 @@ earthranger:
 | `login` + `password` | one of token / login+password | Falls back to OAuth |
 | `client_id` | optional (default `das_web_client`) | OAuth client for password auth |
 | `event_type_version` | optional (default `v2`) | Which ER event-type API to use; see [Event-type version](../concepts/event-type-version.md) |
+| `migrate_legacy_v1` | optional (default `true`) | v2 only. Before pushing, convert SMART-derived v1 event types whose value collides with the push via `POST /api/v2.0/activity/eventtypes/migrate/`; see [Event-type version](../concepts/event-type-version.md) |
 | `choices_base_url` | optional (default `/api/v2.0/schemas`) | Prefix for v2 `$ref` URLs |
 
 ## Display names and languages

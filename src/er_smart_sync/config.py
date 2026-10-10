@@ -79,6 +79,9 @@ class EarthRangerConfig(pydantic.BaseModel):
     client_id: str = "das_web_client"
     event_type_version: Literal["v1", "v2"] = "v2"
     cm_variant_mode: Literal["split", "consolidate"] = "split"
+    # When pushing v2, convert SMART-derived v1 event types that collide with
+    # the values about to be written via ER's migrate endpoint first.
+    migrate_legacy_v1: bool = True
     choices_base_url: str = "/api/v2.0/schemas"
 
     @pydantic.validator("endpoint")
