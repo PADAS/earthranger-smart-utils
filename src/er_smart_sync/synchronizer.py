@@ -600,11 +600,30 @@ class ERSmartSynchronizer:
         if not targets:
             return True
 
-        results = self.migrate_legacy_event_types(targets)
-        migrated = [r.get("event_type") for r in results if not r.get("errors")]
-        failed = [r for r in results if r.get("errors")]
+        try:
+            results = self.migrate_legacy_event_types(targets)
+        except Exception:
+            logger.exception(
+                "Legacy v1 migration request failed; aborting this CA's push",
+                extra=dict(values=targets),
+            )
+            self.datamodel_stats["event_types_migrate_errored"] += len(targets)
+            return False
+        if not results:
+            # Dry-run client wrapper: nothing was converted, nothing failed.
+            return True
+
+        migrated = [
+            r["event_type"]
+            for r in results
+            if r.get("event_type") and not r.get("errors")
+        ]
+        failed = [r for r in results if r.get("event_type") and r.get("errors")]
+        reported = {r.get("event_type") for r in results}
+        missing = [v for v in targets if v not in reported]
+        n_failed = len(failed) + len(missing)
         self.datamodel_stats["event_types_migrated"] += len(migrated)
-        self.datamodel_stats["event_types_migrate_errored"] += len(failed)
+        self.datamodel_stats["event_types_migrate_errored"] += n_failed
 
         for r in failed:
             logger.error(
@@ -612,6 +631,12 @@ class ERSmartSynchronizer:
                 r.get("event_type"),
                 [e.get("message") for e in r.get("errors", [])],
                 extra=dict(value=r.get("event_type"), errors=r.get("errors")),
+            )
+        if missing:
+            logger.error(
+                "ER returned no migration result for legacy v1 event types: %s",
+                missing,
+                extra=dict(values=missing),
             )
         if migrated:
             logger.info(
@@ -627,15 +652,26 @@ class ERSmartSynchronizer:
             # The converted records are v2 now; refresh so compare-and-patch
             # sees them instead of attempting a conflicting POST.
             if self._er_event_types_cache is not None:
-                self._er_event_types_cache = self.er_client.get_event_types(
-                    include_inactive=True, include_schema=True, version="v2"
-                )
-        if failed:
+                try:
+                    self._er_event_types_cache = _retry(
+                        self.er_client.get_event_types,
+                        include_inactive=True,
+                        include_schema=True,
+                        version="v2",
+                    )
+                except Exception:
+                    logger.exception(
+                        "Migrated legacy v1 event types but could not refresh "
+                        "the v2 snapshot; aborting this CA's push (next run "
+                        "will see them as v2)"
+                    )
+                    return False
+        if n_failed:
             logger.warning(
                 "Aborting event-type push for this CA: %d legacy v1 event "
                 "types failed to migrate. Fix them in ER (or run with "
                 "migrate_legacy_v1 off) and re-run.",
-                len(failed),
+                n_failed,
             )
             return False
         return True
