@@ -36,8 +36,9 @@ every table the import stories need. Verified on the Lawin backup
 The field shapes the import stories assumed are now known from the tables
 rather than from the Connect JSON: leg dates are day-granular, leg days
 carry start and end times, members are `(employee_uuid, is_leader,
-is_pilot)`, waypoint positions are WGS 84, and track points carry no
-per-point timestamps.
+is_pilot)`, waypoint positions are WGS 84, and track points carry a
+per-point timestamp in the geometry's Z coordinate (local wall-clock as
+epoch milliseconds; the bundle converts it to RFC 3339 with offset).
 
 **What this changes in the plan.** The `PatrolSource` protocol stays, with
 one implementation: the bundle reader. `download_patrolmodel` is no longer
@@ -251,9 +252,11 @@ ER needs a start and end on every segment, so the importer derives each
 segment's `time_range` from its leg days, each leg day from the most
 precise source it has, in this order:
 
-1. **Track points.** The leg day's track carries a UTC timestamp per point
-   (the Z coordinate; the bundle writes them as `tracks[].parts[].times`).
-   Day start = first point, end = last point.
+1. **Track points.** The leg day's track carries a timestamp per point in
+   its Z coordinate: local wall-clock encoded as epoch milliseconds, which
+   smart-able decodes, anchors to the bundle timezone and writes as
+   `tracks[].parts[].times` (RFC 3339 with offset). Day start = first
+   point, end = last point.
 2. **Leg-day start and end times.** `patrol_leg_day.start_time`/`end_time`,
    local wall-clock, already anchored to the bundle timezone as `days[].start`
    and `days[].end`. Used when there is no timed track.
