@@ -1912,6 +1912,23 @@ class TestLegacyV1Migration:
         # Not removed from the v1 snapshot: the next run retries it.
         assert sync._er_v1_event_types_cache == [{"value": "ca_cm_a"}]
 
+    def test_malformed_result_entries_count_as_missing(
+        self, sync_config_v2, mock_er_client
+    ):
+        sync = self._sync(sync_config_v2, mock_er_client)
+        sync._er_v1_event_types_cache = [{"value": "ca_cm_a"}, {"value": "ca_cm_b"}]
+        mock_er_client._post.return_value = [
+            None,
+            {"event_type": "ca_cm_b", "v2_schema": {}, "warnings": [], "errors": []},
+        ]
+        mock_er_client.get_event_types.return_value = [{"value": "ca_cm_b"}]
+
+        ok = sync._migrate_legacy_for([self._et("ca_cm_a"), self._et("ca_cm_b")])
+
+        assert ok is False
+        assert sync.datamodel_stats["event_types_migrated"] == 1
+        assert sync.datamodel_stats["event_types_migrate_errored"] == 1
+
     def test_migration_error_aborts_push(self, sync_config_v2, mock_er_client):
         sync = self._sync(sync_config_v2, mock_er_client)
         sync._er_v1_event_types_cache = [{"value": "ca_cm_a"}, {"value": "ca_cm_b"}]

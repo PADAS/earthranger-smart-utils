@@ -129,8 +129,10 @@ warning on a v2 run, one of these happened earlier in the log:
   failed request, or missing results); `event_types_migrate_errored > 0`.
 - `--mode create-only: leaving legacy v1 event types unconverted` — the
   mode skips in-place conversion by design; run with `--mode both`.
-- `Could not list v1 event types` or `has no v1 event type list` — the v1
-  snapshot failed (`legacy_v1_snapshot_errored`), so nothing was migrated.
+- `Could not list v1 event types` — the v1 snapshot failed
+  (`legacy_v1_snapshot_errored` increments), so nothing was migrated.
+- `has no v1 event type list` — this ER release lacks the v1 list
+  endpoint; nothing was migrated and no counter changes.
 - Neither, and `migrate_legacy_v1` is `false` in the config or
   `--no-migrate-legacy-v1` was passed.
 

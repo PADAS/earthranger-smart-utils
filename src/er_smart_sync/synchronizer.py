@@ -634,7 +634,15 @@ class ERSmartSynchronizer:
                 )
                 break
             if isinstance(chunk, list):
-                results.extend(chunk)
+                entries = [r for r in chunk if isinstance(r, dict)]
+                if len(entries) != len(chunk):
+                    logger.warning(
+                        "Ignoring %d malformed entries in the event type "
+                        "migrate response",
+                        len(chunk) - len(entries),
+                        extra=dict(values=batch),
+                    )
+                results.extend(entries)
             elif isinstance(chunk, dict) and chunk.get("dry_run"):
                 results.extend(
                     {
