@@ -703,6 +703,7 @@ class ERSmartSynchronizer:
         missing = [v for v in targets if v not in reported]
 
         refresh_failed = False
+        unseen: list[str] = []
         if migrated or failed or missing:
             # The converted records are v2 now; refresh so compare-and-patch
             # sees them instead of attempting a conflicting POST. The same
@@ -738,8 +739,25 @@ class ERSmartSynchronizer:
                 missing.remove(v)
                 migrated.append(v)
                 logger.info("Legacy v1 event type %r is already v2", v)
+            if not refresh_failed:
+                # A live success the refreshed list does not show would let
+                # compare-and-patch POST a duplicate and skip the record,
+                # leaving its schema unpatched. Treat it as not migrated.
+                dry_run = {r.get("event_type") for r in results if r.get("dry_run")}
+                unseen = [
+                    v for v in migrated if v not in v2_values and v not in dry_run
+                ]
+                if unseen:
+                    migrated = [v for v in migrated if v not in unseen]
+                    logger.error(
+                        "ER reported legacy v1 event types as migrated but the "
+                        "refreshed v2 list does not show them; treating as not "
+                        "migrated: %s",
+                        unseen,
+                        extra=dict(values=unseen),
+                    )
 
-        n_failed = len(failed) + len(missing)
+        n_failed = len(failed) + len(missing) + len(unseen)
         self.datamodel_stats["event_types_migrated"] += len(migrated)
         self.datamodel_stats["event_types_migrate_errored"] += n_failed
 

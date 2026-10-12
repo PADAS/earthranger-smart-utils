@@ -210,15 +210,14 @@ remains fully supported for tenants that haven't migrated to v2.
 
 EarthRanger enforces a tenant-wide unique constraint on event-type `value` across
 **both** versions. If a previous run created v1 event types and you re-run with v2,
-you'll get duplicate-key conflicts. `er-smart-sync` logs and skips these — to convert
-existing v1 records to v2, run EarthRanger's server-side migrate endpoint:
-
-```
-POST /api/v2.0/activity/eventtypes/migrate/
-```
-
-(Tooling around that endpoint is tracked as a follow-up; you can call it directly via
-`curl` or the ER admin UI today.)
+the values collide. Since 0.5.0 a v2 run converts the colliding SMART-derived v1
+records in place through EarthRanger's migrate endpoint
+(`POST /api/v2.0/activity/eventtypes/migrate/`) before pushing; this is on by
+default (`migrate_legacy_v1: true`), off with `--no-migrate-legacy-v1`, and
+skipped under `--mode create-only` because it updates existing records. Any
+collision that is not converted (migration off, create-only, a failed v1
+snapshot, or a migrate error) is logged and skipped. See
+[Event-type version](docs/concepts/event-type-version.md).
 
 ### CM variant groups: `--cm-variant-mode`
 

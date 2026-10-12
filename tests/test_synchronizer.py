@@ -1896,6 +1896,22 @@ class TestLegacyV1Migration:
         # The converted value leaves the v1 snapshot; the failed one stays.
         assert sync._er_v1_event_types_cache == [{"value": "ca_cm_b"}]
 
+    def test_migrated_value_absent_from_refresh_counts_as_failed(
+        self, sync_config_v2, mock_er_client
+    ):
+        sync = self._sync(sync_config_v2, mock_er_client)
+        sync._er_v1_event_types_cache = [{"value": "ca_cm_a"}]
+        mock_er_client._post.return_value = [
+            {"event_type": "ca_cm_a", "v2_schema": {}, "warnings": [], "errors": []}
+        ]
+        mock_er_client.get_event_types.return_value = []  # stale refresh
+
+        assert sync._migrate_legacy_for([self._et("ca_cm_a")]) is False
+        assert sync.datamodel_stats["event_types_migrated"] == 0
+        assert sync.datamodel_stats["event_types_migrate_errored"] == 1
+        # Not removed from the v1 snapshot: the next run retries it.
+        assert sync._er_v1_event_types_cache == [{"value": "ca_cm_a"}]
+
     def test_migration_error_aborts_push(self, sync_config_v2, mock_er_client):
         sync = self._sync(sync_config_v2, mock_er_client)
         sync._er_v1_event_types_cache = [{"value": "ca_cm_a"}, {"value": "ca_cm_b"}]
@@ -1908,6 +1924,8 @@ class TestLegacyV1Migration:
                 "errors": [{"code": "version_validation", "message": "not V1"}],
             },
         ]
+        # The refreshed v2 list shows the converted records.
+        mock_er_client.get_event_types.return_value = [{"value": "ca_cm_a"}]
         ok = sync._migrate_legacy_for([self._et("ca_cm_a"), self._et("ca_cm_b")])
         assert ok is False
         assert sync.datamodel_stats["event_types_migrated"] == 1
@@ -1951,6 +1969,7 @@ class TestLegacyV1Migration:
         mock_er_client._post.return_value = [
             {"event_type": "x", "v2_schema": {}, "warnings": [], "errors": []}
         ]
+        mock_er_client.get_event_types.return_value = [{"value": "x"}]
         dm = MagicMock()
         dm.export_as_dict.return_value = {"categories": [], "attributes": []}
         with (
@@ -2013,6 +2032,8 @@ class TestLegacyV1Migration:
         mock_er_client._post.return_value = [
             {"event_type": "ca_cm_a", "v2_schema": {}, "warnings": [], "errors": []}
         ]
+        # The refreshed v2 list shows the converted records.
+        mock_er_client.get_event_types.return_value = [{"value": "ca_cm_a"}]
         ok = sync._migrate_legacy_for([self._et("ca_cm_a"), self._et("ca_cm_b")])
         assert ok is False
         assert sync.datamodel_stats["event_types_migrated"] == 1
@@ -2035,6 +2056,8 @@ class TestLegacyV1Migration:
         mock_er_client._post.return_value = [
             {"event_type": "ca_cm_a", "v2_schema": {}, "warnings": [], "errors": []}
         ]
+        # The refreshed v2 list shows the converted records.
+        mock_er_client.get_event_types.return_value = [{"value": "ca_cm_a"}]
         ok = sync._migrate_legacy_for([self._et("ca_cm_a"), self._et("ca_cm_a")])
         assert ok is True
         payload = mock_er_client._post.call_args.kwargs["payload"]
@@ -2073,6 +2096,8 @@ class TestLegacyV1Migration:
             ]
 
         mock_er_client._post.side_effect = fake_post
+        # The refreshed v2 list shows the converted records.
+        mock_er_client.get_event_types.return_value = [{"value": v} for v in values]
         ok = sync._migrate_legacy_for([self._et(v) for v in values])
         assert ok is True
         sizes = [
