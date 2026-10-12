@@ -1777,7 +1777,7 @@ class TestLegacyV1Migration:
         )
 
     def test_snapshot_failure_is_non_fatal(self, sync_config_v2, mock_er_client):
-        # After ER's v1 sunset the list endpoint errors; the v2 push must go on.
+        # A transient list failure must not block the v2 push.
         mock_er_client.get_event_types.side_effect = Exception("410 Gone")
         sync = self._sync(sync_config_v2, mock_er_client)
         assert sync._fetch_legacy_v1_snapshot() == []

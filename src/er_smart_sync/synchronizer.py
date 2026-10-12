@@ -554,9 +554,11 @@ class ERSmartSynchronizer:
     def _fetch_legacy_v1_snapshot(self) -> list:
         """v1 event types in the tenant, or [] when none can be listed.
 
-        After EarthRanger's v1 sunset the v1 list endpoint stops answering.
-        That must not block the v2 push, so a failure degrades to "nothing
-        to migrate" with a warning.
+        The v1 list stays readable after EarthRanger's 2026-10-15 sunset
+        (only v1 writes end), so a failure here is a missing endpoint on an
+        old release or a transient error. Neither should block the v2
+        push: it degrades to "nothing to migrate", colliding values are
+        skipped by the conflict path, and the next run retries.
         """
         if not self._migration_enabled():
             if (
@@ -581,8 +583,8 @@ class ERSmartSynchronizer:
             )
         except ERClientNotFound:
             logger.warning(
-                "This EarthRanger release has no v1 event type list (or it is "
-                "past the v1 sunset); skipping legacy migration this run"
+                "This EarthRanger release has no v1 event type list; "
+                "skipping legacy migration this run"
             )
             return []
         except Exception:
