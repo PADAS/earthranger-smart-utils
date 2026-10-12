@@ -542,9 +542,13 @@ class ERSmartSynchronizer:
     # ──────────────────────────────────────────────
 
     def _migration_enabled(self) -> bool:
+        # An in-place v1 -> v2 conversion updates an existing record, so
+        # ``--mode create-only`` must not trigger it. Colliding values then
+        # reach the conflict path in _create_event_type and are skipped.
         return (
             self._event_type_version == "v2"
             and self.config.earthranger.migrate_legacy_v1
+            and self.sync_mode != "create-only"
         )
 
     def _fetch_legacy_v1_snapshot(self) -> list:
@@ -555,6 +559,15 @@ class ERSmartSynchronizer:
         to migrate" with a warning.
         """
         if not self._migration_enabled():
+            if (
+                self.sync_mode == "create-only"
+                and self._event_type_version == "v2"
+                and self.config.earthranger.migrate_legacy_v1
+            ):
+                logger.info(
+                    "--mode create-only: leaving legacy v1 event types "
+                    "unconverted; colliding values will be skipped"
+                )
             return []
         try:
             return (
@@ -585,8 +598,10 @@ class ERSmartSynchronizer:
 
         Returns ER's per-type results, each
         ``{"event_type", "v2_schema", "warnings", "errors", "metadata"}``.
-        An empty ``errors`` list means the record is now v2. A non-list
-        response (the dry-run client) is treated as no results.
+        An empty ``errors`` list means the record is now v2. Under
+        ``DryRunERClient`` every value is reported as converted, so a dry
+        run mirrors a successful live run. Any other non-list response is
+        logged and yields no results, which the caller counts as failures.
         """
         logger.info(
             "Migrating %d legacy v1 event types to v2",
@@ -595,17 +610,34 @@ class ERSmartSynchronizer:
         )
         results: list[dict] = []
         for i in range(0, len(values), _MIGRATE_BATCH_SIZE):
+            batch = list(values[i : i + _MIGRATE_BATCH_SIZE])
             chunk = _retry(
                 self.er_client._post,
                 path=_MIGRATE_PATH,
-                payload={
-                    "dry_run": False,
-                    "event_types": list(values[i : i + _MIGRATE_BATCH_SIZE]),
-                },
+                payload={"dry_run": False, "event_types": batch},
                 base_url=self.er_client._api_root("v2.0"),
             )
             if isinstance(chunk, list):
                 results.extend(chunk)
+            elif isinstance(chunk, dict) and chunk.get("dry_run"):
+                results.extend(
+                    {
+                        "event_type": v,
+                        "v2_schema": None,
+                        "warnings": [],
+                        "errors": [],
+                        "dry_run": True,
+                    }
+                    for v in batch
+                )
+            else:
+                logger.warning(
+                    "Unexpected response from the event type migrate "
+                    "endpoint (%s); treating %d values as not migrated",
+                    type(chunk).__name__,
+                    len(batch),
+                    extra=dict(values=batch),
+                )
         return results
 
     def _migrate_legacy_for(self, event_types) -> bool:
@@ -645,10 +677,6 @@ class ERSmartSynchronizer:
             )
             self.datamodel_stats["event_types_migrate_errored"] += len(targets)
             return False
-        if not results:
-            # Dry-run client wrapper: nothing was converted, nothing failed.
-            return True
-
         migrated = [
             r["event_type"]
             for r in results

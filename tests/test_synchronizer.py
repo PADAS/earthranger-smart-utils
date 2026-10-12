@@ -1830,6 +1830,52 @@ class TestLegacyV1Migration:
         assert sync._migrate_legacy_for([self._et("ca_cm_a")]) is True
         mock_er_client._post.assert_not_called()
 
+    def test_create_only_mode_skips_migration(self, sync_config_v2, mock_er_client):
+        # Converting a v1 record in place is an update; create-only leaves it.
+        sync = self._sync(sync_config_v2, mock_er_client)
+        sync.sync_mode = "create-only"
+        assert sync._fetch_legacy_v1_snapshot() == []
+        mock_er_client.get_event_types.assert_not_called()
+        sync._er_v1_event_types_cache = [{"value": "ca_cm_a"}]
+        assert sync._migrate_legacy_for([self._et("ca_cm_a")]) is True
+        mock_er_client._post.assert_not_called()
+
+    def test_dry_run_client_reports_targets_as_migrated(
+        self, sync_config_v2, mock_er_client
+    ):
+        sync = self._sync(sync_config_v2, mock_er_client)
+        sync._er_v1_event_types_cache = [{"value": "ca_cm_a"}]
+        mock_er_client._post.return_value = {"id": "dry-run", "dry_run": True}
+        mock_er_client.get_event_types.return_value = []
+
+        assert sync._migrate_legacy_for([self._et("ca_cm_a")]) is True
+        assert sync.datamodel_stats["event_types_migrated"] == 1
+        assert sync.datamodel_stats["event_types_migrate_errored"] == 0
+
+    def test_empty_response_counts_targets_as_failed(
+        self, sync_config_v2, mock_er_client
+    ):
+        # No per-type result means no confirmed conversion: abort this CA.
+        sync = self._sync(sync_config_v2, mock_er_client)
+        sync._er_v1_event_types_cache = [{"value": "ca_cm_a"}]
+        mock_er_client._post.return_value = []
+        mock_er_client.get_event_types.return_value = []
+
+        assert sync._migrate_legacy_for([self._et("ca_cm_a")]) is False
+        assert sync.datamodel_stats["event_types_migrated"] == 0
+        assert sync.datamodel_stats["event_types_migrate_errored"] == 1
+
+    def test_non_list_response_counts_targets_as_failed(
+        self, sync_config_v2, mock_er_client
+    ):
+        sync = self._sync(sync_config_v2, mock_er_client)
+        sync._er_v1_event_types_cache = [{"value": "ca_cm_a"}]
+        mock_er_client._post.return_value = {"detail": "unexpected"}
+        mock_er_client.get_event_types.return_value = []
+
+        assert sync._migrate_legacy_for([self._et("ca_cm_a")]) is False
+        assert sync.datamodel_stats["event_types_migrate_errored"] == 1
+
     def test_migration_error_aborts_push(self, sync_config_v2, mock_er_client):
         sync = self._sync(sync_config_v2, mock_er_client)
         sync._er_v1_event_types_cache = [{"value": "ca_cm_a"}, {"value": "ca_cm_b"}]
@@ -1848,14 +1894,6 @@ class TestLegacyV1Migration:
         assert sync.datamodel_stats["event_types_migrate_errored"] == 1
         # The converted one leaves the v1 snapshot; the failed one stays for the retry.
         assert sync._er_v1_event_types_cache == [{"value": "ca_cm_b"}]
-
-    def test_dry_run_client_result_is_ignored(self, sync_config_v2, mock_er_client):
-        sync = self._sync(sync_config_v2, mock_er_client)
-        sync._er_v1_event_types_cache = [{"value": "ca_cm_a"}]
-        mock_er_client._post.return_value = {"id": "dry-run", "dry_run": True}
-        assert sync._migrate_legacy_for([self._et("ca_cm_a")]) is True
-        assert sync.datamodel_stats["event_types_migrated"] == 0
-        assert sync.datamodel_stats["event_types_migrate_errored"] == 0
 
     def test_push_aborts_before_event_types_when_migration_fails(
         self, sync_config_v2, mock_er_client

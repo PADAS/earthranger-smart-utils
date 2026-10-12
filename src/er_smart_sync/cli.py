@@ -1007,6 +1007,12 @@ earthranger:
   # conditional sections. v2 only; ignored for v1 event types.
   cm_variant_mode: split
 
+  # Convert colliding legacy v1 event types in place (ER's
+  # POST /api/v2.0/activity/eventtypes/migrate/) before pushing v2.
+  # Default: true. v2 only; skipped under --mode create-only. Set false
+  # to leave v1 records alone (colliding values are then skipped).
+  migrate_legacy_v1: true
+
   # URL prefix used in v2 event-type schema $refs (e.g.
   # "{choices_base_url}/choices.json?field=<field>"). Default matches ER's
   # standard /api/v2.0/schemas layout.

@@ -126,8 +126,11 @@ The record flips to v2 in place and keeps its historical events. ER
 converts the inline enums into its own Choice lists; the following
 compare-and-patch step rewrites the schema to reference the library's
 shared `dm…` lists, so ER's generated lists stay behind active but
-unreferenced, like legacy `et…` lists. Only values that start with the
-CA (and CM) UUID can collide, so hand-made v1 types are never touched.
+unreferenced, like legacy `et…` lists. Targets are chosen by value:
+only SMART-derived values (they start with the CA and CM UUIDs) are
+sent, so a hand-made v1 type is converted only if someone gave it
+exactly such a value. `--mode create-only` skips the conversion, since
+it updates an existing record.
 
 A failed conversion aborts that CA's push (`event_types_migrate_errored`
 in the run summary) and the next run retries. Pass

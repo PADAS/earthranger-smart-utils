@@ -14,8 +14,9 @@ which carry the full commit-level history.
 `POST /api/v2.0/activity/eventtypes/migrate/` for SMART-derived values
 that still exist as v1, then patches them to the library's schema.
 Controlled by `migrate_legacy_v1` (default on) and
-`--no-migrate-legacy-v1`. New run-summary counters
-`event_types_migrated` and `event_types_migrate_errored`.
+`--no-migrate-legacy-v1`; skipped under `--mode create-only`. New
+run-summary counters `event_types_migrated`,
+`event_types_migrate_errored` and `legacy_v1_snapshot_errored`.
 
 ### Changed
 

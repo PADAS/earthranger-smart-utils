@@ -2250,3 +2250,11 @@ def test_no_migrate_legacy_v1_flag_disables_config(tmp_path, monkeypatch):
     )
     assert result.exit_code == 0, result.output
     assert captured["config"].earthranger.migrate_legacy_v1 is False
+
+
+def test_config_template_lists_migrate_legacy_v1():
+    from click.testing import CliRunner
+
+    result = CliRunner().invoke(main, ["config-template"])
+    assert result.exit_code == 0
+    assert "migrate_legacy_v1: true" in result.output
