@@ -5,6 +5,18 @@ Notable changes by version. Every release is also published to
 [GitHub Releases](https://github.com/PADAS/earthranger-smart-utils/releases),
 which carry the full commit-level history.
 
+## 0.5.1 — <release date>
+
+### Fixed
+
+**A failed patrol publish no longer looks like an oversized message.** The
+patrol sync caught every publish error, logged it as "message too large",
+and still advanced `patrol_last_poll_at`, so a publisher outage that
+outlasted its own retries silently lost those patrols. Only an exception
+whose class is named `MessageTooLargeError` is treated as oversized and
+skipped; any other publish failure is re-raised, the window is not
+advanced, and the next run retries it (the pre-0.5.0 behaviour).
+
 ## 0.5.0 — 2026-10-12
 
 ### Added

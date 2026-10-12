@@ -986,6 +986,96 @@ class TestBatchedEventFetch:
         assert mock_er_client.get_events.call_count == 1
 
 
+class MessageTooLargeError(Exception):
+    """Stand-in for google.cloud.pubsub_v1's exception; matched by name."""
+
+
+def _publishable_patrol(now: str) -> dict:
+    return {
+        "id": str(uuid4()),
+        "serial_number": 9200,
+        "title": "Patrol",
+        "state": "open",
+        "patrol_segments": [
+            {
+                "id": str(uuid4()),
+                "patrol_type": "routine",
+                "leader": {
+                    "id": str(uuid4()),
+                    "name": "R1",
+                    "subject_subtype": "ranger",
+                    "additional": {},
+                    "is_active": True,
+                },
+                "start_location": {"latitude": -1.5, "longitude": 36.8},
+                "events": [],
+                "event_details": [],
+                "track_points": [],
+                "updates": [],
+            }
+        ],
+        "updates": [
+            {
+                "message": "x",
+                "time": now,
+                "user": {"id": str(uuid4())},
+                "type": "update_patrol",
+            }
+        ],
+        "files": [],
+    }
+
+
+class TestPatrolPublishFailures:
+    def _sync(self, sync_config, mock_er_client, mock_smart_client, publisher):
+        state_store = MagicMock()
+        state_store.get_last_poll.return_value = SyncState()
+        return ERSmartSynchronizer(
+            config=sync_config,
+            er_client=mock_er_client,
+            smart_client=mock_smart_client,
+            publisher=publisher,
+            state_store=state_store,
+        )
+
+    def test_oversized_patrol_is_skipped_and_the_window_advances(
+        self, sync_config, mock_er_client, mock_smart_client
+    ):
+        now = datetime.now(tz=timezone.utc).isoformat()
+        mock_er_client.get_patrols.return_value = [
+            _publishable_patrol(now),
+            _publishable_patrol(now),
+        ]
+        publisher = MagicMock()
+        publisher.publish.side_effect = [MessageTooLargeError("10MB"), None]
+        sync = self._sync(sync_config, mock_er_client, mock_smart_client, publisher)
+
+        sync.synchronize_er_patrols()
+
+        assert publisher.publish.call_count == 2
+        sync.state_store.set_last_poll.assert_called_once()
+        state = sync.state_store.set_last_poll.call_args.args[1]
+        assert state.patrol_last_poll_at is not None
+
+    def test_other_publish_failure_raises_and_keeps_the_window(
+        self, sync_config, mock_er_client, mock_smart_client
+    ):
+        now = datetime.now(tz=timezone.utc).isoformat()
+        mock_er_client.get_patrols.return_value = [
+            _publishable_patrol(now),
+            _publishable_patrol(now),
+        ]
+        publisher = MagicMock()
+        publisher.publish.side_effect = RuntimeError("pubsub down")
+        sync = self._sync(sync_config, mock_er_client, mock_smart_client, publisher)
+
+        with pytest.raises(RuntimeError):
+            sync.synchronize_er_patrols()
+
+        assert publisher.publish.call_count == 1
+        sync.state_store.set_last_poll.assert_not_called()
+
+
 class TestRetry:
     def test_post_event_category_retries_on_transient_error(
         self, sync_config, mock_er_client

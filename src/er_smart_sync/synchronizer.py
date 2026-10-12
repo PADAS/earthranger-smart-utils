@@ -180,6 +180,15 @@ def _summarize_schema_diff(new: dict, existing: dict) -> str:
     return "; ".join(diffs) or "(equal but != returned True?)"
 
 
+def _is_message_too_large(exc: BaseException) -> bool:
+    """True for a publisher's oversize-message error, matched by class name.
+
+    The library has no Pub/Sub dependency (it is an optional extra), so the
+    google ``MessageTooLargeError`` is recognised by name instead of by import.
+    """
+    return any(cls.__name__ == "MessageTooLargeError" for cls in type(exc).__mro__)
+
+
 class ERSmartSynchronizer:
     """Synchronizes data between SMART Connect and EarthRanger.
 
@@ -1684,7 +1693,23 @@ class ERSmartSynchronizer:
                         )
                         subspan.add_event("gundi_er_smart_sync.patrol_sent_to_routing")
                         published += 1
-                    except Exception:
+                    except Exception as e:
+                        if not _is_message_too_large(e):
+                            # Any other publish failure must not look like a
+                            # success: re-raise so the caller leaves
+                            # patrol_last_poll_at alone and the next run
+                            # retries this window.
+                            logger.error(
+                                "Publishing patrol %s (%s) failed; aborting this "
+                                "run's patrol window, it will be retried next run",
+                                patrol.id,
+                                patrol.serial_number,
+                                extra={
+                                    "patrol_id": patrol.id,
+                                    "patrol_serial_number": patrol.serial_number,
+                                },
+                            )
+                            raise
                         logger.exception(
                             f"Patrol {patrol.id} ({patrol.serial_number}) message too large to publish. Will skip it and continue with next patrol.",
                             extra={
