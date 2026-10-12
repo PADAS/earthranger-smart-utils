@@ -1,0 +1,293 @@
+# SMART → EarthRanger patrol migration from a smart-able bundle
+
+Date: 2026-10-12. Status: draft for review.
+Jira: epic ERA-14136; stories ERA-14137 (patrol configuration), ERA-14138
+(readiness check), ERA-14139 (patrol history), ERA-14140 (waypoints as
+events), ERA-14141 (track points); spike ERA-14142 (historical patrol read
+access). Builds on Joshua Krautwurst's technical plan on the epic
+(2026-09-29). Companion spec in PADAS/er-smart-able:
+`docs/superpowers/specs/2026-10-12-datamodel-export-and-migration-bundle-design.md`.
+
+## Spike close-out: ERA-14142
+
+**Decision.** Historical patrols, track points, and the patrol configuration
+are read from a *migration bundle* that smart-able produces from a SMART
+system backup or Conservation Area export zip. er-smart-sync does not call
+SMART Connect for any part of the patrol migration, and the SMART Connect
+client is not extended. Sites are expected to hand over a backup or export
+zip; we assume every migrating site can and will.
+
+**Why.** smartconnect-client can fetch one patrol by id but cannot list a
+CA's patrols or read track points, and the Connect query API would need a
+live server to verify. The backup, which smart-able already parses, carries
+every table the import stories need. Verified on the Lawin backup
+(SMART 7.5.6, four CAs):
+
+| Data | SMART tables | Rows |
+| --- | --- | --- |
+| Patrols | `patrol` | 2,570 |
+| Legs, leg days, leg members with leader flag | `patrol_leg`, `patrol_leg_day`, `patrol_leg_members` | 3,597 leg days, 14,800 memberships |
+| Track geometry per leg day | `track` (WKB LineString) | 2,444 |
+| Waypoints and observations with typed attribute values | `waypoint`, `wp_observation_group`, `wp_observation`, `wp_observation_attributes` | 30,791 waypoints, 31,670 observations |
+| Waypoint attachments | `wp_attachments` plus the decrypted filestore | 1,641 |
+| Patrol metadata lists | `patrol_transport`, `patrol_mandate`, `station`, `patrol_type`, `patrol_attribute` | all present |
+| Staff | `employee`, `employee_team`, `rank`, `agency` | 287 employees |
+
+The field shapes the import stories assumed are now known from the tables
+rather than from the Connect JSON: leg dates are day-granular, leg days
+carry start and end times, members are `(employee_uuid, is_leader,
+is_pilot)`, waypoint positions are WGS 84, and track points carry no
+per-point timestamps.
+
+**What this changes in the plan.** The `PatrolSource` protocol stays, with
+one implementation: the bundle reader. `download_patrolmodel` is no longer
+the source of the patrol configuration; `reference.json` in the bundle is.
+The existing `sync_patrol_datamodel` (subjects from the Connect patrol
+model) is kept for Connect-connected sites and is not touched.
+
+## Goal
+
+Three subcommands that take a SMART CA from backup zip to a fully
+populated ER site, in order, each idempotent:
+
+```
+er-smart-sync datamodel --from-file <bundle>/../datamodel.xml …   (existing)
+er-smart-sync patrol-datamodel --bundle <dir> --config sync.yaml
+er-smart-sync patrol-preflight --bundle <dir> --config sync.yaml
+er-smart-sync import-patrols   --bundle <dir> --config sync.yaml [filters]
+```
+
+Success is the epic's success criteria: a pilot CA's patrols render in the
+new ER patrol UI with legs, universal fields, team and members, attached
+events and tracks; re-running any step creates nothing new; everything the
+tool cannot do itself comes out as an admin checklist.
+
+## Non-goals
+
+- Changes to das. Follow-up tickets only (team write API, provenance fields,
+  bulk import, server-default segment schema).
+- ER → SMART patrol sync. Unchanged; migrated sites cut over.
+- Profiles and Entities.
+- Reading anything from SMART Connect for this feature.
+
+## The bundle contract
+
+Produced by `smart-able export`; see the companion spec for the full field
+list. Four JSON files in one directory: `manifest.json` (CA identity, SMART
+version, timezone, counts, warnings, `bundle_schema_version`),
+`reference.json` (patrol types, transports, mandates, stations, custom
+patrol attributes, agencies, ranks, teams, employees), `patrols.json`
+(patrols → legs → days, members, waypoints → observation groups →
+observations with typed attribute values, attachments), `tracks.json` (one
+GeoJSON LineString per leg day), plus `attachments/`.
+
+Rules er-smart-sync relies on: SMART UUIDs are hyphenated; timestamps carry
+the CA's UTC offset; coordinates are `[lon, lat]`; LIST values are SMART
+option keys and TREE values are hkey paths, the same identifiers the
+datamodel sync used to build ER choices; labels are per language with a
+default-language `label`.
+
+`src/er_smart_sync/bundle/schema.json` is a vendored copy of smart-able's
+`export/bundle.schema.json`. `bundle.py` validates each file on load with
+`jsonschema` and refuses a `bundle_schema_version` it does not know. The
+copy is refreshed by hand; a test asserts the vendored schema's version
+matches the loader's supported version.
+
+## Architecture
+
+New modules under `src/er_smart_sync/`, following the plan's split between
+pure builders and I/O:
+
+| File | Role |
+| --- | --- |
+| `bundle/__init__.py`, `bundle/schema.json` | Load and validate the four files into frozen dataclasses (`Bundle`, `Patrol`, `Leg`, `LegDay`, `Waypoint`, `Observation`, `Employee`, …). No ER knowledge. |
+| `patrol_source.py` | `PatrolSource` protocol: `conservation_area()`, `reference()`, `iter_patrols(filters)`, `track_for(leg_day_uuid)`, `open_attachment(path)`. `BundlePatrolSource` is the only implementation. |
+| `smart_to_er_patrol_schema.py` | Pure builders from `reference.json`: ER patrol types, the universal segment schema (JSON Schema draft 2020-12 plus UI schema, choice fields as `anyOf $ref choices.json?field=patrol_<name>`), the patrol choice sets, member subjects, and the team requirements list. |
+| `er_patrol_api.py` | Thin raw-API layer over `ERClient._get/_post/_patch/_put` for what erclient lacks: patrol config read, patrol type upsert, segment schema get/put, patrol PATCH, subject sources, incident collections. Honors `DryRunERClient`. |
+| `smart_to_er_patrols.py` | Pure transform: one bundle patrol → an `ERPatrolPlan` (patrol payload, segments, notes, events per segment, observation batches per leader). Deterministic ids, provenance block. |
+| `preflight.py` | Read-only checks returning `Finding(level, code, message, fix)` rows and a text or JSON report. |
+| `patrol_import.py` | Orchestrates `import-patrols`: ledger, per-patrol isolation, counts. |
+| `synchronizer.py`, `cli.py`, `config.py`, `state.py` (modify) | Wire the three subcommands; `smart.timezone` and `earthranger.patrol_namespace` config keys; ledger storage via `StateStore`. |
+
+`config.py` gains `BundleConfig(path: str)` so `--bundle` can also live in
+`sync.yaml`. The `smart:` endpoint and credentials become optional when a
+bundle is given.
+
+## patrol-datamodel (ERA-14137)
+
+Reads `reference.json` and writes, in this order, each step idempotent:
+
+1. **Patrol types.** One per active transport: `value = patrol_<sanitized
+   transport key>`, `display = transport label`, `icon_id` from a small
+   fixed map (foot, vehicle, boat, aircraft, other). Upsert keyed on
+   `value`. Inactive transports are created inactive if absent and left
+   alone if present, so historical legs can still reference them.
+2. **Universal segment schema.** Built from the CA: `objective` (text),
+   `mandate` (choice), `station` (choice), `patrol_class` (choice, from
+   `patrol_types`: Ground, Air, Marine), `armed` (boolean), `comment`
+   (textarea), plus one field per active custom patrol attribute keyed
+   `smart_<attribute key>`. Choice fields reference
+   `choices.json?field=patrol_<name>`. Update semantics: GET the current
+   schema on `patrols/segments/types/default/`, merge so our canonical keys
+   win and admin-added properties and UI order entries survive, then PUT.
+   `--replace-segment-schema` overwrites instead. A no-change merge skips
+   the PUT.
+3. **Choices.** `patrol_mandate`, `patrol_station`, `patrol_class`, and one
+   set per custom LIST attribute, through the existing `choices.py` upsert
+   (`model="activity.event"`, which the segment schema `$ref` resolves
+   field-only). Values are sanitized with `sanitize_choice_value`;
+   display is the default-language label.
+4. **Subjects.** One ranger subject per employee with a leg membership in
+   the bundle or an active employment. `subject_subtype = ranger`,
+   `name = "Given Family"`, `additional.smart_member_id = employee uuid`,
+   `additional.smart_employee_id = employee.id`, `additional.smart_ca_uuid`.
+   Match on `smart_member_id` first (the key `sync_patrol_datamodel`
+   already uses), then on `smart_employee_id` for subjects created by an
+   earlier Connect-based run; create when neither matches; otherwise PATCH
+   only when name or active flag differs. Multi-CA sites share subjects by
+   `smart_member_id`, so a second CA's run adds no duplicates.
+5. **Checklist.** Printed at the end and written as `checklist.md` beside
+   the bundle: enable the `patrol_schemas` preview; create each
+   `PatrolConfigurationTeam` named after a SMART team, with its roster;
+   put every subject created above in the patrol roster subject group;
+   grant the operator `change_segmenttype` if the schema PUT was refused.
+   Each item names the exact ER admin page and the values to enter.
+
+Summary line: counts of types, fields, choices, subjects created, updated,
+unchanged; checklist item count.
+
+## patrol-preflight (ERA-14138)
+
+Read-only. Checks, each a `Finding` with a `fix` string:
+
+| Code | Level | Check |
+| --- | --- | --- |
+| `feature_flag` | blocking | `GET patrols/config/default` returns the new fields; 404 means `patrol_schemas` is off |
+| `permissions` | blocking | operator can read patrol config and POST a dry-run patrol (`?dry_run=1` if available, else checks `change_patrol` in `GET user/me` permissions) |
+| `patrol_types` | blocking | every transport referenced by a leg in the bundle has its patrol type |
+| `segment_schema` | blocking | every canonical field is in the default segment schema |
+| `choices` | warning | every mandate, station, class and custom option used by a patrol exists as a choice |
+| `subjects` | blocking | every employee with a leg membership is an active subject matched by `smart_member_id` and is in a configured roster group |
+| `teams` | blocking | every SMART team referenced by a patrol exists as a `PatrolConfigurationTeam` (matched by name) |
+| `event_types` | blocking | every category hkey used by an observation has an event type from the datamodel sync (`event_type_value_for`) |
+| `timezone` | warning | bundle timezone was inferred rather than configured |
+| `bundle_warnings` | warning | relays `manifest.warnings` |
+
+Output: text grouped by level with the fix under each finding, or `--json`.
+Exit code 0 clean, 2 blocking findings, 1 error. `import-patrols` runs the
+same checks first and stops on blocking findings unless
+`--allow-blocking` is given, in which case the affected patrols are skipped
+individually with the finding code as the reason.
+
+## import-patrols (ERA-14139, ERA-14140, ERA-14141)
+
+**Identity.** All ER ids are `uuid5(ns, f"{kind}:{smart_uuid}")` with
+`ns = uuid5(NAMESPACE_URL, f"{er host}/{ca uuid}")`, configurable as
+`earthranger.patrol_namespace` for sites that were pre-seeded. Raw SMART
+UUIDs are never reused as ER ids, because a SMART `client_uuid` can point
+back at an ER-originated patrol from the outbound sync. Kinds: `patrol`,
+`segment`, `note`, `event`, `incident`, `file`, `source`.
+
+**Patrol.** One ER patrol per bundle patrol: `title = patrol id`,
+`priority = 0`, `objective = patrol.objective`, one note holding the
+patrol comment when present. Segments, one per leg, in order:
+`patrol_type` from the leg transport, `time_range` from the leg days
+(earliest `start` to latest `end`, with the bundle timezone), `leader`
+and `members` resolved through `smart_member_id`, `team` resolved by name
+from `GET patrols/config/default`, and `segment_details`:
+
+```json
+{ "objective": "…", "mandate": "<choice>", "station": "<choice>", "patrol_class": "<choice>",
+  "armed": false, "comment": "…", "smart_<attr>": …,
+  "smart_": { "patrol_uuid", "patrol_id", "leg_uuid", "leg_id", "ca_uuid", "bundle_generated_at", "importer_version" } }
+```
+
+The `smart_` block is provenance (ERA-14139's traceability criterion);
+`segment_details` validation is advisory so unknown keys persist.
+Write: `POST activity/patrols/` with nested segments and notes; on 409,
+`PATCH patrols/{id}` with the same body, which upserts nested rows by id.
+Past end dates make ER mark the patrol done automatically.
+
+**Events (ERA-14140).** Per waypoint, per observation: an event of type
+`event_type_value_for(category hkey)` with `time`, `location`,
+`event_details` from the attribute values, mapped with the same rules the
+datamodel sync used to build the schema (LIST → sanitized choice value,
+TREE → sanitized leaf key, MLIST → array, NUMERIC/BOOLEAN/DATE/TEXT
+as-is), `provenance` in `event_details.smart_` (`waypoint_uuid`,
+`observation_uuid`, `group_uuid`), and `patrol_segments = [segment id]`. A
+waypoint with more than one observation becomes an incident collection
+whose children are the observation events. Attachments are posted once to
+the first event of the waypoint. Dedupe: client-supplied event ids are
+tried first; if ER refuses an id on POST, the importer falls back to
+querying by `event_details.smart_.observation_uuid` before creating.
+
+**Tracks (ERA-14141).** Per leg leader: ensure a Source with
+`manufacturer_id = smart:{smart_member_id}` and a subject source spanning
+the patrol window; then `post_observation` batches of the leg day's
+LineString, one observation per vertex, timestamps spread evenly from the
+day's `start` to `end`, `additional.smart_leg_day_uuid` on each. The leg's
+`time_range` is tightened to the track's first and last point when the
+track exists. Dedupe: diff against existing observations for that source
+in the window by `recorded_at` before posting. `--skip-tracks` skips this
+step.
+
+**Selection and resumption.** `--since/--until` on patrol start date,
+`--patrol <id or uuid>` repeatable, `--skip-events`, `--skip-tracks`,
+`--limit N`. The ledger, stored through `StateStore` under
+`patrol_import/<er id>/<ca uuid>/<patrol uuid>`, records per patrol the
+stage reached (patrol, events, tracks) and the ER ids written. A re-run
+skips completed stages and finishes partial ones. One failing patrol is
+logged with its reason and skipped; the run ends with imported, skipped
+and failed counts and the reason per failure, and exits non-zero if any
+failed.
+
+## Timezone
+
+Taken from `manifest.timezone`. `smart.timezone` in `sync.yaml` overrides
+it; the preflight warns when the bundle's was inferred and no override is
+set. All leg and waypoint times already carry the offset in the bundle;
+the importer passes them through unchanged.
+
+## Testing
+
+- Unit tests for the pure builders and transform with a committed fixture
+  bundle generated by smart-able from SMART's "Example Conservation Area"
+  (five patrols, demo staff, no real people). Golden assertions on the
+  segment schema, patrol payloads, event payloads and observation batches.
+- `bundle.py` tests: schema validation failures, unsupported version,
+  missing files.
+- Preflight tests against a fake ER client that returns configured
+  responses per endpoint, one test per finding code.
+- Idempotency test: run `import-patrols` twice against the fake client and
+  assert the second run makes no writes.
+- A live smoke test, skipped unless `ER_SMOKE_SERVER` is set, that runs
+  the three subcommands against a sandbox site with the fixture bundle and
+  checks the patrol through `GET activity/patrols/{id}`.
+
+## Verify-first items
+
+Checked against das before the corresponding step is implemented; each
+is a task in the implementation plan:
+
+1. Whether `POST activity/events/` honours a client-supplied `id`; shapes
+   the event dedupe path.
+2. `POST subjectsources` payload and whether `assigned_range` can be
+   back-dated.
+3. Incident collection endpoint and payload for attaching child events.
+4. Whether `PATCH patrols/{id}` with nested segments replaces or upserts
+   `members`.
+5. das observation dedupe on `(source, recorded_at)`.
+
+## Runbook (deliverable, written with the code)
+
+`docs/workflows/migrate-patrols.md`: get the backup, run `smart-able all`,
+run `datamodel --from-file`, run `patrol-datamodel`, do the checklist, run
+`patrol-preflight` until clean, run `import-patrols` on a date window, check
+one patrol in the UI, run the rest. Includes the manual admin steps the
+checklist produces, with screenshots of the admin pages.
+
+## Out of scope, recommended das follow-ups
+
+Team and patrol-config write API; provenance or external-id fields on
+Patrol and PatrolSegment; a bulk patrol import endpoint; a server-default
+universal segment schema seeded from the canonical field set above.
