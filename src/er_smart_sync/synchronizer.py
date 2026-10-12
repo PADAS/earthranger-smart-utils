@@ -613,12 +613,26 @@ class ERSmartSynchronizer:
         results: list[dict] = []
         for i in range(0, len(values), _MIGRATE_BATCH_SIZE):
             batch = list(values[i : i + _MIGRATE_BATCH_SIZE])
-            chunk = _retry(
-                self.er_client._post,
-                path=_MIGRATE_PATH,
-                payload={"dry_run": False, "event_types": batch},
-                base_url=self.er_client._api_root("v2.0"),
-            )
+            try:
+                chunk = _retry(
+                    self.er_client._post,
+                    path=_MIGRATE_PATH,
+                    payload={"dry_run": False, "event_types": batch},
+                    base_url=self.er_client._api_root("v2.0"),
+                )
+            except Exception:
+                # Earlier batches are converted on ER; keep their results so
+                # the caller counts only the failed and unattempted values.
+                if not results:
+                    raise
+                logger.exception(
+                    "Legacy v1 migration request failed after %d results; "
+                    "%d values were not attempted",
+                    len(results),
+                    len(values) - i,
+                    extra=dict(values=values[i:]),
+                )
+                break
             if isinstance(chunk, list):
                 results.extend(chunk)
             elif isinstance(chunk, dict) and chunk.get("dry_run"):
@@ -738,7 +752,7 @@ class ERSmartSynchronizer:
             )
         if missing:
             logger.error(
-                "ER returned no migration result; legacy v1 event types "
+                "No migration result for legacy v1 event types; they "
                 "could not be migrated: %s",
                 missing,
                 extra=dict(values=missing),

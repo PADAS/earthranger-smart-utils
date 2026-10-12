@@ -1876,6 +1876,26 @@ class TestLegacyV1Migration:
         assert sync._migrate_legacy_for([self._et("ca_cm_a")]) is False
         assert sync.datamodel_stats["event_types_migrate_errored"] == 1
 
+    def test_later_batch_failure_keeps_earlier_results(
+        self, sync_config_v2, mock_er_client
+    ):
+        sync = self._sync(sync_config_v2, mock_er_client)
+        sync._er_v1_event_types_cache = [{"value": "ca_cm_a"}, {"value": "ca_cm_b"}]
+        mock_er_client._post.side_effect = [
+            [{"event_type": "ca_cm_a", "v2_schema": {}, "warnings": [], "errors": []}],
+            Exception("502"),
+        ]
+        mock_er_client.get_event_types.return_value = [{"value": "ca_cm_a"}]
+
+        with patch("er_smart_sync.synchronizer._MIGRATE_BATCH_SIZE", 1):
+            ok = sync._migrate_legacy_for([self._et("ca_cm_a"), self._et("ca_cm_b")])
+
+        assert ok is False
+        assert sync.datamodel_stats["event_types_migrated"] == 1
+        assert sync.datamodel_stats["event_types_migrate_errored"] == 1
+        # The converted value leaves the v1 snapshot; the failed one stays.
+        assert sync._er_v1_event_types_cache == [{"value": "ca_cm_b"}]
+
     def test_migration_error_aborts_push(self, sync_config_v2, mock_er_client):
         sync = self._sync(sync_config_v2, mock_er_client)
         sync._er_v1_event_types_cache = [{"value": "ca_cm_a"}, {"value": "ca_cm_b"}]
