@@ -118,7 +118,7 @@ bundle is given.
 Reads `reference.json` and writes, in this order, each step idempotent:
 
 1. **Patrol types.** One per active transport: `value = patrol_<sanitized
-   transport key>`, `display = transport label`, `icon_id` from a small
+   transport key>`, `display = transport label` in the chosen language, `icon_id` from a small
    fixed map (foot, vehicle, boat, aircraft, other). Upsert keyed on
    `value`. Inactive transports are created inactive if absent and left
    alone if present, so historical legs can still reference them.
@@ -136,7 +136,7 @@ Reads `reference.json` and writes, in this order, each step idempotent:
    set per custom LIST attribute, through the existing `choices.py` upsert
    (`model="activity.event"`, which the segment schema `$ref` resolves
    field-only). Values are sanitized with `sanitize_choice_value`;
-   display is the default-language label.
+   display is the label in the chosen language.
 4. **Subjects.** One ranger subject per employee with a leg membership in
    the bundle or an active employment. `subject_subtype = ranger`,
    `name = "Given Family"`, `additional.smart_member_id = employee uuid`,
@@ -171,6 +171,7 @@ Read-only. Checks, each a `Finding` with a `fix` string:
 | `teams` | blocking | every SMART team referenced by a patrol exists as a `PatrolConfigurationTeam` (matched by name) |
 | `event_types` | blocking | every category hkey used by an observation has an event type from the datamodel sync (`event_type_value_for`) |
 | `timezone` | warning | bundle timezone was inferred rather than configured |
+| `language` | warning | the chosen language lacks labels for some elements; reports the count and the fallback used |
 | `bundle_warnings` | warning | relays `manifest.warnings` |
 
 Output: text grouped by level with the fix under each finding, or `--json`.
@@ -240,6 +241,30 @@ skips completed stages and finishes partial ones. One failing patrol is
 logged with its reason and skipped; the run ends with imported, skipped
 and failed counts and the reason per failure, and exits non-zero if any
 failed.
+
+## Language
+
+A SMART data model can carry labels in several languages; the user picks
+which one populates EarthRanger. The existing `--smart-language` flag and
+`smart.use_language_code` config key, which the `datamodel` subcommand
+already honours for event type and choice display names, apply to the
+three patrol subcommands too. Every display string written to ER comes
+from `labels[language]`: patrol type display names, universal field
+titles, choice display values, team names in the checklist, and the
+patrol-class labels. Fallback order is the requested language, then the
+bundle's `default_language`, then any language present, so a missing
+translation never blocks a run. Subject names are personal names and are
+not translated.
+
+Validation: the requested code must appear in `manifest.languages`;
+otherwise the command stops and prints the available codes with their
+label coverage. The preflight adds a `language` warning when the chosen
+language is missing labels (`manifest.languages[].missing > 0`) with the
+count, so the user can switch to a better-covered language before
+importing. Because display names are part of the upsert comparison,
+re-running with a different language updates patrol type and choice
+display values in place; it does not create new ones, since identity is
+on `value`, not display.
 
 ## Timezone
 
