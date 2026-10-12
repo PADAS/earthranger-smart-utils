@@ -1382,6 +1382,45 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#050" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.5.0 —
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.5.0 —">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#040-2026-09-28" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1405,7 +1444,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#added" class="md-nav__link">
+  <a href="#added_1" class="md-nav__link">
     <span class="md-ellipsis">
       
         Added
@@ -1433,7 +1472,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#changed" class="md-nav__link">
+  <a href="#changed_1" class="md-nav__link">
     <span class="md-ellipsis">
       
         Changed
@@ -1483,7 +1522,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#added_1" class="md-nav__link">
+  <a href="#added_2" class="md-nav__link">
     <span class="md-ellipsis">
       
         Added
@@ -1555,6 +1594,45 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#050" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.5.0 —
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.5.0 —">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#040-2026-09-28" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1578,7 +1656,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#added" class="md-nav__link">
+  <a href="#added_1" class="md-nav__link">
     <span class="md-ellipsis">
       
         Added
@@ -1606,7 +1684,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#changed" class="md-nav__link">
+  <a href="#changed_1" class="md-nav__link">
     <span class="md-ellipsis">
       
         Changed
@@ -1656,7 +1734,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#added_1" class="md-nav__link">
+  <a href="#added_2" class="md-nav__link">
     <span class="md-ellipsis">
       
         Added
@@ -1731,6 +1809,22 @@
 <a href="https://pypi.org/project/er-smart-sync/">PyPI</a> and tagged on
 <a href="https://github.com/PADAS/earthranger-smart-utils/releases">GitHub Releases</a>,
 which carry the full commit-level history.</p>
+<h2 id="050">0.5.0 — <release date><a class="headerlink" href="#050" title="Permanent link">&para;</a></h2>
+<h3 id="added">Added<a class="headerlink" href="#added" title="Permanent link">&para;</a></h3>
+<p><strong>Colliding v1 event types are migrated before a v2 push.</strong> With
+<code>event_type_version: v2</code>, the datamodel sync now calls EarthRanger's
+<code>POST /api/v2.0/activity/eventtypes/migrate/</code> for SMART-derived values
+that still exist as v1, then patches them to the library's schema.
+Controlled by <code>migrate_legacy_v1</code> (default on) and
+<code>--no-migrate-legacy-v1</code>; skipped under <code>--mode create-only</code>. New
+run-summary counters <code>event_types_migrated</code>,
+<code>event_types_migrate_errored</code> and <code>legacy_v1_snapshot_errored</code>.</p>
+<h3 id="changed">Changed<a class="headerlink" href="#changed" title="Permanent link">&para;</a></h3>
+<p><strong>Choice value rules now come from smartconnect-client.</strong>
+<code>sanitize_choice_value</code> and the over-100-character hash shortening are
+imported from <code>smartconnect.choices</code> (smartconnect-client ≥ 1.15.0) so
+cdip-routing can apply the inverse lookup from one definition. Output is
+byte-for-byte unchanged.</p>
 <h2 id="040-2026-09-28">0.4.0 — 2026-09-28<a class="headerlink" href="#040-2026-09-28" title="Permanent link">&para;</a></h2>
 <h3 id="fixed">Fixed<a class="headerlink" href="#fixed" title="Permanent link">&para;</a></h3>
 <p><strong>Leaf categories that re-declare an inherited attribute no longer produce
@@ -1751,7 +1845,7 @@ options, and emits effective active flags (a leaf under a deactivated
 branch arrives inactive). It also fixes MLIST attributes losing their
 options entirely in file-based datamodel parses. The smartconnect-client
 pin is now <code>&gt;=1.14.0</code>, activating the converged behavior.</p>
-<h3 id="added">Added<a class="headerlink" href="#added" title="Permanent link">&para;</a></h3>
+<h3 id="added_1">Added<a class="headerlink" href="#added_1" title="Permanent link">&para;</a></h3>
 <p><strong>The EarthRanger endpoint accepts a bare domain or scheme + host.</strong>
 <code>site.pamdas.org</code>, <code>https://site.pamdas.org</code>, and the full
 <code>https://site.pamdas.org/api/v1.0</code> service root all normalize to the
@@ -1763,7 +1857,7 @@ preserved for development servers.</p>
 <a href="../cli-reference/copy-event-type/">CLI reference</a> and USAGE.md; the
 command itself shipped earlier (#12).</p>
 <h2 id="033-2026-09-25">0.3.3 — 2026-09-25<a class="headerlink" href="#033-2026-09-25" title="Permanent link">&para;</a></h2>
-<h3 id="changed">Changed<a class="headerlink" href="#changed" title="Permanent link">&para;</a></h3>
+<h3 id="changed_1">Changed<a class="headerlink" href="#changed_1" title="Permanent link">&para;</a></h3>
 <p><strong>Choice lists are now shared across the event types of a datamodel sync.</strong>
 Previously every event type got its own copy of each dropdown's Choice
 records, even when the SMART data model defined one option list used by many
@@ -1814,7 +1908,7 @@ the same root, a flag default that hid whether the user had passed anything.</p>
 <p>The version one affected behavior rather than presentation: SMART versions
 below 7.5.3 need <code>smart_observation_uuid</code> patched onto outgoing events, so a
 silently discarded <code>--smart-version</code> could change what the sync actually sent.</p>
-<h3 id="added_1">Added<a class="headerlink" href="#added_1" title="Permanent link">&para;</a></h3>
+<h3 id="added_2">Added<a class="headerlink" href="#added_2" title="Permanent link">&para;</a></h3>
 <p><strong>Data-model syncs warn when no display name resolves.</strong> SMART substitutes the
 literal <code>n/a</code> whenever no <code>&lt;names&gt;</code> entry matches the requested language; it
 does not raise or warn, so an unmatched language code produced a complete,

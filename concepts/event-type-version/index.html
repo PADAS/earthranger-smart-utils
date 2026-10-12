@@ -1788,13 +1788,27 @@ detail view for a v2 event type. See <code>docs/images/README.md</code>.</p>
 </div>
 <h2 id="migrating-between-versions">Migrating between versions<a class="headerlink" href="#migrating-between-versions" title="Permanent link">&para;</a></h2>
 <p>EarthRanger's event-type <code>value</code> is unique tenant-wide <strong>across both
-versions</strong>. You can't have the same <code>value</code> exist as both v1 and v2.</p>
-<p>To convert an existing v1 event type to v2, use the EarthRanger server-side
-migrate endpoint:</p>
+versions</strong>, so a value that exists as v1 cannot be POSTed as v2.</p>
+<p>When <code>event_type_version</code> is <code>v2</code> and <code>migrate_legacy_v1</code> is on (the
+default), the datamodel sync lists the tenant's v1 event types once per
+run and, for each CA push, sends the values it is about to write that
+still exist as v1 to EarthRanger's server-side converter:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>POST /api/v2.0/activity/eventtypes/migrate/
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>{"dry_run": false, "event_types": ["&lt;value&gt;", ...]}
 </code></pre></div>
-<p><code>er-smart-sync</code> doesn't wrap this endpoint yet. Call it directly via <code>curl</code>
-or the EarthRanger admin UI.</p>
+<p>The record flips to v2 in place and keeps its historical events. ER
+converts the inline enums into its own Choice lists; the following
+compare-and-patch step rewrites the schema to reference the library's
+shared <code>dm…</code> lists, so ER's generated lists stay behind active but
+unreferenced, like legacy <code>et…</code> lists. Targets are chosen by value:
+only SMART-derived values (they start with the CA and CM UUIDs) are
+sent, so a hand-made v1 type is converted only if someone gave it
+exactly such a value. <code>--mode create-only</code> skips the conversion, since
+it updates an existing record.</p>
+<p>A failed conversion aborts that CA's push (<code>event_types_migrate_errored</code>
+in the run summary) and the next run retries. Pass
+<code>--no-migrate-legacy-v1</code> or set <code>migrate_legacy_v1: false</code> to leave v1
+records alone; the push then skips colliding values with a warning.</p>
 <h2 id="related">Related<a class="headerlink" href="#related" title="Permanent link">&para;</a></h2>
 <ul>
 <li><a href="../../workflows/push-datamodel/">Workflow: Push a data model</a></li>

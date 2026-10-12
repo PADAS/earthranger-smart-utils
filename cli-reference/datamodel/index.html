@@ -1670,6 +1670,11 @@
 <td>Skip the choices upsert phase (v2 only). Use if <code>er-smart-sync choices</code> was run separately.</td>
 </tr>
 <tr>
+<td><code>--no-migrate-legacy-v1</code></td>
+<td>off</td>
+<td>Do not convert colliding v1 event types via ER's migrate endpoint before pushing (v2 only). By default they are migrated in place so historical events stay attached.</td>
+</tr>
+<tr>
 <td><code>--smart-api URL</code></td>
 <td>from config</td>
 <td>SMART Connect API URL. Required for API-based runs.</td>

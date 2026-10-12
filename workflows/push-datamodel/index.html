@@ -1796,10 +1796,12 @@ via the <code>$ref</code> URL — see <a href="../populate-choices/">Populate ch
   Choice upsert fails, we don't POST event types whose <code>$ref</code> URLs would
   resolve to broken/missing records.</li>
 <li><strong>Duplicate-key conflicts.</strong> ER's event-type <code>value</code> is unique tenant-wide
-  <em>across</em> v1 and v2. If you previously pushed v1 and now push v2 (or vice
-  versa), you'll see <code>event_types_skipped_by_conflict</code> counts. Use the
-  EarthRanger server-side migrate endpoint
-  (<code>POST /api/v2.0/activity/eventtypes/migrate/</code>) to convert.</li>
+  <em>across</em> v1 and v2. A v2 push converts colliding SMART-derived v1 records
+  in place first (<code>migrate_legacy_v1</code>, default on, since 0.5.0), so
+  <code>event_types_skipped_by_conflict</code> on a v2 run means migration was off,
+  <code>--mode create-only</code> skipped it, the v1 snapshot failed, or the migrate
+  call failed; the log says which. On a v1 push the conflict is with a v2
+  record and the push skips it.</li>
 </ul>
 <p>See <a href="../../troubleshooting/">Troubleshooting</a> for the full catalogue of common
 errors.</p>

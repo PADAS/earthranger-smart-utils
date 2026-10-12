@@ -1728,8 +1728,21 @@ v2. If you previously pushed v1 and now try v2 (or vice versa), the same
 <div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>POST /api/v2.0/activity/eventtypes/migrate/
 </code></pre></div>
 <p>This converts v1 records to v2 (or vice versa) without deleting them.
-<code>er-smart-sync</code> doesn't wrap this endpoint yet — use <code>curl</code> or the
-EarthRanger admin UI.</p>
+Since 0.5.0 the datamodel sync does this for you when <code>event_type_version</code>
+is <code>v2</code> and <code>migrate_legacy_v1</code> is on (the default). If you see this
+warning on a v2 run, one of these happened earlier in the log:</p>
+<ul>
+<li><code>could not be migrated</code> — the migrate call failed (per-type errors, a
+  failed request, or missing results); <code>event_types_migrate_errored &gt; 0</code>.</li>
+<li><code>--mode create-only: leaving legacy v1 event types unconverted</code> — the
+  mode skips in-place conversion by design; run with <code>--mode both</code>.</li>
+<li><code>Could not list v1 event types</code> — the v1 snapshot failed
+  (<code>legacy_v1_snapshot_errored</code> increments), so nothing was migrated.</li>
+<li><code>has no v1 event type list</code> — this ER release lacks the v1 list
+  endpoint; nothing was migrated and no counter changes.</li>
+<li>Neither, and <code>migrate_legacy_v1</code> is <code>false</code> in the config or
+  <code>--no-migrate-legacy-v1</code> was passed.</li>
+</ul>
 <h2 id="choice_list-field-rendered-as-plain-text">CHOICE_LIST field rendered as plain text<a class="headerlink" href="#choice_list-field-rendered-as-plain-text" title="Permanent link">&para;</a></h2>
 <p><strong>Cause:</strong> Before a fix in commit <code>82c8fec</code>, if a configurable-model marked
 all options of a LIST/MLIST/TREE attribute as inactive, <code>er-smart-sync</code>
