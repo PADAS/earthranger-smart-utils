@@ -152,3 +152,15 @@ def test_er_config_normalizes_endpoint():
 
     cfg = EarthRangerConfig(id="x", endpoint="site.pamdas.org", token="t")
     assert cfg.endpoint == "https://site.pamdas.org/api/v1.0"
+
+
+def test_er_config_migrate_legacy_v1_defaults_on():
+    cfg = EarthRangerConfig(id="x", endpoint="https://x.pamdas.org", token="t")
+    assert cfg.migrate_legacy_v1 is True
+
+
+def test_er_config_migrate_legacy_v1_can_be_disabled():
+    cfg = EarthRangerConfig(
+        id="x", endpoint="https://x.pamdas.org", token="t", migrate_legacy_v1=False
+    )
+    assert cfg.migrate_legacy_v1 is False

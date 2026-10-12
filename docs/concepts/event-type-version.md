@@ -110,17 +110,32 @@ populated CHOICE_LIST field.*
 ## Migrating between versions
 
 EarthRanger's event-type `value` is unique tenant-wide **across both
-versions**. You can't have the same `value` exist as both v1 and v2.
+versions**, so a value that exists as v1 cannot be POSTed as v2.
 
-To convert an existing v1 event type to v2, use the EarthRanger server-side
-migrate endpoint:
+When `event_type_version` is `v2` and `migrate_legacy_v1` is on (the
+default), the datamodel sync lists the tenant's v1 event types once per
+run and, for each CA push, sends the values it is about to write that
+still exist as v1 to EarthRanger's server-side converter:
 
 ```
 POST /api/v2.0/activity/eventtypes/migrate/
+{"dry_run": false, "event_types": ["<value>", ...]}
 ```
 
-`er-smart-sync` doesn't wrap this endpoint yet. Call it directly via `curl`
-or the EarthRanger admin UI.
+The record flips to v2 in place and keeps its historical events. ER
+converts the inline enums into its own Choice lists; the following
+compare-and-patch step rewrites the schema to reference the library's
+shared `dm…` lists, so ER's generated lists stay behind active but
+unreferenced, like legacy `et…` lists. Targets are chosen by value:
+only SMART-derived values (they start with the CA and CM UUIDs) are
+sent, so a hand-made v1 type is converted only if someone gave it
+exactly such a value. `--mode create-only` skips the conversion, since
+it updates an existing record.
+
+A failed conversion aborts that CA's push (`event_types_migrate_errored`
+in the run summary) and the next run retries. Pass
+`--no-migrate-legacy-v1` or set `migrate_legacy_v1: false` to leave v1
+records alone; the push then skips colliding values with a warning.
 
 ## Related
 

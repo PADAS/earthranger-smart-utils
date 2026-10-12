@@ -121,8 +121,20 @@ POST /api/v2.0/activity/eventtypes/migrate/
 ```
 
 This converts v1 records to v2 (or vice versa) without deleting them.
-`er-smart-sync` doesn't wrap this endpoint yet — use `curl` or the
-EarthRanger admin UI.
+Since 0.5.0 the datamodel sync does this for you when `event_type_version`
+is `v2` and `migrate_legacy_v1` is on (the default). If you see this
+warning on a v2 run, one of these happened earlier in the log:
+
+- `could not be migrated` — the migrate call failed (per-type errors, a
+  failed request, or missing results); `event_types_migrate_errored > 0`.
+- `--mode create-only: leaving legacy v1 event types unconverted` — the
+  mode skips in-place conversion by design; run with `--mode both`.
+- `Could not list v1 event types` — the v1 snapshot failed
+  (`legacy_v1_snapshot_errored` increments), so nothing was migrated.
+- `has no v1 event type list` — this ER release lacks the v1 list
+  endpoint; nothing was migrated and no counter changes.
+- Neither, and `migrate_legacy_v1` is `false` in the config or
+  `--no-migrate-legacy-v1` was passed.
 
 ## CHOICE_LIST field rendered as plain text
 

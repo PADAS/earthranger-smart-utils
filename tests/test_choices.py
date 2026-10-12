@@ -1558,3 +1558,25 @@ def test_cm_tree_curation_end_to_end_through_smartconnect_parser():
     flags = {o.value: o.is_active for o in result[0].options}
     # CM-leaves only, dotted keys sanitized; effective active flags applied.
     assert flags == {"chobe_mabele": True, "chobe_kavimba": False}
+
+
+# ── shared definition with smartconnect-client ────────────────
+
+
+def test_sanitize_is_the_smartconnect_client_definition():
+    import smartconnect.choices as shared
+
+    from er_smart_sync import choices
+
+    assert choices.sanitize_choice_value is shared.sanitize_choice_value
+    assert choices._CHOICE_VALUE_DISPLAY_MAX == shared.CHOICE_VALUE_MAX_LEN
+
+
+def test_shorten_value_matches_smartconnect_client():
+    import smartconnect.choices as shared
+
+    from er_smart_sync.choices import _shorten_value
+
+    raw = "x" * 150
+    assert _shorten_value(raw) == shared.shorten_choice_value(raw)
+    assert _shorten_value("short") == "short"

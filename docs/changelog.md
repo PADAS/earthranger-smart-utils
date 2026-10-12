@@ -5,6 +5,27 @@ Notable changes by version. Every release is also published to
 [GitHub Releases](https://github.com/PADAS/earthranger-smart-utils/releases),
 which carry the full commit-level history.
 
+## 0.5.0 — <release date>
+
+### Added
+
+**Colliding v1 event types are migrated before a v2 push.** With
+`event_type_version: v2`, the datamodel sync now calls EarthRanger's
+`POST /api/v2.0/activity/eventtypes/migrate/` for SMART-derived values
+that still exist as v1, then patches them to the library's schema.
+Controlled by `migrate_legacy_v1` (default on) and
+`--no-migrate-legacy-v1`; skipped under `--mode create-only`. New
+run-summary counters `event_types_migrated`,
+`event_types_migrate_errored` and `legacy_v1_snapshot_errored`.
+
+### Changed
+
+**Choice value rules now come from smartconnect-client.**
+`sanitize_choice_value` and the over-100-character hash shortening are
+imported from `smartconnect.choices` (smartconnect-client ≥ 1.15.0) so
+cdip-routing can apply the inverse lookup from one definition. Output is
+byte-for-byte unchanged.
+
 ## 0.4.0 — 2026-09-28
 
 ### Fixed

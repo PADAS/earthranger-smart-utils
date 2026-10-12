@@ -758,6 +758,68 @@ def test_cm_variant_mode_flag_overrides_config(tmp_path, monkeypatch):
     assert captured["sync"]._cm_variant_mode == "consolidate"
 
 
+def test_from_file_migrates_legacy_v1_unless_disabled(tmp_path, monkeypatch):
+    """--from-file lazily snapshots v1 types so migration runs; flag disables it."""
+    from er_smart_sync.synchronizer import ERSmartSynchronizer
+
+    value = "test_cm_a"
+    er_client = MagicMock()
+
+    def fake_get_event_types(**kwargs):
+        return [{"value": value}] if kwargs.get("version") == "v1" else []
+
+    er_client.get_event_types.side_effect = fake_get_event_types
+    er_client._post.return_value = [
+        {"event_type": value, "v2_schema": {}, "warnings": [], "errors": []}
+    ]
+
+    def fake_make_sync(config, ctx=None):
+        sync = ERSmartSynchronizer(
+            config=config, er_client=er_client, smart_client=MagicMock()
+        )
+        sync.skip_choices = True
+        et = MagicMock()
+        et.value = value
+        monkeypatch.setattr(
+            "er_smart_sync.synchronizer.build_event_types_v2",
+            lambda **kwargs: [et],
+        )
+        sync.create_or_update_er_event_types = lambda **kwargs: None
+        return sync
+
+    monkeypatch.setattr("er_smart_sync.cli._make_synchronizer", fake_make_sync)
+    dm = MagicMock()
+    dm.export_as_dict.return_value = {"categories": [], "attributes": []}
+    monkeypatch.setattr(
+        "smartconnect.SmartClient.load_datamodel",
+        lambda self, filename: dm,
+    )
+    dm_file = tmp_path / "dm.xml"
+    dm_file.write_text("<datamodel/>")
+    args = [
+        "datamodel",
+        "--from-file",
+        str(dm_file),
+        "--er-endpoint",
+        "https://x/api/v1.0",
+        "--er-token",
+        "t",
+        "--er-id",
+        "i",
+        "--ca-identifier",
+        "TEST",
+    ]
+
+    result = CliRunner().invoke(main, args)
+    assert result.exit_code == 0, result.output
+    er_client._post.assert_called_once()
+
+    er_client._post.reset_mock()
+    result = CliRunner().invoke(main, [*args, "--no-migrate-legacy-v1"])
+    assert result.exit_code == 0, result.output
+    er_client._post.assert_not_called()
+
+
 def test_inspect_datamodel_v2_prints_field_types(tmp_path, monkeypatch):
     dm_mock = MagicMock()
     dm_mock.export_as_dict.return_value = {
@@ -2139,3 +2201,60 @@ def test_smart_version_defaults_without_config_file(monkeypatch):
     )
     assert result.exit_code == 0, result.output
     assert captured["version"] == "7.0"
+
+
+def test_datamodel_help_lists_no_migrate_legacy_v1():
+    runner = CliRunner()
+    result = runner.invoke(main, ["datamodel", "--help"])
+    assert result.exit_code == 0
+    assert "--no-migrate-legacy-v1" in result.output
+
+
+def test_no_migrate_legacy_v1_flag_disables_config(tmp_path, monkeypatch):
+    captured = {}
+
+    def fake_make_sync(config, ctx=None):
+        from er_smart_sync.synchronizer import ERSmartSynchronizer
+
+        sync = ERSmartSynchronizer.__new__(ERSmartSynchronizer)
+        sync.datamodel_stats = {}
+        sync.push_smart_ca_datamodel_to_earthranger = lambda **kwargs: None
+        sync.synchronize_datamodel = lambda: None
+        captured["config"] = config
+        return sync
+
+    monkeypatch.setattr("er_smart_sync.cli._make_synchronizer", fake_make_sync)
+    monkeypatch.setattr(
+        "smartconnect.SmartClient.load_datamodel", lambda self, filename: MagicMock()
+    )
+    dm_file = tmp_path / "dm.xml"
+    dm_file.write_text("<datamodel/>")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "datamodel",
+            "--from-file",
+            str(dm_file),
+            "--er-endpoint",
+            "https://x/api/v1.0",
+            "--er-token",
+            "t",
+            "--er-id",
+            "i",
+            "--ca-identifier",
+            "TEST",
+            "--no-migrate-legacy-v1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["config"].earthranger.migrate_legacy_v1 is False
+
+
+def test_config_template_lists_migrate_legacy_v1():
+    from click.testing import CliRunner
+
+    result = CliRunner().invoke(main, ["config-template"])
+    assert result.exit_code == 0
+    assert "migrate_legacy_v1: true" in result.output
