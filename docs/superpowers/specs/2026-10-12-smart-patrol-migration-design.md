@@ -171,6 +171,7 @@ Read-only. Checks, each a `Finding` with a `fix` string:
 | `subjects` | blocking | every employee with a leg membership is an active subject matched by `smart_member_id` and is in a configured roster group |
 | `teams` | blocking | every SMART team referenced by a patrol exists as a `PatrolConfigurationTeam` (matched by name) |
 | `event_types` | blocking | every category hkey used by an observation has an event type from the datamodel sync (`event_type_value_for`) |
+| `leg_span` | warning | legs with `placeholder_dates` (1970-01-01 start or more than a year of leg days); shows how many leg days will be clamped |
 | `time_coverage` | warning | leg days whose segment times will be whole days (`manifest.time_coverage.date_only > 0`); prints the coverage table |
 | `timezone` | warning | bundle timezone was inferred rather than configured |
 | `language` | warning | the chosen language lacks labels for some elements; reports the count and the fallback used |
@@ -264,6 +265,13 @@ precise source it has, in this order:
    day. Used when the leg day has neither a track nor start/end times; it
    bounds the activity even though the day started before the first
    observation.
+Legs the bundle marks `placeholder_dates: true` (SMART stores an unset
+start date as 1970-01-01 and then generates a leg-day row for every day up
+to the end date; one export had 13 such legs with 93,697 leg days) are
+clamped: only leg days with a track, a waypoint, or a non-placeholder date
+are imported, and the segment range comes from those. The preflight lists
+them under a `leg_span` warning.
+
 4. **The calendar day.** `00:00` to `23:59:59` in the bundle timezone when
    nothing else exists. The preflight reports how many leg days fall here
    from `manifest.time_coverage.date_only`.
