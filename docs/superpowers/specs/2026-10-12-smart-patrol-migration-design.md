@@ -170,6 +170,7 @@ Read-only. Checks, each a `Finding` with a `fix` string:
 | `subjects` | blocking | every employee with a leg membership is an active subject matched by `smart_member_id` and is in a configured roster group |
 | `teams` | blocking | every SMART team referenced by a patrol exists as a `PatrolConfigurationTeam` (matched by name) |
 | `event_types` | blocking | every category hkey used by an observation has an event type from the datamodel sync (`event_type_value_for`) |
+| `time_coverage` | warning | leg days whose segment times will be whole days (`manifest.time_coverage.date_only > 0`); prints the coverage table |
 | `timezone` | warning | bundle timezone was inferred rather than configured |
 | `language` | warning | the chosen language lacks labels for some elements; reports the count and the fallback used |
 | `bundle_warnings` | warning | relays `manifest.warnings` |
@@ -192,15 +193,15 @@ back at an ER-originated patrol from the outbound sync. Kinds: `patrol`,
 **Patrol.** One ER patrol per bundle patrol: `title = patrol id`,
 `priority = 0`, `objective = patrol.objective`, one note holding the
 patrol comment when present. Segments, one per leg, in order:
-`patrol_type` from the leg transport, `time_range` from the leg days
-(earliest `start` to latest `end`, with the bundle timezone), `leader`
+`patrol_type` from the leg transport, `time_range` derived as in "Patrol
+times" below, `leader`
 and `members` resolved through `smart_member_id`, `team` resolved by name
 from `GET patrols/config/default`, and `segment_details`:
 
 ```json
 { "objective": "…", "mandate": "<choice>", "station": "<choice>", "patrol_class": "<choice>",
   "armed": false, "comment": "…", "smart_<attr>": …,
-  "smart_": { "patrol_uuid", "patrol_id", "leg_uuid", "leg_id", "ca_uuid", "bundle_generated_at", "importer_version" } }
+  "smart_": { "patrol_uuid", "patrol_id", "leg_uuid", "leg_id", "ca_uuid", "time_source", "bundle_generated_at", "importer_version" } }
 ```
 
 The `smart_` block is provenance (ERA-14139's traceability criterion);
@@ -226,9 +227,10 @@ querying by `event_details.smart_.observation_uuid` before creating.
 `manufacturer_id = smart:{smart_member_id}` and a subject source spanning
 the patrol window; then `post_observation` batches of the leg day's
 LineString, one observation per vertex, timestamps spread evenly from the
-day's `start` to `end`, `additional.smart_leg_day_uuid` on each. The leg's
-`time_range` is tightened to the track's first and last point when the
-track exists. Dedupe: diff against existing observations for that source
+day's `start` to `end`, `additional.smart_leg_day_uuid` on each. Where the bundle has no
+per-point times for a track (Z was not a timestamp), the points are spread
+evenly across the leg day's range and the segment provenance says so.
+Dedupe: diff against existing observations for that source
 in the window by `recorded_at` before posting. `--skip-tracks` skips this
 step.
 
@@ -241,6 +243,39 @@ skips completed stages and finishes partial ones. One failing patrol is
 logged with its reason and skipped; the run ends with imported, skipped
 and failed counts and the reason per failure, and exits non-zero if any
 failed.
+
+## Patrol times
+
+SMART patrols and legs carry dates only; nothing on them is a timestamp.
+ER needs a start and end on every segment, so the importer derives each
+segment's `time_range` from its leg days, each leg day from the most
+precise source it has, in this order:
+
+1. **Track points.** The leg day's track carries a UTC timestamp per point
+   (the Z coordinate; the bundle writes them as `tracks[].parts[].times`).
+   Day start = first point, end = last point.
+2. **Leg-day start and end times.** `patrol_leg_day.start_time`/`end_time`,
+   local wall-clock, already anchored to the bundle timezone as `days[].start`
+   and `days[].end`. Used when there is no timed track.
+3. **Waypoint times.** The earliest and latest `waypoints[].time` on that leg
+   day. Used when the leg day has neither a track nor start/end times; it
+   bounds the activity even though the day started before the first
+   observation.
+4. **The calendar day.** `00:00` to `23:59:59` in the bundle timezone when
+   nothing else exists. The preflight reports how many leg days fall here
+   from `manifest.time_coverage.date_only`.
+
+The segment's range is the earliest start and latest end across its leg
+days. Sources 1 and 3 are union-ed with source 2 when both exist, so a
+track that starts after the recorded start time does not shorten the day.
+Provenance records the source used per leg day
+(`segment_details.smart_.time_source`: `track`, `leg_day_times`,
+`waypoints`, `date_only`) so a user can see why a segment's times look
+coarse. Waypoint events keep their own times regardless; track points
+become location observations with their real timestamps.
+
+The preflight prints the `time_coverage` block as a table so the operator
+sees before importing what share of leg days will carry precise times.
 
 ## Language
 
