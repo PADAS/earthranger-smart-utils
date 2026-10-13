@@ -119,9 +119,10 @@ bundle is given.
 Reads `reference.json` and writes, in this order, each step idempotent:
 
 1. **Patrol types.** One per active transport: `value = patrol_<sanitized
-   transport key>`, `display = transport label` in the chosen language, `icon_id` from a small
-   fixed map (foot, vehicle, boat, aircraft, other). Upsert keyed on
-   `value`. Inactive transports are created inactive if absent and left
+   transport key>`, `display = transport label` in the chosen language. Upsert
+   keyed on `value`. Icons are not set: das's patrol-type serializer exposes
+   `icon_id` read-only (verified 2026-10-13), so the checklist asks the admin
+   to pick one per created type instead. Inactive transports are created inactive if absent and left
    alone if present, so historical legs can still reference them.
 2. **Universal segment schema.** Built from the CA: `objective` (text),
    `mandate` (choice), `station` (choice), `patrol_class` (choice, from

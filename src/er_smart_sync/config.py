@@ -101,3 +101,34 @@ class SyncConfig(pydantic.BaseModel):
 
     smart: SmartConnectConfig
     earthranger: EarthRangerConfig
+
+
+class BundleConfig(pydantic.BaseModel):
+    """Where the smart-able migration bundle for this site lives
+    (the directory holding manifest.json)."""
+
+    path: str
+
+
+class PatrolToolConfig(pydantic.BaseModel):
+    """What the bundle-driven patrol subcommands need: an ER site, the bundle,
+    and the two SMART-side settings that still apply without SMART Connect."""
+
+    earthranger: EarthRangerConfig
+    bundle: BundleConfig | None = None
+    language: str | None = None
+    timezone: str | None = None
+
+
+def load_patrol_tool_config(path: str) -> PatrolToolConfig:
+    import yaml
+
+    with open(path) as f:
+        data = yaml.safe_load(f) or {}
+    smart = data.get("smart") or {}
+    return PatrolToolConfig(
+        earthranger=EarthRangerConfig(**data["earthranger"]),
+        bundle=BundleConfig(**data["bundle"]) if data.get("bundle") else None,
+        language=smart.get("use_language_code"),
+        timezone=smart.get("timezone"),
+    )

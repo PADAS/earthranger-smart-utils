@@ -2258,3 +2258,198 @@ def test_config_template_lists_migrate_legacy_v1():
     result = CliRunner().invoke(main, ["config-template"])
     assert result.exit_code == 0
     assert "migrate_legacy_v1: true" in result.output
+
+
+# ── patrol-datamodel ─────────────────────────────────────────────
+
+
+def _pd_fixture():
+    from pathlib import Path
+
+    return Path(__file__).parent / "fixtures" / "smart_demo_bundle"
+
+
+def _pd_result(**kw):
+    from er_smart_sync.patrol_datamodel import (
+        ChecklistItem,
+        PatrolDatamodelResult,
+        PatrolDatamodelStats,
+    )
+
+    stats = PatrolDatamodelStats(**kw)
+    item = ChecklistItem("team", "Create the patrol team Alpha", ["do it"])
+    return PatrolDatamodelResult(stats=stats, checklist=[item], subject_ids={})
+
+
+def _pd_args(tmp_path, *extra):
+    return [
+        "patrol-datamodel",
+        "--bundle",
+        str(_pd_fixture()),
+        "--er-endpoint",
+        "x.pamdas.org",
+        "--er-token",
+        "t",
+        "--checklist",
+        str(tmp_path / "checklist.md"),
+        *extra,
+    ]
+
+
+def test_patrol_datamodel_help():
+    result = CliRunner().invoke(main, ["patrol-datamodel", "--help"])
+    assert (
+        result.exit_code == 0
+        and "--bundle" in result.output
+        and "--roster-group" in result.output
+    )
+
+
+def test_patrol_datamodel_runs_and_writes_checklist(tmp_path):
+    with (
+        patch("er_smart_sync.cli._make_er_client", return_value=MagicMock()),
+        patch(
+            "er_smart_sync.cli.run_patrol_datamodel",
+            return_value=_pd_result(types_created=2),
+        ) as run,
+    ):
+        result = CliRunner().invoke(
+            main, _pd_args(tmp_path, "--roster-group", "Rangers")
+        )
+    assert result.exit_code == 0, result.output
+    assert (
+        "patrol types: 2 created" in result.output
+        and "checklist items: 1" in result.output
+    )
+    text = (tmp_path / "checklist.md").read_text()
+    assert text.startswith("# Admin checklist for Example Conservation Area")
+    assert run.call_args.kwargs["roster_group"] == "Rangers"
+    assert run.call_args.kwargs["schema_backup_dir"] == tmp_path  # beside the checklist
+    assert (
+        "inferred" in result.output
+    )  # the demo bundle's zone was inferred and no --timezone given
+
+
+def test_patrol_datamodel_dry_run_wraps_client(tmp_path):
+    with (
+        patch("er_smart_sync.cli._make_er_client", return_value=MagicMock()),
+        patch(
+            "er_smart_sync.cli.run_patrol_datamodel", return_value=_pd_result()
+        ) as run,
+    ):
+        result = CliRunner().invoke(main, ["--dry-run", *_pd_args(tmp_path)])
+    assert result.exit_code == 0, result.output
+    assert type(run.call_args.args[1]).__name__ == "DryRunERClient"
+    assert "Dry run mode" in result.output
+
+
+def test_patrol_datamodel_timezone_assertion(tmp_path):
+    with patch("er_smart_sync.cli._make_er_client", return_value=MagicMock()):
+        result = CliRunner().invoke(
+            main, _pd_args(tmp_path, "--timezone", "Europe/Paris")
+        )
+    assert result.exit_code == 1
+    assert "Europe/Paris" in result.output and "Africa/Libreville" in result.output
+    assert "SMART_ABLE_TIMEZONE=Europe/Paris" in result.output
+
+
+def test_patrol_datamodel_bad_language_and_bundle(tmp_path):
+    with patch("er_smart_sync.cli._make_er_client", return_value=MagicMock()):
+        r1 = CliRunner().invoke(main, _pd_args(tmp_path, "--smart-language", "xx"))
+        r2 = CliRunner().invoke(
+            main,
+            [
+                "patrol-datamodel",
+                "--bundle",
+                str(tmp_path),
+                "--er-endpoint",
+                "x.pamdas.org",
+                "--er-token",
+                "t",
+            ],
+        )
+    assert r1.exit_code == 1 and "xx" in r1.output and "en" in r1.output
+    assert r2.exit_code == 1 and "manifest.json" in r2.output
+
+
+def test_patrol_datamodel_step_errors_exit_1(tmp_path):
+    with (
+        patch("er_smart_sync.cli._make_er_client", return_value=MagicMock()),
+        patch(
+            "er_smart_sync.cli.run_patrol_datamodel",
+            return_value=_pd_result(errors=["segment schema: forbidden"]),
+        ),
+    ):
+        result = CliRunner().invoke(main, _pd_args(tmp_path))
+    assert result.exit_code == 1 and "segment schema: forbidden" in result.output
+
+
+def test_bundle_options_merge_each_flag_into_the_config(tmp_path):
+    from er_smart_sync.cli import _resolve_bundle_options
+
+    cfg = tmp_path / "sync.yaml"
+    cfg.write_text(
+        "earthranger:\n"
+        "  id: site\n"
+        "  endpoint: https://a.pamdas.org/api/v1.0\n"
+        "  token: from-config\n"
+        "  choices_base_url: /custom\n"
+        "bundle:\n"
+        "  path: /b\n"
+    )
+
+    def er(**flags):
+        args = dict(
+            er_endpoint=None,
+            er_token=None,
+            er_username=None,
+            er_password=None,
+            er_id="cli",
+        )
+        args.update(flags)
+        return _resolve_bundle_options(
+            str(cfg),
+            None,
+            args["er_endpoint"],
+            args["er_token"],
+            args["er_username"],
+            args["er_password"],
+            args["er_id"],
+            None,
+            None,
+        )[1]
+
+    token_only = er(er_token="from-flag")
+    assert (token_only.token, token_only.endpoint) == (
+        "from-flag",
+        "https://a.pamdas.org/api/v1.0",
+    )
+    endpoint_only = er(er_endpoint="b.pamdas.org")
+    assert endpoint_only.endpoint == "https://b.pamdas.org/api/v1.0"
+    assert (endpoint_only.token, endpoint_only.choices_base_url, endpoint_only.id) == (
+        "from-config",
+        "/custom",
+        "site",
+    )
+    assert er(er_id="other").id == "other"
+
+
+def test_patrol_datamodel_writes_a_run_record_only_for_real_runs(tmp_path):
+    import json
+
+    changes = [{"kind": "patrol_type", "action": "created", "value": "patrol_foot"}]
+    for dry in (True, False):
+        with (
+            patch("er_smart_sync.cli._make_er_client", return_value=MagicMock()),
+            patch(
+                "er_smart_sync.cli.run_patrol_datamodel",
+                return_value=_pd_result(changes=list(changes)),
+            ),
+        ):
+            args = (["--dry-run"] if dry else []) + _pd_args(tmp_path)
+            result = CliRunner().invoke(main, args)
+        assert result.exit_code == 0, result.output
+        records = list(tmp_path.glob("patrol-datamodel-run-*.json"))
+        assert len(records) == (0 if dry else 1)
+    assert json.loads(records[0].read_text())["changes"] == changes
+    assert "Run record" in result.output

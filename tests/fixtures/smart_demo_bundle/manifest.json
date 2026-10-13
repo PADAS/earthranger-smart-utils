@@ -1,0 +1,56 @@
+{
+ "bundle_schema_version": 1,
+ "generated_at": "2026-10-13T15:19:46Z",
+ "generator": {
+  "name": "smart-able",
+  "version": "v0.2.0"
+ },
+ "source": {
+  "kind": "backup",
+  "file": null,
+  "smart_version": "7.5.4"
+ },
+ "conservation_area": {
+  "uuid": "8f7fbe1b-201a-4ef4-bda8-14f5581e65ce",
+  "id": "SMART",
+  "name": "Example Conservation Area",
+  "designation": "",
+  "country": null,
+  "organization": null,
+  "owner": null
+ },
+ "timezone": {
+  "name": "Africa/Libreville",
+  "source": "inferred"
+ },
+ "default_language": "en",
+ "languages": [
+  {
+   "code": "en",
+   "default": true,
+   "labels": 470,
+   "missing": 0
+  }
+ ],
+ "counts": {
+  "patrols": 5,
+  "legs": 6,
+  "leg_days": 13,
+  "waypoints": 232,
+  "observations": 141,
+  "tracks": 11,
+  "track_points": 232,
+  "employees": 7,
+  "attachments": 1
+ },
+ "time_coverage": {
+  "leg_days": 13,
+  "track": 11,
+  "leg_day_times": 2,
+  "waypoints": 0,
+  "date_only": 0
+ },
+ "warnings": [
+  "timezone Africa/Libreville was inferred from waypoint positions; set SMART_ABLE_TIMEZONE to override"
+ ]
+}

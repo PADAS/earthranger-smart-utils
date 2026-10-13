@@ -5,10 +5,23 @@ import sys
 import click
 import yaml
 
+from .bundle import BundleError, load_bundle
 from .choices import build_choice_sets, upsert_choices
-from .config import EarthRangerConfig, SmartConnectConfig, SyncConfig
+from .config import (
+    EarthRangerConfig,
+    SmartConnectConfig,
+    SyncConfig,
+    load_patrol_tool_config,
+)
 from .defaults import DryRunERClient, JsonFileStateStore, NullPublisher
+from .er_patrol_api import ERPatrolAPI
 from .er_to_er import EventTypeNotFound, TargetCategoryMissing, copy_event_type
+from .patrol_datamodel import (
+    format_summary,
+    render_checklist,
+    run_patrol_datamodel,
+    write_run_record,
+)
 from .synchronizer import ERSmartSynchronizer
 from .utils import describe_unresolved_language
 
@@ -788,6 +801,189 @@ def patrols(
         observations_topic=topic,
     )
     sync.synchronize_er_patrols()
+
+
+# ── patrol-datamodel subcommand (bundle → ER patrol configuration) ────
+
+
+def _resolve_bundle_options(
+    config_file,
+    bundle,
+    er_endpoint,
+    er_token,
+    er_username,
+    er_password,
+    er_id,
+    smart_language,
+    timezone,
+):
+    """Merge --config with the flags for the bundle-driven subcommands; flags win."""
+    cfg = load_patrol_tool_config(config_file) if config_file else None
+    bundle_path = bundle or (cfg.bundle.path if cfg and cfg.bundle else None)
+    if not bundle_path:
+        raise click.UsageError("--bundle DIR (or bundle.path in --config) is required")
+    # each flag given overrides just its own setting in the config's earthranger
+    # block; --er-id only when it differs from its "cli" default
+    flags = {
+        "endpoint": er_endpoint,
+        "token": er_token,
+        "login": er_username,
+        "password": er_password,
+        "id": er_id if er_id != "cli" else None,
+    }
+    overrides = {k: v for k, v in flags.items() if v}
+    if cfg:
+        er = EarthRangerConfig(**{**cfg.earthranger.dict(), **overrides})
+    else:
+        if not er_endpoint:
+            raise click.UsageError(
+                "--er-endpoint (or an earthranger block in --config) is required"
+            )
+        er = EarthRangerConfig(**{"id": er_id, **overrides})
+    language = smart_language or (cfg.language if cfg else None)
+    tz = timezone or (cfg.timezone if cfg else None)
+    return bundle_path, er, language, tz
+
+
+def _check_bundle_timezone(bundle, timezone: str | None) -> None:
+    """The importer never reinterprets timestamps: a configured zone must match
+    the bundle's."""
+    name = bundle.manifest.timezone.get("name")
+    source = bundle.manifest.timezone.get("source")
+    ca_id = bundle.manifest.conservation_area.get("id", "")
+    if timezone and timezone != name:
+        raise click.ClickException(
+            f"timezone {timezone!r} is configured but the bundle was written "
+            f"for {name!r} ({source}). Re-export it with the right zone: "
+            f"SMART_ABLE_TIMEZONE={timezone} ./smart-able export {ca_id}"
+        )
+    if not timezone and source == "inferred":
+        click.echo(
+            f"warning: the bundle's timezone {name} was inferred from waypoint "
+            f"positions; set smart.timezone (or --timezone) to {name} to confirm it, "
+            "or re-export "
+            "with SMART_ABLE_TIMEZONE set.",
+            err=True,
+        )
+
+
+@main.command("patrol-datamodel")
+@click.option(
+    "--config",
+    "config_file",
+    type=click.Path(exists=True),
+    help=(
+        "YAML config file (earthranger block, optional bundle.path, "
+        "smart.use_language_code, smart.timezone)"
+    ),
+)
+@click.option(
+    "--bundle",
+    "bundle_dir",
+    type=click.Path(file_okay=False),
+    help="smart-able migration bundle directory (holds manifest.json)",
+)
+@er_options
+@click.option(
+    "--smart-language",
+    default=None,
+    help="Language code for the labels written to ER (default: the bundle's default)",
+)
+@click.option(
+    "--timezone",
+    default=None,
+    help="Assert the bundle's timezone (IANA name); a mismatch stops the run",
+)
+@click.option(
+    "--replace-segment-schema",
+    is_flag=True,
+    help="Overwrite the universal patrol fields instead of merging with the site's",
+)
+@click.option(
+    "--roster-group",
+    default=None,
+    help=(
+        "Subject group to add the ranger subjects to "
+        "(default: the patrol configuration's first member group)"
+    ),
+)
+@click.option(
+    "--checklist",
+    "checklist_path",
+    default=None,
+    help="Where to write checklist.md (default: next to the bundle directory)",
+)
+@click.pass_context
+def patrol_datamodel_cmd(
+    ctx,
+    config_file,
+    bundle_dir,
+    er_endpoint,
+    er_token,
+    er_username,
+    er_password,
+    er_id,
+    smart_language,
+    timezone,
+    replace_segment_schema,
+    roster_group,
+    checklist_path,
+):
+    """Create or update the ER patrol types, universal patrol fields, choices and
+    ranger subjects a SMART conservation area needs, from a smart-able bundle.
+
+    Idempotent: a second run against an unchanged bundle makes no writes.
+    Ends with an admin checklist for the steps the API cannot do.
+    """
+    from pathlib import Path
+
+    bundle_path, er, language, tz = _resolve_bundle_options(
+        config_file,
+        bundle_dir,
+        er_endpoint,
+        er_token,
+        er_username,
+        er_password,
+        er_id,
+        smart_language,
+        timezone,
+    )
+    try:
+        bundle = load_bundle(Path(bundle_path), language=language)
+    except BundleError as e:
+        raise click.ClickException(str(e)) from None
+    _check_bundle_timezone(bundle, tz)
+    er_client = _make_er_client(
+        endpoint=er.endpoint, token=er.token, username=er.login, password=er.password
+    )
+    if ctx.obj and ctx.obj.get("dry_run"):
+        er_client = DryRunERClient(er_client)
+        click.echo("Dry run mode: no writes will be sent to ER.", err=True)
+    out = (
+        Path(checklist_path)
+        if checklist_path
+        else Path(bundle_path).resolve().parent / "checklist.md"
+    )
+    result = run_patrol_datamodel(
+        ERPatrolAPI(er_client),
+        er_client,
+        bundle,
+        replace_segment_schema=replace_segment_schema,
+        roster_group=roster_group,
+        choices_base_url=er.choices_base_url,
+        schema_backup_dir=out.parent,
+    )
+    out.write_text(render_checklist(result, bundle), encoding="utf-8")
+    click.echo(format_summary(result))
+    if not (ctx.obj and ctx.obj.get("dry_run")):
+        record = write_run_record(result, bundle, er.endpoint, out.parent)
+        if record:
+            click.echo(f"Run record (what changed, for undoing it) written to {record}")
+    click.echo(f"Checklist written to {out}")
+    for item in result.checklist:
+        click.echo(f"  - {item.title}")
+    if result.stats.errors:
+        ctx.exit(1)
 
 
 # ── copy-event-type subcommand (ER → ER) ────────────────────────

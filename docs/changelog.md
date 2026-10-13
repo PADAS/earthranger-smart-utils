@@ -5,6 +5,50 @@ Notable changes by version. Every release is also published to
 [GitHub Releases](https://github.com/PADAS/earthranger-smart-utils/releases),
 which carry the full commit-level history.
 
+## Unreleased
+
+### Added
+
+**`patrol-datamodel`.** From a smart-able migration bundle, creates or
+updates the ER patrol types (one per SMART transport), the universal patrol
+fields and their choices, and the ranger subjects, then writes an admin
+checklist for what the API cannot do (ERA-14137). Idempotent; honours
+`--dry-run`; reads the bundle without SMART Connect. See
+[patrol-datamodel](cli-reference/patrol-datamodel.md). Verified on
+2026-10-13 against gundi-dev.staging with the `patrol_schemas` preview
+feature on and SMART's demo conservation area as the bundle: a real run
+created two patrol types, wrote the universal patrol fields, eleven choices
+and seven ranger subjects, and the run after it reported everything
+unchanged and made no writes. One of the seven was SMART's default `smart`
+login; with the login rule below, a fresh site gets six, and the next
+gundi-dev run deactivated the seventh. The first attempt showed that das's
+meta-schema requires `deprecated` on every property; the builder now sets
+it. The checklist named the demo's unlisted team, the missing roster group
+and the patrol-type icons.
+
+SMART logins that never went on a patrol, such as the `smart` admin every
+SMART install creates, are not made ranger subjects, and a subject an
+earlier run made for one is deactivated. Logins that did patrol stay
+subjects. This reads `has_smart_login`, which smart-able bundles now carry.
+A station with no name in SMART gets a readable placeholder instead of
+its UUID; it is inactive unless a patrol uses it, and then the checklist
+asks for a name. The patrol choice fields are site-wide, so the run changes
+only options its bundle names and never deactivates another conservation
+area's or an admin's. A custom patrol attribute that goes inactive is
+deprecated and taken off the form rather than removed, so past segments
+still validate. Each step's unexpected failure is recorded and the next
+step runs. A legacy subject is matched by SMART employee id only when that
+id is unique, since SMART reuses ids. `--er-token`, `--er-endpoint` and the
+other connection flags now override just their own setting in `--config`.
+Every real run that changes anything writes `patrol-datamodel-run-<time>.json`
+beside the checklist: each write in order with the values it replaced, which
+is what the undo guide now works from instead of searching the site. Backup
+and record file names carry microseconds and never overwrite one another.
+A custom attribute key too long for ER's 40-character choice field is
+shortened with a hash suffix, a field an admin moved to another section
+keeps a matching `parent`, and a manifest that is not a JSON object is
+reported as an invalid bundle.
+
 ## 0.5.1 — 2026-10-12
 
 ### Fixed

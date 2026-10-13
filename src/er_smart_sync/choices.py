@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from pydantic import parse_obj_as
 from smartconnect.choices import (
@@ -245,6 +245,11 @@ class ChoicesStats:
     unchanged: int = 0
     deactivated: int = 0
     errored: int = 0
+    # active records absent from the plan, left alone (deactivate_orphans=False)
+    kept: int = 0
+    # every write made: {"action", "field", "value", "id", "before"}, so a run
+    # can be undone exactly (patrol-datamodel writes these to its run record)
+    changes: list = field(default_factory=list)
 
 
 # Attribute types that bear choice options. Other types (TEXT, NUMERIC, etc.)
@@ -441,8 +446,13 @@ def upsert_choices(
     *,
     er_client,
     choice_sets: list[ChoiceSet],
+    deactivate_orphans: bool = True,
 ) -> ChoicesStats:
     """Upsert each ChoiceSet against ER's Choices API.
+
+    With ``deactivate_orphans`` False, active records the plan does not name
+    are left as they are and counted in ``kept``: for fields shared with other
+    sources (a second conservation area, an admin) that this run does not own.
 
     Returns a ChoicesStats counter dataclass. Per-option HTTP failures are
     logged and counted (no raise) — per-set processing is independent, an
@@ -485,7 +495,12 @@ def upsert_choices(
             len(cs.options),
         )
         try:
-            _upsert_one_set(er_client=er_client, cs=cs, stats=stats)
+            _upsert_one_set(
+                er_client=er_client,
+                cs=cs,
+                stats=stats,
+                deactivate_orphans=deactivate_orphans,
+            )
         except Exception:
             # Unexpected error escaping _upsert_one_set (per-option HTTP errors
             # are already caught and counted inside it). Count as one failed
@@ -509,7 +524,13 @@ def upsert_choices(
     return stats
 
 
-def _upsert_one_set(*, er_client, cs: ChoiceSet, stats: ChoicesStats) -> None:
+def _upsert_one_set(
+    *,
+    er_client,
+    cs: ChoiceSet,
+    stats: ChoicesStats,
+    deactivate_orphans: bool = True,
+) -> None:
     existing = _fetch_existing(er_client=er_client, field=cs.field)
     existing_by_value: dict[str, dict] = {r["value"]: r for r in existing}
     planned_values: set[str] = set()
@@ -540,6 +561,9 @@ def _upsert_one_set(*, er_client, cs: ChoiceSet, stats: ChoicesStats) -> None:
             continue
         if not record.get("is_active"):
             continue
+        if not deactivate_orphans:
+            stats.kept += 1
+            continue
         try:
             from .synchronizer import _retry  # local import avoids circular dependency
 
@@ -549,6 +573,15 @@ def _upsert_one_set(*, er_client, cs: ChoiceSet, stats: ChoicesStats) -> None:
                 payload={"is_active": False},
             )
             stats.deactivated += 1
+            stats.changes.append(
+                {
+                    "action": "updated",
+                    "field": record.get("field"),
+                    "value": record.get("value"),
+                    "id": record.get("id"),
+                    "before": {"is_active": True},
+                }
+            )
         except Exception as e:
             logger.exception(
                 "Failed to deactivate orphan choice",
@@ -623,12 +656,20 @@ def _create_choice(
     try:
         from .synchronizer import _retry  # local import avoids circular dependency
 
-        _retry(
+        created = _retry(
             er_client._post,
             path=_CHOICES_PATH,
             payload=payload,
         )
         stats.created += 1
+        stats.changes.append(
+            {
+                "action": "created",
+                "field": cs_field,
+                "value": option.value,
+                "id": created.get("id") if isinstance(created, dict) else None,
+            }
+        )
     except Exception as e:
         # ER's choices table has a varchar(100) constraint on at least one
         # column. Surface field lengths so a "value too long" 500 names the
@@ -697,6 +738,15 @@ def _maybe_patch_choice(
         )
         stats.errored += 1
         return
+    stats.changes.append(
+        {
+            "action": "updated",
+            "field": existing.get("field"),
+            "value": existing.get("value"),
+            "id": existing.get("id"),
+            "before": {k: existing.get(k) for k in changes},
+        }
+    )
 
     if is_deactivation:
         stats.deactivated += 1

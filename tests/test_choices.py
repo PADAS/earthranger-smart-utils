@@ -1580,3 +1580,38 @@ def test_shorten_value_matches_smartconnect_client():
     raw = "x" * 150
     assert _shorten_value(raw) == shared.shorten_choice_value(raw)
     assert _shorten_value("short") == "short"
+
+
+def test_upsert_choices_keeps_orphans_when_told_to():
+    """deactivate_orphans=False leaves records the plan does not name alone."""
+    from er_smart_sync.choices import ChoiceOption, ChoiceSet, upsert_choices
+
+    client = _mock_er_client_for_choices(
+        existing_results={
+            "count": 1,
+            "next": None,
+            "results": [
+                {
+                    "id": "uuid-l",
+                    "model": "activity.event",
+                    "field": "etxxx_color",
+                    "value": "legacy",
+                    "display": "Legacy",
+                    "ordernum": 0,
+                    "is_active": True,
+                },
+            ],
+        },
+    )
+    stats = upsert_choices(
+        er_client=client,
+        choice_sets=[
+            ChoiceSet(
+                field="etxxx_color",
+                options=(ChoiceOption(value="red", display="Red", is_active=True),),
+            )
+        ],
+        deactivate_orphans=False,
+    )
+    assert (stats.created, stats.deactivated, stats.kept) == (1, 0, 1)
+    assert not client._patch.called

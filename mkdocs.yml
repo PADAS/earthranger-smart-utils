@@ -78,6 +78,7 @@ nav:
     - Inspect a data model: workflows/inspect-datamodel.md
     - Sync events: workflows/sync-events.md
     - Sync patrols: workflows/sync-patrols.md
+    - Migrate patrols: workflows/migrate-patrols.md
   - CLI reference:
     - Overview: cli-reference/overview.md
     - datamodel: cli-reference/datamodel.md
@@ -85,6 +86,7 @@ nav:
     - inspect-datamodel: cli-reference/inspect-datamodel.md
     - events: cli-reference/events.md
     - patrols: cli-reference/patrols.md
+    - patrol-datamodel: cli-reference/patrol-datamodel.md
     - copy-event-type: cli-reference/copy-event-type.md
     - validate-config: cli-reference/validate-config.md
     - list-cas: cli-reference/list-cas.md

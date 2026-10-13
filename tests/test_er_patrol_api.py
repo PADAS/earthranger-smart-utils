@@ -1,0 +1,215 @@
+from __future__ import annotations
+
+from unittest.mock import MagicMock, patch
+
+import pytest
+from erclient.er_errors import ERClientNotFound, ERClientPermissionDenied
+
+from er_smart_sync.defaults import DryRunERClient
+from er_smart_sync.er_patrol_api import ERForbidden, ERPatrolAPI
+
+
+def _client():
+    c = MagicMock()
+    c._er_url.side_effect = lambda path, base_url=None: (
+        f"https://er.test/api/v1.0/{path}"
+    )
+    c.auth_headers.return_value = {"Authorization": "Bearer t"}
+    return c
+
+
+def test_preview_features_and_flag():
+    c = _client()
+    c._get.return_value = {
+        "version": "x",
+        "preview_features": {"patrol_schemas": False},
+    }
+    api = ERPatrolAPI(c)
+    assert api.preview_features() == {"patrol_schemas": False}
+    assert api.patrol_schemas_enabled() is False
+    c._get.assert_called_with(path="status", max_retries=0)
+
+
+def test_patrol_type_get_create_patch():
+    c = _client()
+    c._get.side_effect = ERClientNotFound("nope")
+    api = ERPatrolAPI(c)
+    assert api.get_patrol_type("patrol_foot") is None
+    c._get.side_effect = None
+    c._get.return_value = {
+        "id": "1",
+        "value": "patrol_foot",
+        "display": "Foot",
+        "is_active": True,
+    }
+    assert api.get_patrol_type("patrol_foot")["id"] == "1"
+    c._get.assert_called_with(path="activity/patrols/types/patrol_foot", max_retries=0)
+    api.create_patrol_type(
+        {"value": "patrol_foot", "display": "Foot", "is_active": True}
+    )
+    c._post.assert_called_with(
+        path="activity/patrols/types",
+        payload={"value": "patrol_foot", "display": "Foot", "is_active": True},
+    )
+    api.patch_patrol_type("patrol_foot", {"display": "On foot"})
+    c._patch.assert_called_with(
+        path="activity/patrols/types/patrol_foot", payload={"display": "On foot"}
+    )
+
+
+def test_forbidden_is_typed():
+    c = _client()
+    c._post.side_effect = ERClientPermissionDenied("no")
+    with pytest.raises(ERForbidden):
+        ERPatrolAPI(c).create_patrol_type({"value": "x", "display": "x"})
+
+
+def test_segment_schema_get_404_and_put():
+    c = _client()
+    c._get.side_effect = ERClientNotFound("dark")
+    api = ERPatrolAPI(c)
+    assert api.get_segment_schema() is None
+    c._get.side_effect = None
+    c._get.return_value = {
+        "id": "s",
+        "value": "default",
+        "display": "Default",
+        "schema": {"json": {"properties": {}}, "ui": {}},
+    }
+    assert api.get_segment_schema() == {"json": {"properties": {}}, "ui": {}}
+    c._get.assert_called_with(
+        path="activity/patrols/segments/types/default",
+        params={"include_schema": "true"},
+        max_retries=0,
+    )
+    with patch("er_smart_sync.er_patrol_api.requests.put") as put:
+        put.return_value.ok = True
+        put.return_value.status_code = 200
+        put.return_value.json.return_value = {"data": {"id": "s"}}
+        assert api.put_segment_schema({"json": {}, "ui": {}}) == {"id": "s"}
+        put.assert_called_once()
+        args, kwargs = put.call_args
+        assert (
+            args[0]
+            == "https://er.test/api/v1.0/activity/patrols/segments/types/default"
+        )
+        assert kwargs["json"] == {"schema": {"json": {}, "ui": {}}}
+        assert kwargs["headers"]["Authorization"] == "Bearer t"
+    with patch("er_smart_sync.er_patrol_api.requests.put") as put:
+        put.return_value.ok = False
+        put.return_value.status_code = 403
+        put.return_value.text = "forbidden"
+        with pytest.raises(ERForbidden):
+            api.put_segment_schema({"json": {}, "ui": {}})
+
+
+def test_put_is_skipped_under_dry_run():
+    inner = _client()
+    api = ERPatrolAPI(DryRunERClient(inner))
+    with patch("er_smart_sync.er_patrol_api.requests.put") as put:
+        out = api.put_segment_schema({"json": {}, "ui": {}})
+        put.assert_not_called()
+    assert out.get("dry_run") is True
+
+
+def test_subjects_and_groups():
+    c = _client()
+    c.get_subjects.return_value = [
+        {"id": "a", "name": "A", "additional": {}, "is_active": True}
+    ]
+    api = ERPatrolAPI(c)
+    assert api.list_subjects()[0]["id"] == "a"
+    api.create_subject(
+        {"name": "B", "subject_subtype": "ranger", "additional": {}, "is_active": True}
+    )
+    c.post_subject.assert_called_once()
+    api.patch_subject("a", {"is_active": False})
+    c._patch.assert_called_with(path="subject/a", payload={"is_active": False})
+    c.get_subjectgroups.return_value = [
+        {"id": "g1", "name": "Rangers"},
+        {"id": "g2", "name": "Vehicles"},
+    ]
+    assert api.find_subject_group("rangers")["id"] == "g1"
+    assert api.find_subject_group("Nope") is None
+    api.add_subjects_to_group("g1", ["a", "b"])
+    c._post.assert_called_with(
+        path="subjectgroup/g1/subjects/", payload=[{"id": "a"}, {"id": "b"}]
+    )
+    c.add_subjects_to_subjectgroup.assert_not_called()
+    c.get_subjects.return_value = [{"id": "a"}, {"id": "z"}]
+    assert api.group_subject_ids("g1") == {"a", "z"}
+
+
+def test_patrol_config_404_means_none():
+    c = _client()
+    c._get.side_effect = ERClientNotFound("dark")
+    assert ERPatrolAPI(c).get_patrol_config() is None
+    c._get.side_effect = None
+    c._get.return_value = {
+        "teams": [{"id": "t", "value": "alpha", "display": "Alpha"}],
+        "members": [{"id": "g1", "name": "Rangers"}],
+    }
+    cfg = ERPatrolAPI(c).get_patrol_config()
+    assert cfg["teams"][0]["value"] == "alpha" and cfg["members"][0]["id"] == "g1"
+    c._get.assert_called_with(path="activity/patrols/config/default", max_retries=0)
+
+
+def _real_client():
+    """A real ERClient with its HTTP layer stubbed: erclient's kwarg filtering runs."""
+    from erclient import ERClient
+
+    c = ERClient(
+        service_root="https://er.test/api/v1.0",
+        username="",
+        password="",
+        token="t",
+        client_id="x",
+    )
+    c._get = MagicMock(return_value=[{"id": "a"}, {"id": "z"}])
+    return c
+
+
+def test_subject_queries_use_the_params_erclient_forwards():
+    c = _real_client()
+    api = ERPatrolAPI(c)
+    assert api.group_subject_ids("g1") == {"a", "z"}
+    c._get.assert_called_with(
+        "subjects", params={"subject_group": "g1", "include_inactive": True}
+    )
+    api.list_subjects()
+    c._get.assert_called_with("subjects", params={"include_inactive": True})
+
+
+def test_group_add_is_skipped_under_dry_run():
+    inner = _client()
+    api = ERPatrolAPI(DryRunERClient(inner))
+    api.add_subjects_to_group("g1", ["a"])
+    inner._post.assert_not_called()
+    inner.add_subjects_to_subjectgroup.assert_not_called()
+
+
+def test_read_side_403_is_typed():
+    c = _client()
+    c.get_subjects.side_effect = ERClientPermissionDenied("no")
+    c.get_subjectgroups.side_effect = ERClientPermissionDenied("no")
+    api = ERPatrolAPI(c)
+    with pytest.raises(ERForbidden):
+        api.list_subjects()
+    with pytest.raises(ERForbidden):
+        api.group_subject_ids("g1")
+    with pytest.raises(ERForbidden):
+        api.find_subject_group("x")
+
+
+def test_subject_lists_follow_every_page():
+    c = _client()
+    c.get_subjects.return_value = {"results": [{"id": "a"}], "next": "https://x/p2"}
+    c._get.side_effect = [
+        {"results": [{"id": "b"}], "next": "https://x/p3"},
+        {"results": [{"id": "c"}], "next": None},
+    ]
+    api = ERPatrolAPI(c)
+    assert [s["id"] for s in api.list_subjects()] == ["a", "b", "c"]
+    c._get.assert_called_with(path="https://x/p3")
+    c._get.side_effect = [{"results": [{"id": "z"}], "next": None}]
+    assert api.group_subject_ids("g1") == {"a", "z"}
