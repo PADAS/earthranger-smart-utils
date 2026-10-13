@@ -55,3 +55,21 @@ set it to the zone you know the site uses, and the run stops if the bundle
 was written for another one, telling you to re-export with
 `SMART_ABLE_TIMEZONE` set. Without it, a bundle whose zone was inferred
 from waypoint positions produces a warning.
+
+## Undoing a run
+
+Nothing the command creates is deleted by the command. Everything it
+creates is tagged, so it can be found and removed by hand, in the ER admin
+or with the API. Work from the bottom of this list up.
+
+| What | How to find it | How to remove it |
+| --- | --- | --- |
+| Roster membership | the subjects below, in the group named in the summary or `--roster-group` | Django admin > Subject groups > the group > remove them, or `DELETE /api/v1.0/subjectgroup/<group id>/subjects/` with `[{"id": "<subject id>"}]` |
+| Subjects | `GET /api/v1.0/subjects/?include_inactive=true`, keep those whose `additional.smart_member_id` is set (and `additional.smart_ca_uuid` equals the bundle's CA) | prefer `PATCH /api/v1.0/subject/<id>/` with `{"is_active": false}` so history stays intact; `DELETE /api/v1.0/subject/<id>/` removes them outright (an admin permission) |
+| Choices | `GET /api/v1.0/choices/?model=activity.event&field=patrol_mandate` and the same for `patrol_station`, `patrol_class`, every `patrol_<attribute>` | `PATCH /api/v1.0/choices/<id>/` with `{"is_active": false}`; Django admin > Choices to delete |
+| Universal patrol fields | `GET /api/v1.0/activity/patrols/segments/types/default/?include_schema=true` | the run saved the previous document next to the checklist as `segment-schema-before-<time>.json`; `PUT` it back as `{"schema": <that document>}`. To clear the form instead, PUT the empty envelope: `{"schema": {"json": {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "properties": {}, "required": [], "unevaluatedProperties": false}, "ui": {"fields": {}, "headers": {}, "order": [], "sections": {}}}}` |
+| Patrol types | `GET /api/v1.0/activity/patrols/types/`, values starting `patrol_` | `PATCH /api/v1.0/activity/patrols/types/<value>/` with `{"is_active": false}` if any patrol already uses the type; `DELETE /api/v1.0/activity/patrols/types/<value>/` otherwise |
+
+Teams and the roster subject group are created by an admin, not by the
+command, so they are removed where they were made. A second run after a
+clean-up recreates everything.

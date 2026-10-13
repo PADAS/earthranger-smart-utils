@@ -19,7 +19,10 @@ readiness check and the history import follow in later releases.
    `bundle.path` to the bundle directory.
 4. Run `er-smart-sync --dry-run patrol-datamodel --config sync.yaml`, read
    the plan, then run it without `--dry-run`. See
-   [patrol-datamodel](../cli-reference/patrol-datamodel.md).
+   [patrol-datamodel](../cli-reference/patrol-datamodel.md). The run saves
+   the site's previous universal-fields document next to the checklist;
+   that page's "Undoing a run" section says how to remove everything the
+   command created, should a site need it.
 5. Work through `checklist.md`: enable the `patrol_schemas` preview feature
    if it is off (then re-run step 4 so the universal patrol fields are
    written), create the teams it lists, and put the subjects in the roster

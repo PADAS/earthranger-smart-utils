@@ -950,6 +950,11 @@ def patrol_datamodel_cmd(
     if ctx.obj and ctx.obj.get("dry_run"):
         er_client = DryRunERClient(er_client)
         click.echo("Dry run mode: no writes will be sent to ER.", err=True)
+    out = (
+        Path(checklist_path)
+        if checklist_path
+        else Path(bundle_path).resolve().parent / "checklist.md"
+    )
     result = run_patrol_datamodel(
         ERPatrolAPI(er_client),
         er_client,
@@ -957,11 +962,7 @@ def patrol_datamodel_cmd(
         replace_segment_schema=replace_segment_schema,
         roster_group=roster_group,
         choices_base_url=er.choices_base_url,
-    )
-    out = (
-        Path(checklist_path)
-        if checklist_path
-        else Path(bundle_path).resolve().parent / "checklist.md"
+        schema_backup_dir=out.parent,
     )
     out.write_text(render_checklist(result, bundle), encoding="utf-8")
     click.echo(format_summary(result))

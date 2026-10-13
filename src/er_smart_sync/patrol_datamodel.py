@@ -6,8 +6,11 @@ idempotent; a failed step is recorded and the next one runs.
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
 
 from erclient.er_errors import ERClientException
 
@@ -48,6 +51,7 @@ class PatrolDatamodelStats:
     schema_written: bool = False
     schema_unchanged: bool = False
     schema_skipped: str | None = None
+    schema_backup: str | None = None
     choices: ChoicesStats | None = None
     subjects_created: int = 0
     subjects_updated: int = 0
@@ -147,6 +151,7 @@ def _sync_segment_schema(
     *,
     replace: bool,
     choices_base_url: str,
+    backup_dir: Path | None,
 ) -> None:
     if not api.patrol_schemas_enabled():
         stats.schema_skipped = "patrol_schemas preview feature is off"
@@ -170,6 +175,12 @@ def _sync_segment_schema(
         if current is not None and target == current:
             stats.schema_unchanged = True
             return
+        if current is not None and backup_dir is not None:
+            # keep what the site had so an admin can PUT it back (docs: Undoing a run)
+            stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            backup = Path(backup_dir) / f"segment-schema-before-{stamp}.json"
+            backup.write_text(json.dumps(current, indent=1) + "\n", encoding="utf-8")
+            stats.schema_backup = str(backup)
         api.put_segment_schema(target)
         stats.schema_written = True
     except ERForbidden as e:
@@ -384,6 +395,7 @@ def run_patrol_datamodel(
     replace_segment_schema: bool = False,
     roster_group: str | None = None,
     choices_base_url: str = "/api/v2.0/schemas",
+    schema_backup_dir: Path | None = None,
 ) -> PatrolDatamodelResult:
     stats = PatrolDatamodelStats()
     checklist: list = []
@@ -395,6 +407,7 @@ def run_patrol_datamodel(
         checklist,
         replace=replace_segment_schema,
         choices_base_url=choices_base_url,
+        backup_dir=schema_backup_dir,
     )
     stats.choices = upsert_choices(
         er_client=er_client, choice_sets=build_patrol_choice_sets(bundle)
@@ -429,7 +442,12 @@ def format_summary(result: PatrolDatamodelResult) -> str:
         "Patrol datamodel summary:",
         f"  patrol types: {s.types_created} created, {s.types_updated} updated, "
         f"{s.types_unchanged} unchanged",
-        f"  universal patrol fields: {schema}",
+        f"  universal patrol fields: {schema}"
+        + (
+            f" (previous document saved to {s.schema_backup})"
+            if s.schema_backup
+            else ""
+        ),
         f"  choices: {ch.created} created, {ch.updated} updated, {ch.unchanged} "
         f"unchanged, {ch.deactivated} deactivated, {ch.errored} errored",
         f"  subjects: {s.subjects_created} created, {s.subjects_updated} updated, "

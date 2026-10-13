@@ -2324,6 +2324,7 @@ def test_patrol_datamodel_runs_and_writes_checklist(tmp_path):
     text = (tmp_path / "checklist.md").read_text()
     assert text.startswith("# Admin checklist for Example Conservation Area")
     assert run.call_args.kwargs["roster_group"] == "Rangers"
+    assert run.call_args.kwargs["schema_backup_dir"] == tmp_path  # beside the checklist
     assert (
         "inferred" in result.output
     )  # the demo bundle's zone was inferred and no --timezone given

@@ -412,3 +412,28 @@ def test_choice_errors_count_as_errors():
     ):
         r = run_patrol_datamodel(api, MagicMock(), b)
     assert any("2 choice" in e for e in r.stats.errors)
+
+
+def test_previous_segment_schema_is_saved_before_overwrite(no_choice_writes, tmp_path):
+    b = load_bundle(FIXTURE)
+    current = {
+        "json": {
+            "properties": {
+                "radio": {"type": "string", "title": "Radio", "description": ""}
+            }
+        },
+        "ui": {"fields": {}, "headers": {}, "order": [], "sections": {}},
+    }
+    api = FakeAPI(flag=True, schema=current, config=NO_TEAM_MEMBERS)
+    r = run_patrol_datamodel(api, MagicMock(), b, schema_backup_dir=tmp_path)
+    backups = sorted(tmp_path.glob("segment-schema-before-*.json"))
+    assert len(backups) == 1 and json.loads(backups[0].read_text()) == current
+    assert r.stats.schema_backup == str(backups[0])
+    # a no-op run writes no backup
+    api.calls.clear()
+    r2 = run_patrol_datamodel(api, MagicMock(), b, schema_backup_dir=tmp_path)
+    assert (
+        r2.stats.schema_unchanged
+        and len(list(tmp_path.glob("segment-schema-before-*.json"))) == 1
+    )
+    assert r2.stats.schema_backup is None
