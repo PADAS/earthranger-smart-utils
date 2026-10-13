@@ -144,9 +144,16 @@ Reads `reference.json` and writes, in this order, each step idempotent:
    `additional.smart_employee_id = employee.id`, `additional.smart_ca_uuid`.
    Match on `smart_member_id` first (the key `sync_patrol_datamodel`
    already uses), then on `smart_employee_id` for subjects created by an
-   earlier Connect-based run; create when neither matches; otherwise PATCH
-   only when name or active flag differs. Multi-CA sites share subjects by
-   `smart_member_id`, so a second CA's run adds no duplicates.
+   earlier Connect-based run; create when neither matches. A matched
+   subject is PATCHed whenever any of name, `is_active`, or the identity
+   metadata (`smart_member_id`, `smart_employee_id`, `smart_ca_uuid`)
+   differs from what the bundle implies, so a legacy subject matched only by
+   `smart_employee_id` always leaves the run carrying `smart_member_id`;
+   everything downstream (preflight, import) resolves by `smart_member_id`
+   alone. Subjects are created for every employee with a leg membership,
+   including staff whose employment has ended (see "Historical members"
+   below). Multi-CA sites share subjects by `smart_member_id`, so a second
+   CA's run adds no duplicates.
 5. **Checklist.** Printed at the end and written as `checklist.md` beside
    the bundle: enable the `patrol_schemas` preview; create each
    `PatrolConfigurationTeam` named after a SMART team, with its roster;
@@ -168,7 +175,8 @@ Read-only. Checks, each a `Finding` with a `fix` string:
 | `patrol_types` | blocking | every transport referenced by a leg in the bundle has its patrol type |
 | `segment_schema` | blocking | every canonical field is in the default segment schema |
 | `choices` | warning | every mandate, station, class and custom option used by a patrol exists as a choice |
-| `subjects` | blocking | every employee with a leg membership is an active subject matched by `smart_member_id` and is in a configured roster group |
+| `subjects` | blocking | every employee with a leg membership exists as a subject matched by `smart_member_id` and is in a configured roster group; inactive subjects are not blocking (see "Historical members") |
+| `inactive_members` | warning | subjects for retired staff that segments will reference; lists them and says whether the import will reactivate them for the run |
 | `teams` | blocking | every SMART team referenced by a patrol exists as a `PatrolConfigurationTeam` (matched by name) |
 | `event_types` | blocking | every category hkey used by an observation has an event type from the datamodel sync (`event_type_value_for`) |
 | `leg_span` | warning | legs with `placeholder_dates` (1970-01-01 start or more than a year of leg days); shows how many leg days will be clamped |
@@ -228,10 +236,13 @@ querying by `event_details.smart_.observation_uuid` before creating.
 **Tracks (ERA-14141).** Per leg leader: ensure a Source with
 `manufacturer_id = smart:{smart_member_id}` and a subject source spanning
 the patrol window; then `post_observation` batches of the leg day's
-LineString, one observation per vertex, timestamps spread evenly from the
-day's `start` to `end`, `additional.smart_leg_day_uuid` on each. Where the bundle has no
-per-point times for a track (Z was not a timestamp), the points are spread
-evenly across the leg day's range and the segment provenance says so.
+track, one observation per vertex with `recorded_at` taken from the
+bundle's `parts[].times` (the real per-point timestamps, present whenever
+the SMART track carried them) and `additional.smart_leg_day_uuid` on each.
+Only when a track has no `times` (the bundle omits them when Z was not a
+timestamp) are the vertices spread evenly across the leg day's range, and
+the segment provenance records `track_times: interpolated` so nobody
+mistakes them for recorded movement.
 Dedupe: diff against existing observations for that source
 in the window by `recorded_at` before posting. `--skip-tracks` skips this
 step.
@@ -245,6 +256,22 @@ skips completed stages and finishes partial ones. One failing patrol is
 logged with its reason and skipped; the run ends with imported, skipped
 and failed counts and the reason per failure, and exits non-zero if any
 failed.
+
+## Historical members
+
+Patrol history includes staff who have since left. The bundle marks them
+`active: false` (employment end date in the past); `patrol-datamodel`
+still creates a subject for each of them, with `is_active` mirroring the
+bundle, so every leg membership has a subject. das requires segment
+`members` to be active subjects in a configured group (verify-first item 6
+checks whether that also applies to historical, already-ended segments).
+If it does, `import-patrols` reactivates the affected subjects for the
+duration of the run and sets them back to `is_active=false` at the end, in
+its ledger, so a failed run can finish the retirement on the next run; the
+preflight's `inactive_members` warning lists exactly which subjects that
+will touch. If das accepts inactive members on past segments, no
+reactivation happens. Either way, a missing subject is the only blocking
+condition.
 
 ## Patrol times
 
@@ -268,9 +295,16 @@ precise source it has, in this order:
 Legs the bundle marks `placeholder_dates: true` (SMART stores an unset
 start date as 1970-01-01 and then generates a leg-day row for every day up
 to the end date; one export had 13 such legs with 93,697 leg days) are
-clamped: only leg days with a track, a waypoint, or a non-placeholder date
-are imported, and the segment range comes from those. The preflight lists
-them under a `leg_span` warning.
+clamped to activity evidence: only leg days that have a timed track or at
+least one waypoint are imported, and the segment range comes from those
+days. Generated rows dated after 1970 carry no evidence and are dropped
+with the rest. When a placeholder leg has no evidence at all, it is
+imported as a single segment on the leg's `end_date` (the one date SMART
+did not generate), range `00:00` to `23:59:59` in the bundle timezone,
+with `time_source: placeholder` in the provenance so it can be found and
+corrected later. The preflight lists every placeholder leg under a
+`leg_span` warning with the number of leg days it will drop and whether it
+falls back to the end date.
 
 4. **The calendar day.** `00:00` to `23:59:59` in the bundle timezone when
    nothing else exists. The preflight reports how many leg days fall here
@@ -314,10 +348,16 @@ on `value`, not display.
 
 ## Timezone
 
-Taken from `manifest.timezone`. `smart.timezone` in `sync.yaml` overrides
-it; the preflight warns when the bundle's was inferred and no override is
-set. All leg and waypoint times already carry the offset in the bundle;
-the importer passes them through unchanged.
+Taken from `manifest.timezone`. Every timestamp in the bundle already
+carries that zone's offset, so the importer passes them through unchanged
+and never reinterprets them. The zone can only be corrected where the
+timestamps are produced: set `SMART_ABLE_TIMEZONE` and re-run
+`smart-able export`. `smart.timezone` in `sync.yaml` is therefore an
+assertion, not an override: when it is set and differs from
+`manifest.timezone.name`, every patrol subcommand stops with an error
+naming both zones and the export command to run; when it matches, the
+preflight's `timezone` warning is suppressed. When it is not set and the
+manifest zone was inferred, the preflight warns.
 
 ## Testing
 
@@ -348,6 +388,9 @@ is a task in the implementation plan:
 4. Whether `PATCH patrols/{id}` with nested segments replaces or upserts
    `members`.
 5. das observation dedupe on `(source, recorded_at)`.
+6. Whether das accepts inactive subjects as `members`/`leader` of a segment
+   whose `time_range` is entirely in the past; decides the reactivation
+   step in "Historical members".
 
 ## Runbook (deliverable, written with the code)
 
