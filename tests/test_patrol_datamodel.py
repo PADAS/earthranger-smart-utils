@@ -183,7 +183,9 @@ def test_fresh_site_creates_everything(no_choice_writes, tmp_path):
     assert s.schema_written and not s.schema_unchanged and s.schema_skipped is None
     assert "mandate" in api.schema["json"]["properties"]
     assert no_choice_writes.call_count == 1 and s.choices.created == 3
-    assert (s.subjects_created, s.subjects_updated, s.subjects_unchanged) == (7, 0, 0)
+    # six rangers; the `smart` admin login never patrolled and is not a subject
+    assert (s.subjects_created, s.subjects_updated, s.subjects_unchanged) == (6, 0, 0)
+    assert s.logins_skipped == ["smart smart"] and s.subjects_deactivated == 0
     created = [c[1] for c in api.calls if c[0] == "create_subject"]
     assert created[0]["subject_subtype"] == "ranger"
     assert created[0]["additional"]["smart_member_id"] == b.reference.employees[0].uuid
@@ -191,7 +193,7 @@ def test_fresh_site_creates_everything(no_choice_writes, tmp_path):
         created[0]["additional"]["smart_ca_uuid"] == b.ca_uuid
         and created[0]["is_active"] is True
     )
-    assert s.subjects_grouped == 7 and api.group_subject_ids("g1") == set(
+    assert s.subjects_grouped == 6 and api.group_subject_ids("g1") == set(
         r.subject_ids.values()
     )
     assert [c.code for c in r.checklist] == [
@@ -217,7 +219,7 @@ def test_second_run_is_a_no_op(no_choice_writes):
         r.stats.types_unchanged,
         r.stats.subjects_unchanged,
         r.stats.subjects_grouped,
-    ) == (2, 7, 0)
+    ) == (2, 6, 0)
     assert r.stats.schema_unchanged and not r.stats.schema_written
 
 
@@ -268,7 +270,7 @@ def test_updates_and_legacy_subject_match(no_choice_writes):
     assert (
         patched["old-2"]["additional"]["ca_uuid"] == "legacy"
     )  # existing keys preserved
-    assert (r.stats.subjects_created, r.stats.subjects_updated) == (5, 2)
+    assert (r.stats.subjects_created, r.stats.subjects_updated) == (4, 2)
     assert r.subject_ids[e0.uuid] == "old-1" and r.subject_ids[e1.uuid] == "old-2"
     # the demo references a team SMART's table lacks, and no member group is configured
     assert [c.code for c in r.checklist] == [
@@ -282,7 +284,7 @@ def test_flag_off_skips_schema_with_checklist(no_choice_writes):
     b = load_bundle(FIXTURE)
     api = FakeAPI(flag=False)
     r = run_patrol_datamodel(api, MagicMock(), b)
-    assert r.stats.types_created == 2 and r.stats.subjects_created == 7
+    assert r.stats.types_created == 2 and r.stats.subjects_created == 6
     assert r.stats.schema_skipped == "patrol_schemas preview feature is off"
     assert not any(c[0] == "put_schema" for c in api.calls)
     assert [c.code for c in r.checklist] == [
@@ -324,7 +326,7 @@ def test_teams_and_named_roster_group(no_choice_writes, tmp_path):
         groups={"g9": "Field staff"},
     )
     r = run_patrol_datamodel(api, MagicMock(), b, roster_group="field staff")
-    assert r.stats.subjects_grouped == 7 and api.group_subject_ids("g9") == set(
+    assert r.stats.subjects_grouped == 6 and api.group_subject_ids("g9") == set(
         r.subject_ids.values()
     )
     codes = [c.code for c in r.checklist]
@@ -437,3 +439,64 @@ def test_previous_segment_schema_is_saved_before_overwrite(no_choice_writes, tmp
         and len(list(tmp_path.glob("segment-schema-before-*.json"))) == 1
     )
     assert r2.stats.schema_backup is None
+
+
+def test_subject_an_earlier_run_made_for_a_login_is_deactivated(no_choice_writes):
+    """gundi-dev got a `smart smart` ranger before logins were skipped."""
+    b = load_bundle(FIXTURE)
+    smart = next(
+        e
+        for e in b.reference.employees
+        if e.has_smart_login and e.given_name == "smart"
+    )
+    stale = {
+        "id": "stale",
+        "name": "smart smart",
+        "is_active": True,
+        "additional": {
+            "smart_member_id": smart.uuid,
+            "smart_employee_id": smart.id,
+            "smart_ca_uuid": b.ca_uuid,
+        },
+    }
+    other_ca = {
+        "id": "other",
+        "name": "Elsewhere",
+        "is_active": True,
+        "additional": {"smart_member_id": "x", "smart_ca_uuid": "another-ca"},
+    }
+    api = FakeAPI(
+        flag=True,
+        schema=EMPTY_SCHEMA,
+        config=NO_TEAM_MEMBERS,
+        subjects=[stale, other_ca],
+    )
+    r = run_patrol_datamodel(api, MagicMock(), b)
+    assert ("patch_subject", "stale", {"is_active": False}) in api.calls
+    assert not any(c[0] == "patch_subject" and c[1] == "other" for c in api.calls)
+    assert r.stats.subjects_deactivated == 1 and "stale" not in r.subject_ids.values()
+    summary = format_summary(r)
+    assert "1 deactivated" in summary
+    assert (
+        "SMART logins that never patrolled, not made subjects: smart smart" in summary
+    )
+    api.calls.clear()
+    r = run_patrol_datamodel(api, MagicMock(), b)
+    assert r.stats.subjects_deactivated == 0 and not any(
+        c[0] == "patch_subject" for c in api.calls
+    )
+
+
+def test_unnamed_stations_in_summary_and_checklist(no_choice_writes, tmp_path):
+    shutil.copytree(FIXTURE, tmp_path / "b")
+    pats = json.loads((tmp_path / "b" / "patrols.json").read_text())
+    pats["patrols"][0]["station_uuid"] = "11f95b3a-ec44-4092-a266-d5e391c7bbce"
+    (tmp_path / "b" / "patrols.json").write_text(json.dumps(pats))
+    b = load_bundle(tmp_path / "b")
+    api = FakeAPI(flag=True, schema=EMPTY_SCHEMA, config=NO_TEAM_MEMBERS)
+    r = run_patrol_datamodel(api, MagicMock(), b)
+    assert (r.stats.stations_placeholder, r.stats.stations_omitted) == (1, 1)
+    assert "1 given a placeholder name, 1 left out" in format_summary(r)
+    item = next(c for c in r.checklist if c.code == "station_names")
+    assert "`Unnamed station 11f95b3a`" in item.steps[0]
+    assert [c.code for c in r.checklist][-1] == "station_names"

@@ -14,7 +14,9 @@ from er_smart_sync.smart_to_er_patrol_schema import (
     build_subjects,
     build_team_requirements,
     custom_choice_field,
+    login_only_employees,
     patrol_type_value,
+    unnamed_stations,
 )
 
 FIXTURE = Path(__file__).parent / "fixtures" / "smart_demo_bundle"
@@ -79,13 +81,12 @@ def test_build_choice_sets():
     assert sets[CHOICE_FIELD_MANDATE].options[0].display == b.label(
         b.reference.mandates[0]
     )
-    # stations have no key: identity is the uuid (stable across languages)
+    # stations have no key: identity is the uuid (stable across languages). The
+    # demo's other two stations have no name in SMART and no patrol uses them.
     stations = b.reference.stations
-    expected = [st.uuid.replace("-", "") for st in stations]
-    assert [o.value for o in sets[CHOICE_FIELD_STATION].options] == expected
-    by_value = {o.value: o for o in sets[CHOICE_FIELD_STATION].options}
-    assert by_value[stations[2].uuid.replace("-", "")].display == "Headquarters"
-    assert by_value[stations[0].uuid.replace("-", "")].display == stations[0].uuid
+    assert [(o.value, o.display) for o in sets[CHOICE_FIELD_STATION].options] == [
+        (stations[2].uuid.replace("-", ""), "Headquarters")
+    ]
     assert [
         (o.value, o.display, o.is_active) for o in sets[CHOICE_FIELD_CLASS].options
     ] == [
@@ -157,7 +158,7 @@ def test_subject_names_and_duplicates(tmp_path):
 
     b = _bundle_with(tmp_path, edit)
     subjects = build_subjects(b)
-    assert len(subjects) == 7  # every employee: 6 with memberships, 1 active without
+    assert len(subjects) == 6  # the 6 with memberships; the `smart` login is not one
     assert (
         subjects[0].name == subjects[1].name
         and subjects[0].smart_member_id != subjects[1].smart_member_id
@@ -420,3 +421,62 @@ def test_merge_keeps_admin_field_order():
         "armed",
     ]
     assert merge_segment_schema(merged, ours) == merged
+
+
+SMART_ADMIN = "769b6cf7-ebdd-4c57-8e95-1aaa215db04c"  # the demo's `smart` login
+LILIAN = "cfc03b57-a608-436c-b4cf-755b34c81687"  # a login who also patrolled
+
+
+def test_logins_that_never_patrolled_are_not_subjects():
+    b = load_bundle(FIXTURE)
+    by_uuid = {e.uuid: e for e in b.reference.employees}
+    assert by_uuid[SMART_ADMIN].has_smart_login and by_uuid[LILIAN].has_smart_login
+    ids = {s.smart_member_id for s in build_subjects(b)}
+    assert SMART_ADMIN not in ids
+    assert LILIAN in ids  # a leg member stays a subject, login or not
+    assert [e.uuid for e in login_only_employees(b)] == [SMART_ADMIN]
+
+
+def test_login_that_patrolled_is_a_subject(tmp_path):
+    def edit(n, d):
+        if n == "patrols":
+            d["patrols"][0]["legs"][0]["members"].append(
+                {"employee_uuid": SMART_ADMIN, "leader": False, "pilot": False}
+            )
+
+    b = _bundle_with(tmp_path, edit)
+    assert SMART_ADMIN in {s.smart_member_id for s in build_subjects(b)}
+    assert login_only_employees(b) == []
+
+
+def test_bundle_without_login_flag_keeps_every_employee(tmp_path):
+    """Bundles written before has_smart_login existed still load; nobody is skipped."""
+
+    def edit(n, d):
+        if n == "reference":
+            for e in d["employees"]:
+                e.pop("has_smart_login")
+
+    b = _bundle_with(tmp_path, edit)
+    assert not any(e.has_smart_login for e in b.reference.employees)
+    assert len(build_subjects(b)) == 7
+
+
+def test_unnamed_station_a_patrol_uses_gets_a_placeholder(tmp_path):
+    unnamed = "11f95b3a-ec44-4092-a266-d5e391c7bbce"
+
+    def edit(n, d):
+        if n == "patrols":
+            d["patrols"][0]["station_uuid"] = unnamed
+
+    b = _bundle_with(tmp_path, edit)
+    sets = {cs.field: cs for cs in build_patrol_choice_sets(b)}
+    assert [o.display for o in sets[CHOICE_FIELD_STATION].options] == [
+        "Unnamed station 11f95b3a",
+        "Headquarters",
+    ]
+    assert sets[CHOICE_FIELD_STATION].options[0].value == unnamed.replace("-", "")
+    assert unnamed_stations(b) == [
+        (unnamed, True),
+        ("cb9e8cda-efdb-4bab-b397-d7811b0f79ce", False),
+    ]

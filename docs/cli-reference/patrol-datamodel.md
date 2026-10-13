@@ -9,7 +9,7 @@ can be imported:
 | Patrol types | one per SMART transport, `value = patrol_<transport key>`, display in the chosen language | upsert on `value`; inactive transports are created inactive and never deactivated by the tool |
 | Universal patrol fields | the default segment schema: `objective`, `mandate`, `station`, `patrol_class`, `armed`, `comment`, plus `smart_<key>` per custom patrol attribute | merged with what is on the site (admin-added fields survive); `--replace-segment-schema` overwrites; skipped with a checklist item while the `patrol_schemas` preview feature is off |
 | Choices | `patrol_mandate`, `patrol_station`, `patrol_class`, `patrol_<attribute>` | the same upsert as `choices`; orphans are deactivated |
-| Subjects | one `ranger` subject per employee with a leg membership or an active employment, `additional.smart_member_id` = SMART employee UUID | matched on `smart_member_id`, then `smart_employee_id`; patched when name, active flag or identity metadata differ |
+| Subjects | one `ranger` subject per employee with a leg membership or an active employment, `additional.smart_member_id` = SMART employee UUID; SMART logins that never went on a patrol (such as the `smart` admin every install creates) are left out | matched on `smart_member_id`, then `smart_employee_id`; patched when name, active flag or identity metadata differ; a subject an earlier run made for this conservation area that is no longer planned is deactivated, never deleted |
 | Roster | subjects added to the patrol configuration's first member group, or to `--roster-group NAME` | only missing members are added |
 
 It then writes `checklist.md` next to the bundle directory with the steps an
@@ -19,6 +19,15 @@ each patrol type (the API cannot set icons).
 
 Station choices are keyed by the station's SMART UUID, since SMART stations
 have no key of their own; the display is the label in the chosen language.
+SMART lets a station exist with no name in any language. Such a station is
+left out unless a patrol uses it; then it is created as
+`Unnamed station <first 8 characters of its UUID>` and the checklist asks
+for a real name.
+
+A SMART login is left out only when it never went on a patrol. Sites often
+record shared admin logins as patrol members, and the patrol import needs
+those as subjects. Bundles written before smart-able flagged logins
+(`has_smart_login`) leave nobody out.
 In a dry run no subject gets a real id, so the summary always reports 0
 subjects added to the roster group.
 

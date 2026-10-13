@@ -23,7 +23,9 @@ from .smart_to_er_patrol_schema import (
     build_segment_schema,
     build_subjects,
     build_team_requirements,
+    login_only_employees,
     merge_segment_schema,
+    unnamed_stations,
 )
 
 logger = logging.getLogger(__name__)
@@ -40,6 +42,7 @@ CHECKLIST_ORDER = (
     "team",
     "roster_group",
     "patrol_type_icons",
+    "station_names",
 )
 
 
@@ -57,6 +60,10 @@ class PatrolDatamodelStats:
     subjects_updated: int = 0
     subjects_unchanged: int = 0
     subjects_grouped: int = 0
+    subjects_deactivated: int = 0
+    logins_skipped: list = field(default_factory=list)
+    stations_placeholder: int = 0
+    stations_omitted: int = 0
     errors: list = field(default_factory=list)
 
 
@@ -262,6 +269,10 @@ def _sync_subjects(
         for s in existing
         if additional(s).get("smart_employee_id")
     }
+    stats.logins_skipped = [
+        " ".join(p for p in (e.given_name, e.family_name) if p) or e.id or e.uuid
+        for e in login_only_employees(bundle)
+    ]
     ids: dict = {}
     for plan in build_subjects(bundle):
         match = by_member.get(plan.smart_member_id)
@@ -295,7 +306,37 @@ def _sync_subjects(
         except ERForbidden as e:
             stats.errors.append(f"subject {plan.name}: {e}")
             _add_once(checklist, _subjects_permission_item())
+    _deactivate_unplanned_subjects(api, bundle, stats, checklist, existing, ids)
     return ids
+
+
+def _deactivate_unplanned_subjects(
+    api: ERPatrolAPI,
+    bundle: Bundle,
+    stats: PatrolDatamodelStats,
+    checklist: list,
+    existing: list,
+    ids: dict,
+) -> None:
+    """A subject an earlier run made for this conservation area that the plan
+    no longer has (a SMART login that never patrolled, say) is deactivated,
+    never deleted, the way orphan choices are."""
+    planned = set(ids.values())
+    for s in existing:
+        a = s.get("additional") or {}
+        if (
+            a.get("smart_ca_uuid") != bundle.ca_uuid
+            or not a.get("smart_member_id")
+            or s.get("id") in planned
+            or not s.get("is_active", True)
+        ):
+            continue
+        try:
+            api.patch_subject(s["id"], {"is_active": False})
+            stats.subjects_deactivated += 1
+        except ERForbidden as e:
+            stats.errors.append(f"subject {s.get('name')}: {e}")
+            _add_once(checklist, _subjects_permission_item())
 
 
 def _sync_roster(
@@ -387,6 +428,31 @@ def _team_items(
         )
 
 
+def _station_items(
+    bundle: Bundle, stats: PatrolDatamodelStats, checklist: list
+) -> None:
+    unnamed = unnamed_stations(bundle)
+    used = [u for u, in_use in unnamed if in_use]
+    stats.stations_placeholder = len(used)
+    stats.stations_omitted = len(unnamed) - len(used)
+    if used:
+        checklist.append(
+            ChecklistItem(
+                "station_names",
+                "Name the stations SMART left unnamed",
+                [
+                    "SMART has no name for these stations in any language, so they "
+                    "were created with a placeholder: "
+                    + ", ".join(f"`Unnamed station {u[:8]}`" for u in used)
+                    + ".",
+                    "Name each one in SMART and re-run, or rename it in Django "
+                    "admin > Choices (field `patrol_station`); a later run puts the "
+                    "placeholder back until SMART has a name.",
+                ],
+            )
+        )
+
+
 def run_patrol_datamodel(
     api: ERPatrolAPI,
     er_client,
@@ -416,6 +482,7 @@ def run_patrol_datamodel(
         stats.errors.append(
             f"{stats.choices.errored} choice write(s) failed; see the log above"
         )
+    _station_items(bundle, stats, checklist)
     ids = _sync_subjects(api, bundle, stats, checklist)
     _sync_roster(api, stats, checklist, ids, roster_group)
     _team_items(bundle, api, stats, checklist)
@@ -451,8 +518,20 @@ def format_summary(result: PatrolDatamodelResult) -> str:
         f"  choices: {ch.created} created, {ch.updated} updated, {ch.unchanged} "
         f"unchanged, {ch.deactivated} deactivated, {ch.errored} errored",
         f"  subjects: {s.subjects_created} created, {s.subjects_updated} updated, "
-        f"{s.subjects_unchanged} unchanged, {s.subjects_grouped} added to the roster "
-        "group",
+        f"{s.subjects_unchanged} unchanged, {s.subjects_deactivated} deactivated, "
+        f"{s.subjects_grouped} added to the roster group",
+    ]
+    if s.logins_skipped:
+        lines.append(
+            "  SMART logins that never patrolled, not made subjects: "
+            + ", ".join(s.logins_skipped)
+        )
+    if s.stations_placeholder or s.stations_omitted:
+        lines.append(
+            f"  stations with no name in SMART: {s.stations_placeholder} given a "
+            f"placeholder name, {s.stations_omitted} left out (no patrol uses them)"
+        )
+    lines += [
         f"  checklist items: {len(result.checklist)}",
         f"  errors: {len(s.errors)}",
     ]

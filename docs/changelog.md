@@ -24,6 +24,14 @@ meta-schema requires `deprecated` on every property; the builder now sets
 it. The checklist named the demo's unlisted team, the missing roster group
 and the patrol-type icons.
 
+SMART logins that never went on a patrol, such as the `smart` admin every
+SMART install creates, are not made ranger subjects, and a subject an
+earlier run made for one is deactivated. Logins that did patrol stay
+subjects. This reads `has_smart_login`, which smart-able bundles now carry.
+A station with no name in SMART is left out unless a patrol uses it, and
+then gets a readable placeholder and a checklist item instead of showing
+its UUID.
+
 ## 0.5.1 — 2026-10-12
 
 ### Fixed

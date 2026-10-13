@@ -77,7 +77,10 @@ def build_patrol_types(bundle: Bundle) -> list:
     ]
 
 
-def _options(bundle: Bundle, items: list) -> tuple:
+def _options(bundle: Bundle, items: list, unlabelled=None) -> tuple:
+    """Choice options keyed by SMART key (or uuid). An item with no label in
+    any language shows its key or uuid, or what `unlabelled(item)` returns
+    instead; None from `unlabelled` leaves the item out."""
     out, seen = [], set()
     for it in items:
         # identity is the SMART key, or the uuid for key-less rows (stations): never
@@ -90,17 +93,44 @@ def _options(bundle: Bundle, items: list) -> tuple:
             continue  # nothing to identify the option by
         if value in seen:
             continue
+        display = bundle.label(it)
+        if not display and unlabelled is not None:
+            display = unlabelled(it)
+            if display is None:
+                continue
         seen.add(value)
-        display = bundle.label(it) or it.key or it.uuid
+        display = display or it.key or it.uuid
         out.append(ChoiceOption(value=value, display=display, is_active=it.active))
     return tuple(out)
+
+
+def _station_options(bundle: Bundle) -> tuple:
+    """SMART lets a station exist with no name in any language. One that no
+    patrol uses is left out; one a patrol uses gets a readable placeholder
+    instead of its uuid, which an admin can rename in ER."""
+    used = {p.get("station_uuid") for p in bundle.patrols}
+
+    def unnamed(st):
+        return f"Unnamed station {st.uuid[:8]}" if st.uuid in used else None
+
+    return _options(bundle, bundle.reference.stations, unlabelled=unnamed)
+
+
+def unnamed_stations(bundle: Bundle) -> list:
+    """(uuid, used by a patrol) for each station with no name in any language."""
+    used = {p.get("station_uuid") for p in bundle.patrols}
+    return [
+        (st.uuid, st.uuid in used)
+        for st in bundle.reference.stations
+        if st.uuid and not bundle.label(st)
+    ]
 
 
 def build_patrol_choice_sets(bundle: Bundle) -> list:
     ref = bundle.reference
     sets = [
         ChoiceSet(field=CHOICE_FIELD_MANDATE, options=_options(bundle, ref.mandates)),
-        ChoiceSet(field=CHOICE_FIELD_STATION, options=_options(bundle, ref.stations)),
+        ChoiceSet(field=CHOICE_FIELD_STATION, options=_station_options(bundle)),
     ]
     present = {pt["key"]: bool(pt.get("active", True)) for pt in ref.patrol_types}
     classes = tuple(
@@ -127,15 +157,30 @@ def _employee_name(e) -> str:
     )
 
 
+def login_only_employees(bundle: Bundle) -> list:
+    """Employees that are SMART Desktop logins and never went on a patrol, such
+    as the `smart` admin every SMART install creates. They are accounts, not
+    rangers. A login that is a leg member stays a subject: sites record shared
+    admin logins as patrol members, and the patrol import needs them."""
+    members = bundle.member_uuids()
+    return [
+        e
+        for e in bundle.reference.employees
+        if e.has_smart_login and e.uuid not in members
+    ]
+
+
 def build_subjects(bundle: Bundle) -> list:
-    """One subject per employee that has a leg membership or an active employment.
-    A member missing from the employee list (deleted staff) gets a subject
-    named by its uuid."""
+    """One subject per employee that has a leg membership or an active employment,
+    except SMART logins that never patrolled (login_only_employees). A member
+    missing from the employee list (deleted staff) gets a subject named by its
+    uuid."""
     members = bundle.member_uuids()
     known = {e.uuid for e in bundle.reference.employees}
+    accounts = {e.uuid for e in login_only_employees(bundle)}
     out = []
     for e in bundle.reference.employees:
-        if not (e.active or e.uuid in members):
+        if not (e.active or e.uuid in members) or e.uuid in accounts:
             continue
         out.append(
             SubjectPlan(

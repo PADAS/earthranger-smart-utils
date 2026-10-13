@@ -68,6 +68,8 @@ class Employee:
     employment_start: str | None
     employment_end: str | None
     active: bool
+    # also a SMART Desktop login; False in bundles written before the field existed
+    has_smart_login: bool = False
 
 
 @dataclass
@@ -223,7 +225,14 @@ def load_bundle(path: Path, *, language: str | None = None) -> Bundle:
         ranks=[_labelled(x, "agency_uuid") for x in r["ranks"]],
         teams=[_labelled(x, "member_uuids") for x in r["teams"]],
         employees=[
-            Employee(**{k: e.get(k) for k in Employee.__dataclass_fields__})
+            Employee(
+                **{
+                    k: e.get(k)
+                    for k in Employee.__dataclass_fields__
+                    if k != "has_smart_login"
+                },
+                has_smart_login=bool(e.get("has_smart_login", False)),
+            )
             for e in r["employees"]
         ],
     )
