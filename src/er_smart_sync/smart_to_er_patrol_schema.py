@@ -8,6 +8,7 @@ live further down in this module.
 from __future__ import annotations
 
 import copy
+import hashlib
 from dataclasses import dataclass, replace
 
 from smartconnect.choices import sanitize_choice_value
@@ -50,8 +51,17 @@ class TeamRequirement:
     referenced_by_patrols: int
 
 
+CHOICE_FIELD_MAX = 40  # Choice.field is a CharField(max_length=40)
+
+
 def custom_choice_field(attribute_key: str) -> str:
-    return f"patrol_{sanitize_choice_value(attribute_key)}"
+    """`patrol_<key>`; a key too long for ER's 40-character limit keeps its
+    first characters and ends in a hash of the whole key, so it stays unique."""
+    field = f"patrol_{sanitize_choice_value(attribute_key)}"
+    if len(field) <= CHOICE_FIELD_MAX:
+        return field
+    digest = hashlib.sha256(attribute_key.encode()).hexdigest()[:8]
+    return f"{field[: CHOICE_FIELD_MAX - 9]}_{digest}"
 
 
 def patrol_type_value(transport_key: str, taken: set) -> str:
@@ -414,4 +424,14 @@ def merge_segment_schema(current: dict | None, ours: dict) -> dict:
         seen.add(entry["name"])
         new_left.append(entry)
     sections[SEGMENT_SECTION]["leftColumn"] = new_left
+    # a managed field an admin moved to another section stays there; its
+    # `parent` must name the section that holds it
+    for sec_name, sec in sections.items():
+        for col in ("leftColumn", "rightColumn"):
+            for f in sec.get(col, []):
+                if f.get("name") in ours_names and f["name"] in ui["fields"]:
+                    ui["fields"][f["name"]] = {
+                        **ui["fields"][f["name"]],
+                        "parent": sec_name,
+                    }
     return merged

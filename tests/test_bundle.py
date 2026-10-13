@@ -79,3 +79,11 @@ def test_schema_violation_and_version(tmp_path):
     (tmp_path / "b" / "tracks.json").unlink()
     with pytest.raises(BundleError, match="tracks.json"):
         load_bundle(tmp_path / "b")
+
+
+@pytest.mark.parametrize("doc", ["[]", "null", "3"])
+def test_manifest_that_is_not_an_object_is_a_bundle_error(tmp_path, doc):
+    shutil.copytree(FIXTURE, tmp_path / "b")
+    (tmp_path / "b" / "manifest.json").write_text(doc)
+    with pytest.raises(BundleError, match="manifest.json"):
+        load_bundle(tmp_path / "b")

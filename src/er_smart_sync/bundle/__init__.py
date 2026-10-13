@@ -180,11 +180,15 @@ def load_bundle(path: Path, *, language: str | None = None) -> Bundle:
     manifest_file = path / "manifest.json"
     if manifest_file.exists():
         try:
-            version = json.loads(manifest_file.read_text(encoding="utf-8")).get(
-                "bundle_schema_version"
-            )
+            doc = json.loads(manifest_file.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
-            version = SUPPORTED_SCHEMA_VERSION  # _read reports the parse error
+            doc = None  # _read reports the parse error
+        # a manifest that is not an object is left for _read's schema check
+        version = (
+            doc.get("bundle_schema_version")
+            if isinstance(doc, dict)
+            else SUPPORTED_SCHEMA_VERSION
+        )
         if version != SUPPORTED_SCHEMA_VERSION:
             raise BundleError(
                 f"manifest.json: bundle_schema_version {version!r} is not supported; "

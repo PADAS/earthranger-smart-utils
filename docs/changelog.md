@@ -40,6 +40,14 @@ still validate. Each step's unexpected failure is recorded and the next
 step runs. A legacy subject is matched by SMART employee id only when that
 id is unique, since SMART reuses ids. `--er-token`, `--er-endpoint` and the
 other connection flags now override just their own setting in `--config`.
+Every real run that changes anything writes `patrol-datamodel-run-<time>.json`
+beside the checklist: each write in order with the values it replaced, which
+is what the undo guide now works from instead of searching the site. Backup
+and record file names carry microseconds and never overwrite one another.
+A custom attribute key too long for ER's 40-character choice field is
+shortened with a hash suffix, a field an admin moved to another section
+keeps a matching `parent`, and a manifest that is not a JSON object is
+reported as an invalid bundle.
 
 ## 0.5.1 — 2026-10-12
 

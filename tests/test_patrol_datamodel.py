@@ -582,3 +582,85 @@ def test_legacy_match_needs_this_bundles_area(no_choice_writes, additional):
     r = run_patrol_datamodel(api, MagicMock(), b)
     assert r.subject_ids[e0.uuid] != "legacy"
     assert not any(c[0] == "patch_subject" for c in api.calls)
+
+
+def test_run_record_lists_every_write_with_what_it_replaced(no_choice_writes, tmp_path):
+    from er_smart_sync.patrol_datamodel import write_run_record
+
+    no_choice_writes.return_value = ChoicesStats(
+        created=1,
+        changes=[
+            {"action": "created", "field": "patrol_mandate", "value": "x", "id": "c1"}
+        ],
+    )
+    b = load_bundle(FIXTURE)
+    e0 = b.reference.employees[0]
+    api = FakeAPI(
+        flag=True,
+        schema=EMPTY_SCHEMA,
+        config={"teams": [], "members": [{"id": "g1", "name": "Rangers"}]},
+        groups={"g1": "Rangers"},
+        subjects=[
+            {
+                "id": "old",
+                "name": "Old Name",
+                "is_active": True,
+                "additional": {
+                    "smart_member_id": e0.uuid,
+                    "smart_employee_id": e0.id,
+                    "smart_ca_uuid": b.ca_uuid,
+                },
+            }
+        ],
+    )
+    r = run_patrol_datamodel(api, MagicMock(), b, schema_backup_dir=tmp_path)
+    by_kind: dict = {}
+    for c in r.stats.changes:
+        by_kind.setdefault(c["kind"], []).append(c)
+    assert [c["value"] for c in by_kind["patrol_type"]] == [
+        "patrol_foot",
+        "patrol_vehicle",
+    ]
+    assert by_kind["universal_patrol_fields"][0]["before_file"] == r.stats.schema_backup
+    assert by_kind["choice"] == [
+        {
+            "kind": "choice",
+            "action": "created",
+            "field": "patrol_mandate",
+            "value": "x",
+            "id": "c1",
+        }
+    ]
+    created = [c["id"] for c in by_kind["subject"] if c["action"] == "created"]
+    assert len(created) == 5
+    assert {
+        "kind": "subject",
+        "action": "updated",
+        "id": "old",
+        "before": {"name": "Old Name"},
+    } in by_kind["subject"]
+    # only the members this run added, never ones already in the group
+    assert by_kind["roster"][0]["subject_ids"] == sorted(r.subject_ids.values())
+    path = write_run_record(r, b, "https://x/api/v1.0", tmp_path)
+    doc = json.loads(path.read_text())
+    assert (
+        doc["changes"] == r.stats.changes and doc["conservation_area"]["id"] == "SMART"
+    )
+    no_choice_writes.return_value = ChoicesStats()
+    again = run_patrol_datamodel(api, MagicMock(), b, schema_backup_dir=tmp_path)
+    assert (
+        again.stats.changes == [] and write_run_record(again, b, "x", tmp_path) is None
+    )
+
+
+def test_backups_in_the_same_instant_never_overwrite(tmp_path):
+    from er_smart_sync.patrol_datamodel import unique_path
+
+    a = unique_path(tmp_path, "segment-schema-before", ".json")
+    a.write_text("{}")
+    with patch("er_smart_sync.patrol_datamodel.datetime") as dt:
+        dt.now.return_value.strftime.return_value = a.name[
+            len("segment-schema-before-") : -5
+        ]
+        b = unique_path(tmp_path, "segment-schema-before", ".json")
+    assert b != a and b.name.endswith("-2.json")

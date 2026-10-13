@@ -16,7 +16,12 @@ from .config import (
 from .defaults import DryRunERClient, JsonFileStateStore, NullPublisher
 from .er_patrol_api import ERPatrolAPI
 from .er_to_er import EventTypeNotFound, TargetCategoryMissing, copy_event_type
-from .patrol_datamodel import format_summary, render_checklist, run_patrol_datamodel
+from .patrol_datamodel import (
+    format_summary,
+    render_checklist,
+    run_patrol_datamodel,
+    write_run_record,
+)
 from .synchronizer import ERSmartSynchronizer
 from .utils import describe_unresolved_language
 
@@ -970,6 +975,10 @@ def patrol_datamodel_cmd(
     )
     out.write_text(render_checklist(result, bundle), encoding="utf-8")
     click.echo(format_summary(result))
+    if not (ctx.obj and ctx.obj.get("dry_run")):
+        record = write_run_record(result, bundle, er.endpoint, out.parent)
+        if record:
+            click.echo(f"Run record (what changed, for undoing it) written to {record}")
     click.echo(f"Checklist written to {out}")
     for item in result.checklist:
         click.echo(f"  - {item.title}")

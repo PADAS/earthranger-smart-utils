@@ -537,3 +537,32 @@ def test_merge_gives_every_kept_property_a_deprecated_flag():
     }
     assert all("deprecated" in p for p in merged["json"]["properties"].values())
     assert merge_segment_schema(merged, ours) == merged
+
+
+def test_long_attribute_keys_fit_the_choice_field_limit():
+    long_a = "observed_weather_conditions_at_start_of_patrol_a"
+    long_b = "observed_weather_conditions_at_start_of_patrol_b"
+    fa, fb = custom_choice_field(long_a), custom_choice_field(long_b)
+    assert len(fa) <= 40 and len(fb) <= 40 and fa != fb
+    assert fa.startswith("patrol_observed") and custom_choice_field(long_a) == fa
+    assert custom_choice_field("weather") == "patrol_weather"  # short keys unchanged
+
+
+def test_merge_keeps_parent_in_step_with_a_moved_field():
+    b = load_bundle(FIXTURE)
+    ours = build_segment_schema(b)
+    current = copy.deepcopy(ours)
+    left = current["ui"]["sections"][SEGMENT_SECTION]["leftColumn"]
+    left[:] = [f for f in left if f["name"] != "comment"]
+    current["ui"]["order"].append("section-2")
+    current["ui"]["sections"]["section-2"] = {
+        "label": "Notes",
+        "columns": 1,
+        "isActive": True,
+        "leftColumn": [{"name": "comment", "type": "field"}],
+        "rightColumn": [],
+    }
+    merged = merge_segment_schema(current, ours)
+    assert merged["ui"]["fields"]["comment"]["parent"] == "section-2"
+    assert merged["ui"]["fields"]["objective"]["parent"] == SEGMENT_SECTION
+    assert merge_segment_schema(merged, ours) == merged

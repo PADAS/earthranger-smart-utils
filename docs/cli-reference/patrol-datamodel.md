@@ -67,17 +67,28 @@ from waypoint positions produces a warning.
 
 ## Undoing a run
 
-Nothing the command creates is deleted by the command. Everything it
-creates is tagged, so it can be found and removed by hand, in the ER admin
-or with the API. Work from the bottom of this list up.
+Nothing the command creates is deleted by the command. Instead, every real
+run that changes anything writes `patrol-datamodel-run-<time>.json` next to
+the checklist. It lists each write in order, with the values it replaced.
+A dry run writes no record.
 
-| What | How to find it | How to remove it |
-| --- | --- | --- |
-| Roster membership | the subjects below, in the group named in the summary or `--roster-group` | Django admin > Subject groups > the group > remove them, or `DELETE /api/v1.0/subjectgroup/<group id>/subjects/` with `[{"id": "<subject id>"}]` |
-| Subjects | `GET /api/v1.0/subjects/?include_inactive=true`, keep those whose `additional.smart_member_id` is set (and `additional.smart_ca_uuid` equals the bundle's CA) | prefer `PATCH /api/v1.0/subject/<id>/` with `{"is_active": false}` so history stays intact; `DELETE /api/v1.0/subject/<id>/` removes them outright (an admin permission) |
-| Choices | `GET /api/v1.0/choices/?model=activity.event&field=patrol_mandate` and the same for `patrol_station`, `patrol_class`, every `patrol_<attribute>` | `PATCH /api/v1.0/choices/<id>/` with `{"is_active": false}`; Django admin > Choices to delete |
-| Universal patrol fields | `GET /api/v1.0/activity/patrols/segments/types/default/?include_schema=true` | the run saved the previous document next to the checklist as `segment-schema-before-<time>.json`; `PUT` it back as `{"schema": <that document>}`. To clear the form instead, PUT the empty envelope: `{"schema": {"json": {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "properties": {}, "required": [], "unevaluatedProperties": false}, "ui": {"fields": {}, "headers": {}, "order": [], "sections": {}}}}` |
-| Patrol types | `GET /api/v1.0/activity/patrols/types/`, values starting `patrol_` | `PATCH /api/v1.0/activity/patrols/types/<value>/` with `{"is_active": false}` if any patrol already uses the type; `DELETE /api/v1.0/activity/patrols/types/<value>/` otherwise |
+Undo only what the records list. Work from the newest record to the
+oldest, and inside a record from the last change to the first. Don't undo
+by searching the site. The patrol fields, patrol types and choices are
+site-wide, so another conservation area's run or an admin may own objects
+that look the same. A subject a run only matched or updated existed before
+that run.
+
+| Change in the record | How to undo it |
+| --- | --- |
+| `roster`, `added` | For each id in `subject_ids`: `DELETE /api/v1.0/subjectgroup/<group_id>/subjects/` with `[{"id": "<id>"}]`. Members that were in the group before the run are not listed. |
+| `subject`, `created` | `PATCH /api/v1.0/subject/<id>/` with `{"is_active": false}`, so history stays intact. `DELETE /api/v1.0/subject/<id>/` removes it outright, which needs an admin permission. |
+| `subject`, `updated` | `PATCH /api/v1.0/subject/<id>/` with the `before` object. |
+| `choice`, `created` | `PATCH /api/v1.0/choices/<id>/` with `{"is_active": false}`, or delete it in Django admin > Choices if nothing uses it. If `id` is null, look it up with `GET /api/v1.0/choices/?model=activity.event&field=<field>` and match on `value`. |
+| `choice`, `updated` | `PATCH /api/v1.0/choices/<id>/` with the `before` object. |
+| `universal_patrol_fields`, `written` | `PUT /api/v1.0/activity/patrols/segments/types/default/` with `{"schema": <the document in before_file>}`. A null `before_file` means the site had no form, so PUT the empty envelope: `{"schema": {"json": {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "properties": {}, "required": [], "unevaluatedProperties": false}, "ui": {"fields": {}, "headers": {}, "order": [], "sections": {}}}}` |
+| `patrol_type`, `created` | `DELETE /api/v1.0/activity/patrols/types/<value>/` if no patrol uses the type. Otherwise `PATCH` it with `{"is_active": false}`. |
+| `patrol_type`, `updated` | `PATCH /api/v1.0/activity/patrols/types/<value>/` with the `before` object. |
 
 Teams and the roster subject group are created by an admin, not by the
 command, so they are removed where they were made. A second run after a

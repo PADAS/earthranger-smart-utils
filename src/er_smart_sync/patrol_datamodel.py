@@ -64,6 +64,8 @@ class PatrolDatamodelStats:
     logins_skipped: list = field(default_factory=list)
     stations_placeholder: int = 0
     stations_inactive: int = 0
+    # every write made, with what it replaced: the run record (see write_run_record)
+    changes: list = field(default_factory=list)
     errors: list = field(default_factory=list)
 
 
@@ -125,6 +127,9 @@ def _sync_patrol_types(
                     }
                 )
                 stats.types_created += 1
+                stats.changes.append(
+                    {"kind": "patrol_type", "action": "created", "value": plan.value}
+                )
                 continue
             patch = {}
             if existing.get("display") != plan.display:
@@ -136,6 +141,14 @@ def _sync_patrol_types(
             if patch:
                 api.patch_patrol_type(plan.value, patch)
                 stats.types_updated += 1
+                stats.changes.append(
+                    {
+                        "kind": "patrol_type",
+                        "action": "updated",
+                        "value": plan.value,
+                        "before": {k: existing.get(k) for k in patch},
+                    }
+                )
             else:
                 stats.types_unchanged += 1
         except ERForbidden as e:
@@ -184,12 +197,19 @@ def _sync_segment_schema(
             return
         if current is not None and backup_dir is not None:
             # keep what the site had so an admin can PUT it back (docs: Undoing a run)
-            stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-            backup = Path(backup_dir) / f"segment-schema-before-{stamp}.json"
+            backup = unique_path(Path(backup_dir), "segment-schema-before", ".json")
             backup.write_text(json.dumps(current, indent=1) + "\n", encoding="utf-8")
             stats.schema_backup = str(backup)
         api.put_segment_schema(target)
         stats.schema_written = True
+        stats.changes.append(
+            {
+                "kind": "universal_patrol_fields",
+                "action": "written",
+                # the saved previous document; None when the site had no form
+                "before_file": stats.schema_backup,
+            }
+        )
     except ERForbidden as e:
         stats.errors.append(f"segment schema: {e}")
         stats.schema_skipped = "forbidden"
@@ -249,6 +269,37 @@ def _patrol_config(
 def _uuid_key(u) -> str | None:
     """Compare uuids written with or without hyphens, in either case."""
     return u.replace("-", "").lower() if isinstance(u, str) and u else None
+
+
+def unique_path(directory: Path, prefix: str, suffix: str) -> Path:
+    """`<prefix>-<UTC time to the microsecond><suffix>` in `directory`, never
+    an existing file, so two runs in the same instant keep both."""
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    path = directory / f"{prefix}-{stamp}{suffix}"
+    n = 1
+    while path.exists():
+        n += 1
+        path = directory / f"{prefix}-{stamp}-{n}{suffix}"
+    return path
+
+
+def write_run_record(
+    result: PatrolDatamodelResult, bundle: Bundle, endpoint: str, directory: Path
+) -> Path | None:
+    """Write what this run changed, in order, with the values it replaced:
+    the record docs/cli-reference/patrol-datamodel.md undoes a run from.
+    Nothing is written when the run changed nothing."""
+    if not result.stats.changes:
+        return None
+    path = unique_path(directory, "patrol-datamodel-run", ".json")
+    doc = {
+        "run_at": datetime.now(timezone.utc).isoformat(),
+        "earthranger": endpoint,
+        "conservation_area": bundle.manifest.conservation_area,
+        "changes": result.stats.changes,
+    }
+    path.write_text(json.dumps(doc, indent=1) + "\n", encoding="utf-8")
+    return path
 
 
 def _legacy_by_employee_id(bundle: Bundle, existing: list) -> dict:
@@ -315,6 +366,9 @@ def _sync_subjects(
             if match is None:
                 created = api.create_subject(payload)
                 stats.subjects_created += 1
+                stats.changes.append(
+                    {"kind": "subject", "action": "created", "id": created.get("id")}
+                )
                 ids[plan.smart_member_id] = created.get("id")
                 continue
             ids[plan.smart_member_id] = match["id"]
@@ -333,6 +387,19 @@ def _sync_subjects(
             if patch:
                 api.patch_subject(match["id"], patch)
                 stats.subjects_updated += 1
+                stats.changes.append(
+                    {
+                        "kind": "subject",
+                        "action": "updated",
+                        "id": match["id"],
+                        "before": {
+                            k: match.get(k)
+                            if k != "additional"
+                            else dict(additional(match))
+                            for k in patch
+                        },
+                    }
+                )
             else:
                 stats.subjects_unchanged += 1
         except ERForbidden as e:
@@ -366,6 +433,14 @@ def _deactivate_unplanned_subjects(
         try:
             api.patch_subject(s["id"], {"is_active": False})
             stats.subjects_deactivated += 1
+            stats.changes.append(
+                {
+                    "kind": "subject",
+                    "action": "updated",
+                    "id": s["id"],
+                    "before": {"is_active": True},
+                }
+            )
         except ERForbidden as e:
             stats.errors.append(f"subject {s.get('name')}: {e}")
             _add_once(checklist, _subjects_permission_item())
@@ -415,6 +490,15 @@ def _sync_roster(
             return
         api.add_subjects_to_group(group["id"], missing)
         stats.subjects_grouped = len(missing)
+        stats.changes.append(
+            {
+                "kind": "roster",
+                "action": "added",
+                "group_id": group["id"],
+                "group": group.get("name"),
+                "subject_ids": list(missing),
+            }
+        )
     except ERForbidden as e:
         stats.errors.append(f"subject group {group['name']}: {e}")
         checklist.append(
@@ -469,6 +553,7 @@ def _sync_choices(er_client, bundle: Bundle, stats: PatrolDatamodelStats) -> Non
         choice_sets=build_patrol_choice_sets(bundle),
         deactivate_orphans=False,
     )
+    stats.changes += [{"kind": "choice", **c} for c in stats.choices.changes]
     if stats.choices.errored:
         stats.errors.append(
             f"{stats.choices.errored} choice write(s) failed; see the log above"

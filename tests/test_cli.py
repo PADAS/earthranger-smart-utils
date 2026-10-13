@@ -2432,3 +2432,24 @@ def test_bundle_options_merge_each_flag_into_the_config(tmp_path):
         "site",
     )
     assert er(er_id="other").id == "other"
+
+
+def test_patrol_datamodel_writes_a_run_record_only_for_real_runs(tmp_path):
+    import json
+
+    changes = [{"kind": "patrol_type", "action": "created", "value": "patrol_foot"}]
+    for dry in (True, False):
+        with (
+            patch("er_smart_sync.cli._make_er_client", return_value=MagicMock()),
+            patch(
+                "er_smart_sync.cli.run_patrol_datamodel",
+                return_value=_pd_result(changes=list(changes)),
+            ),
+        ):
+            args = (["--dry-run"] if dry else []) + _pd_args(tmp_path)
+            result = CliRunner().invoke(main, args)
+        assert result.exit_code == 0, result.output
+        records = list(tmp_path.glob("patrol-datamodel-run-*.json"))
+        assert len(records) == (0 if dry else 1)
+    assert json.loads(records[0].read_text())["changes"] == changes
+    assert "Run record" in result.output
