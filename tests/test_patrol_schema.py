@@ -256,7 +256,7 @@ def test_segment_schema_shape():
     assert (
         doc["json"]["unevaluatedProperties"] is False and doc["json"]["required"] == []
     )
-    # das's meta-schema requires `deprecated` on every property (verified live 2026-10-13)
+    # das's meta-schema requires `deprecated` on every property (live, 2026-10-13)
     assert props["objective"] == {
         "type": "string",
         "title": "Objective",
