@@ -14,7 +14,12 @@ updates the ER patrol types (one per SMART transport), the universal patrol
 fields and their choices, and the ranger subjects, then writes an admin
 checklist for what the API cannot do (ERA-14137). Idempotent; honours
 `--dry-run`; reads the bundle without SMART Connect. See
-[patrol-datamodel](cli-reference/patrol-datamodel.md).
+[patrol-datamodel](cli-reference/patrol-datamodel.md). Verified on
+2026-10-13 as a dry run against gundi-dev.staging with the `patrol_schemas`
+preview feature on and SMART's demo conservation area as the bundle: two
+patrol types, the universal patrol fields, nine choices and seven subjects
+planned, with the checklist naming the demo's unlisted team and the missing
+roster group.
 
 ## 0.5.1 — 2026-10-12
 

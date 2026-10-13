@@ -26,6 +26,11 @@ readiness check and the history import follow in later releases.
    group if the tool could not.
 6. `patrol-preflight` and `import-patrols` follow in later releases.
 
+The universal patrol fields need the `patrol_schemas` preview feature; on a
+site where it is off the command still writes the patrol types, choices and
+subjects and puts the feature on the checklist (seen on gundi-dev before it
+was enabled there).
+
 Quirks of the SMART data that matter here (zone-less times, placeholder
 dates, retired staff) are written up in smart-able's `quirks.html`,
 published with every browser it builds.
