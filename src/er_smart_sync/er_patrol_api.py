@@ -1,0 +1,154 @@
+"""The EarthRanger calls the patrol migration needs that `erclient.ERClient`
+does not wrap: site status, patrol types, the universal segment schema (PUT
+only), the patrol configuration, subject updates and subject groups. Thin
+on purpose: every method maps one endpoint, converts 404 to None where the
+spec says so, and surfaces 403 as `ERForbidden` for the checklist.
+"""
+
+from __future__ import annotations
+
+import logging
+
+import requests
+from erclient.er_errors import (
+    ERClientException,
+    ERClientNotFound,
+    ERClientPermissionDenied,
+)
+
+logger = logging.getLogger(__name__)
+
+STATUS_PATH = "status"
+PATROL_TYPES_PATH = "activity/patrols/types"
+SEGMENT_SCHEMA_PATH = "activity/patrols/segments/types/default"
+PATROL_CONFIG_PATH = "activity/patrols/config/default"
+PAGE_SIZE = 500
+
+
+class ERForbidden(Exception):
+    """ER answered 403: the operator lacks a permission the step needs."""
+
+
+def _is_dry_run(client) -> bool:
+    # the wrapper proxies attribute access; isinstance on the inner class would be wrong
+    return type(client).__name__ == "DryRunERClient"
+
+
+def _results(page) -> list:
+    if isinstance(page, dict):
+        return list(page.get("results") or [])
+    return list(page or [])
+
+
+class ERPatrolAPI:
+    def __init__(self, er_client):
+        self.er = er_client
+
+    # -- reads -------------------------------------------------------------
+    def _get_or_none(self, path: str, **params):
+        try:
+            if params:
+                return self.er._get(path=path, params=params, max_retries=0)
+            return self.er._get(path=path, max_retries=0)
+        except ERClientNotFound:
+            return None
+        except ERClientPermissionDenied as e:
+            raise ERForbidden(f"GET {path}: {e}") from None
+
+    def preview_features(self) -> dict:
+        status = self.er._get(path=STATUS_PATH, max_retries=0) or {}
+        return status.get("preview_features") or {}
+
+    def patrol_schemas_enabled(self) -> bool:
+        return bool(self.preview_features().get("patrol_schemas"))
+
+    def get_patrol_type(self, value: str) -> dict | None:
+        return self._get_or_none(f"{PATROL_TYPES_PATH}/{value}")
+
+    def get_segment_schema(self) -> dict | None:
+        doc = self._get_or_none(SEGMENT_SCHEMA_PATH, include_schema="true")
+        return None if doc is None else doc.get("schema")
+
+    def get_patrol_config(self) -> dict | None:
+        return self._get_or_none(PATROL_CONFIG_PATH)
+
+    def list_subjects(self) -> list:
+        return _results(
+            self.er.get_subjects(include_inactive=True, page_size=PAGE_SIZE)
+        )
+
+    def group_subject_ids(self, group_id: str) -> set:
+        page = self.er.get_subjects(
+            subject_group_id=group_id, include_inactive=True, page_size=PAGE_SIZE
+        )
+        return {s["id"] for s in _results(page)}
+
+    def find_subject_group(self, name: str) -> dict | None:
+        groups = self.er.get_subjectgroups(
+            include_inactive=False, include_hidden=True, isvisible=True, flat=True
+        )
+        wanted = name.strip().lower()
+        return next(
+            (
+                g
+                for g in _results(groups)
+                if (g.get("name") or "").strip().lower() == wanted
+            ),
+            None,
+        )
+
+    # -- writes ------------------------------------------------------------
+    def _write(self, fn, **kwargs):
+        try:
+            return fn(**kwargs)
+        except ERClientPermissionDenied as e:
+            raise ERForbidden(str(e)) from None
+
+    def create_patrol_type(self, payload: dict) -> dict:
+        return self._write(self.er._post, path=PATROL_TYPES_PATH, payload=payload)
+
+    def patch_patrol_type(self, value: str, payload: dict) -> dict:
+        return self._write(
+            self.er._patch, path=f"{PATROL_TYPES_PATH}/{value}", payload=payload
+        )
+
+    def _put(self, path: str, payload: dict) -> dict:
+        """erclient has no PUT; do it with requests, unless the client is a dry-run wrapper."""
+        if _is_dry_run(self.er):
+            logger.info(
+                "DryRunERClient: would call _put path=%s payload=%s", path, payload
+            )
+            self.er.calls.append(("_put", (), {"path": path, "payload": payload}))
+            return {"id": "dry-run", "dry_run": True}
+        response = requests.put(
+            self.er._er_url(path),
+            json=payload,
+            headers=self.er.auth_headers(),
+            timeout=60,
+        )
+        if response.status_code == 403:
+            raise ERForbidden(f"PUT {path}: {response.text}")
+        if not response.ok:
+            raise ERClientException(
+                f"PUT {path} failed: {response.status_code} {response.text}"
+            )
+        body = response.json()
+        return body.get("data", body) if isinstance(body, dict) else body
+
+    def put_segment_schema(self, schema_doc: dict) -> dict:
+        return self._put(SEGMENT_SCHEMA_PATH, {"schema": schema_doc})
+
+    def create_subject(self, payload: dict) -> dict:
+        return self._write(self.er.post_subject, subject=payload)
+
+    def patch_subject(self, subject_id: str, payload: dict) -> dict:
+        return self._write(
+            self.er._patch, path=f"subject/{subject_id}", payload=payload
+        )
+
+    def add_subjects_to_group(self, group_id: str, subject_ids: list) -> None:
+        self._write(
+            self.er.add_subjects_to_subjectgroup,
+            group_id=group_id,
+            subjects=[{"id": s} for s in subject_ids],
+        )
