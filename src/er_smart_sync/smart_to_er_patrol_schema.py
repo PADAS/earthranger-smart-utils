@@ -208,7 +208,13 @@ SEGMENT_SECTION_LABEL = "Patrol details"
 
 
 def _scalar(smart_type: str, title: str) -> tuple:
-    json_prop = {**copy.deepcopy(SCALAR_JSON[smart_type]), "title": title}
+    # das's segment-type meta-schema requires `deprecated` on every property
+    # (the PUT is a 400 without it; verified against gundi-dev on 2026-10-13)
+    json_prop = {
+        **copy.deepcopy(SCALAR_JSON[smart_type]),
+        "title": title,
+        "deprecated": False,
+    }
     ui = {**copy.deepcopy(SCALAR_UI[smart_type]), "parent": SEGMENT_SECTION}
     return json_prop, ui
 

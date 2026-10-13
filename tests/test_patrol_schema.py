@@ -256,11 +256,14 @@ def test_segment_schema_shape():
     assert (
         doc["json"]["unevaluatedProperties"] is False and doc["json"]["required"] == []
     )
+    # das's meta-schema requires `deprecated` on every property (verified live 2026-10-13)
     assert props["objective"] == {
         "type": "string",
         "title": "Objective",
         "description": "",
+        "deprecated": False,
     }
+    assert all(p["deprecated"] is False for p in props.values())
     assert props["armed"]["type"] == "boolean"
     assert props["mandate"]["anyOf"] == [
         {"$ref": "/api/v2.0/schemas/choices.json?field=patrol_mandate"}
@@ -338,6 +341,7 @@ def test_segment_schema_custom_attributes(tmp_path):
         "type": "number",
         "title": "Km walked",
         "description": "",
+        "deprecated": False,
     }
     assert "smart_old" not in props  # inactive attributes are left out
     names = [f["name"] for f in doc["ui"]["sections"][SEGMENT_SECTION]["leftColumn"]]
