@@ -199,3 +199,17 @@ def test_read_side_403_is_typed():
         api.group_subject_ids("g1")
     with pytest.raises(ERForbidden):
         api.find_subject_group("x")
+
+
+def test_subject_lists_follow_every_page():
+    c = _client()
+    c.get_subjects.return_value = {"results": [{"id": "a"}], "next": "https://x/p2"}
+    c._get.side_effect = [
+        {"results": [{"id": "b"}], "next": "https://x/p3"},
+        {"results": [{"id": "c"}], "next": None},
+    ]
+    api = ERPatrolAPI(c)
+    assert [s["id"] for s in api.list_subjects()] == ["a", "b", "c"]
+    c._get.assert_called_with(path="https://x/p3")
+    c._get.side_effect = [{"results": [{"id": "z"}], "next": None}]
+    assert api.group_subject_ids("g1") == {"a", "z"}

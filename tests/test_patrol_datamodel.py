@@ -244,7 +244,11 @@ def test_updates_and_legacy_subject_match(no_choice_writes):
             {
                 "id": "old-2",
                 "name": f"{e1.given_name} {e1.family_name}",
-                "additional": {"smart_employee_id": e1.id, "ca_uuid": "legacy"},
+                # as the SMART Connect sync wrote it: `ca_uuid`, hyphens optional
+                "additional": {
+                    "smart_employee_id": e1.id,
+                    "ca_uuid": b.ca_uuid.replace("-", ""),
+                },
                 "is_active": True,
             },
         ],
@@ -267,8 +271,8 @@ def test_updates_and_legacy_subject_match(no_choice_writes):
     assert (
         patched["old-2"]["additional"]["smart_member_id"] == e1.uuid
     )  # legacy match now carries the uuid
-    assert (
-        patched["old-2"]["additional"]["ca_uuid"] == "legacy"
+    assert patched["old-2"]["additional"]["ca_uuid"] == b.ca_uuid.replace(
+        "-", ""
     )  # existing keys preserved
     assert (r.stats.subjects_created, r.stats.subjects_updated) == (4, 2)
     assert r.subject_ids[e0.uuid] == "old-1" and r.subject_ids[e1.uuid] == "old-2"
@@ -554,3 +558,27 @@ def test_a_failing_step_does_not_stop_the_next(no_choice_writes):
     r = run_patrol_datamodel(api, MagicMock(), b)
     assert r.stats.errors == ["patrol types: RuntimeError: network down"]
     assert r.stats.schema_written and r.stats.subjects_created == 6
+
+
+@pytest.mark.parametrize(
+    "additional",
+    [
+        {"ca_uuid": "another-ca"},  # another conservation area's employee
+        {},  # area unknown: never claimed
+    ],
+)
+def test_legacy_match_needs_this_bundles_area(no_choice_writes, additional):
+    b = load_bundle(FIXTURE)
+    e0 = b.reference.employees[0]
+    legacy = {
+        "id": "legacy",
+        "name": "Someone",
+        "is_active": True,
+        "additional": {"smart_employee_id": e0.id, **additional},
+    }
+    api = FakeAPI(
+        flag=True, schema=EMPTY_SCHEMA, config=NO_TEAM_MEMBERS, subjects=[legacy]
+    )
+    r = run_patrol_datamodel(api, MagicMock(), b)
+    assert r.subject_ids[e0.uuid] != "legacy"
+    assert not any(c[0] == "patch_subject" for c in api.calls)

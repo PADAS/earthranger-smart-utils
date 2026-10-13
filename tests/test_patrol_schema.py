@@ -522,3 +522,18 @@ def test_merge_deprecates_custom_fields_no_longer_planned(tmp_path):
     placed = [f["name"] for f in merged["ui"]["sections"]["section-1"]["leftColumn"]]
     assert "smart_weather" not in placed and "admin_note" in placed
     assert merge_segment_schema(merged, ours) == merged
+
+
+def test_merge_gives_every_kept_property_a_deprecated_flag():
+    """das rejects a property without `deprecated`; an older admin field may lack it."""
+    b = load_bundle(FIXTURE)
+    ours = build_segment_schema(b)
+    current = copy.deepcopy(ours)
+    current["json"]["properties"]["radio_callsign"] = {"type": "string"}
+    merged = merge_segment_schema(current, ours)
+    assert merged["json"]["properties"]["radio_callsign"] == {
+        "type": "string",
+        "deprecated": False,
+    }
+    assert all("deprecated" in p for p in merged["json"]["properties"].values())
+    assert merge_segment_schema(merged, ours) == merged

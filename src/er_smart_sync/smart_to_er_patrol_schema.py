@@ -371,6 +371,11 @@ def merge_segment_schema(current: dict | None, ours: dict) -> dict:
             **merged["json"]["properties"][k],
             "deprecated": True,
         }
+    # das's meta-schema requires `deprecated` on every property, and an admin
+    # field saved before it did may lack it
+    for k, prop in merged["json"]["properties"].items():
+        if isinstance(prop, dict) and "deprecated" not in prop:
+            merged["json"]["properties"][k] = {**prop, "deprecated": False}
     ui = merged.setdefault("ui", {})
     ui["fields"] = {
         **(current.get("ui", {}).get("fields") or {}),

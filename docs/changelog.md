@@ -19,7 +19,9 @@ checklist for what the API cannot do (ERA-14137). Idempotent; honours
 feature on and SMART's demo conservation area as the bundle: a real run
 created two patrol types, wrote the universal patrol fields, eleven choices
 and seven ranger subjects, and the run after it reported everything
-unchanged and made no writes. The first attempt showed that das's
+unchanged and made no writes. One of the seven was SMART's default `smart`
+login; with the login rule below, a fresh site gets six, and the next
+gundi-dev run deactivated the seventh. The first attempt showed that das's
 meta-schema requires `deprecated` on every property; the builder now sets
 it. The checklist named the demo's unlisted team, the missing roster group
 and the patrol-type icons.

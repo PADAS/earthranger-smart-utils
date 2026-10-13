@@ -246,20 +246,31 @@ def _patrol_config(
         return {}
 
 
+def _uuid_key(u) -> str | None:
+    """Compare uuids written with or without hyphens, in either case."""
+    return u.replace("-", "").lower() if isinstance(u, str) and u else None
+
+
 def _legacy_by_employee_id(bundle: Bundle, existing: list) -> dict:
-    """Subjects an earlier Connect-based run made carry `smart_employee_id` but
-    no `smart_member_id`. SMART employee ids are not unique (one id can belong
-    to several people across conservation areas), so a legacy subject is
-    matched only where the id is unique in the bundle and among legacy
-    subjects; a subject that already has a `smart_member_id` belongs to that
-    employee and is never re-claimed by id."""
+    """A legacy subject carries `smart_employee_id` but no `smart_member_id`.
+    SMART employee ids are not unique (one id can belong to several people
+    across conservation areas), so a legacy subject is matched only when it
+    records this bundle's conservation area (`smart_ca_uuid`, or `ca_uuid` as
+    the SMART Connect sync wrote it) and the id is unique in the bundle and
+    among those subjects. One with no area recorded is never claimed, and a
+    subject that already has a `smart_member_id` is never re-claimed by id."""
     from collections import Counter
+
+    def area(s):
+        a = s.get("additional") or {}
+        return _uuid_key(a.get("smart_ca_uuid") or a.get("ca_uuid"))
 
     legacy = [
         s
         for s in existing
         if (s.get("additional") or {}).get("smart_employee_id")
         and not (s.get("additional") or {}).get("smart_member_id")
+        and area(s) == _uuid_key(bundle.ca_uuid)
     ]
     on_site = Counter(s["additional"]["smart_employee_id"] for s in legacy)
     in_bundle = Counter(e.id for e in bundle.reference.employees if e.id)

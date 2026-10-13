@@ -77,15 +77,24 @@ class ERPatrolAPI:
         except ERClientPermissionDenied as e:
             raise ERForbidden(str(e)) from None
 
+    def _all_pages(self, page) -> list:
+        """das serves these lists whole unless a page size is asked for, but if
+        a page does come back, follow `next` so no subject is missed."""
+        out = _results(page)
+        while isinstance(page, dict) and page.get("next"):
+            page = self._read(self.er._get, path=page["next"])
+            out += _results(page)
+        return out
+
     def list_subjects(self) -> list:
         # erclient.get_subjects forwards only `subject_group` and `include_inactive`
-        return _results(self._read(self.er.get_subjects, include_inactive=True))
+        return self._all_pages(self._read(self.er.get_subjects, include_inactive=True))
 
     def group_subject_ids(self, group_id: str) -> set:
         page = self._read(
             self.er.get_subjects, subject_group=group_id, include_inactive=True
         )
-        return {s["id"] for s in _results(page)}
+        return {s["id"] for s in self._all_pages(page)}
 
     def find_subject_group(self, name: str) -> dict | None:
         groups = self._read(
