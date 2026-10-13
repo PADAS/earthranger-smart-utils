@@ -113,7 +113,7 @@ class ERPatrolAPI:
         )
 
     def _put(self, path: str, payload: dict) -> dict:
-        """erclient has no PUT; do it with requests, unless the client is a dry-run wrapper."""
+        """erclient has no PUT; use requests, unless the client is a dry-run wrapper."""
         if _is_dry_run(self.er):
             logger.info(
                 "DryRunERClient: would call _put path=%s payload=%s", path, payload
