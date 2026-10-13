@@ -80,18 +80,19 @@ def build_patrol_types(bundle: Bundle) -> list:
 def _options(bundle: Bundle, items: list) -> tuple:
     out, seen = [], set()
     for it in items:
-        key = it.key or bundle.label(it)
-        if not key:
+        # identity is the SMART key, or the uuid for key-less rows (stations): never
+        # the label, which changes with the language
+        if it.key:
+            value = sanitize_choice_value(it.key)
+        elif it.uuid:
+            value = it.uuid.replace("-", "")
+        else:
             continue  # nothing to identify the option by
-        value = sanitize_choice_value(key)
         if value in seen:
             continue
         seen.add(value)
-        out.append(
-            ChoiceOption(
-                value=value, display=bundle.label(it) or key, is_active=it.active
-            )
-        )
+        display = bundle.label(it) or it.key or it.uuid
+        out.append(ChoiceOption(value=value, display=display, is_active=it.active))
     return tuple(out)
 
 
@@ -223,6 +224,9 @@ def _choice(
         choices_base_url=choices_base_url,
     )
     ui["parent"] = SEGMENT_SECTION
+    # das drops ui.fields[*].choices when it stores the schema (normalize_v2_schema);
+    # emitting it would make every run see a difference and PUT again
+    ui.pop("choices", None)
     return json_prop, ui
 
 
@@ -311,24 +315,21 @@ def merge_segment_schema(current: dict | None, ours: dict) -> dict:
     order = ui.setdefault("order", [])
     if SEGMENT_SECTION not in order:
         order.insert(0, SEGMENT_SECTION)
-    placed_elsewhere = {
+    placed = {
         f["name"]
-        for name, s in sections.items()
-        if name != SEGMENT_SECTION
+        for sec in sections.values()
         for col in ("leftColumn", "rightColumn")
-        for f in s.get(col, [])
+        for f in sec.get(col, [])
     }
     left = sections[SEGMENT_SECTION].setdefault("leftColumn", [])
     ours_names = [
         f["name"] for f in ours["ui"]["sections"][SEGMENT_SECTION]["leftColumn"]
     ]
-    # our fields first, in our order (unless an admin moved one to another section),
-    # then whatever the admin placed here, without duplicates
+    # the admin's order is kept; only our fields placed nowhere are appended
     seen: set = set()
     new_left = []
-    for entry in [
-        {"name": n, "type": "field"} for n in ours_names if n not in placed_elsewhere
-    ] + left:
+    missing = [{"name": n, "type": "field"} for n in ours_names if n not in placed]
+    for entry in left + missing:
         if entry["name"] in seen:
             continue
         seen.add(entry["name"])

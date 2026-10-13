@@ -119,7 +119,6 @@ def test_subjects_and_groups():
     ]
     api = ERPatrolAPI(c)
     assert api.list_subjects()[0]["id"] == "a"
-    c.get_subjects.assert_called_with(include_inactive=True, page_size=500)
     api.create_subject(
         {"name": "B", "subject_subtype": "ranger", "additional": {}, "is_active": True}
     )
@@ -133,14 +132,12 @@ def test_subjects_and_groups():
     assert api.find_subject_group("rangers")["id"] == "g1"
     assert api.find_subject_group("Nope") is None
     api.add_subjects_to_group("g1", ["a", "b"])
-    c.add_subjects_to_subjectgroup.assert_called_with(
-        group_id="g1", subjects=[{"id": "a"}, {"id": "b"}]
+    c._post.assert_called_with(
+        path="subjectgroup/g1/subjects/", payload=[{"id": "a"}, {"id": "b"}]
     )
+    c.add_subjects_to_subjectgroup.assert_not_called()
     c.get_subjects.return_value = [{"id": "a"}, {"id": "z"}]
     assert api.group_subject_ids("g1") == {"a", "z"}
-    c.get_subjects.assert_called_with(
-        subject_group_id="g1", include_inactive=True, page_size=500
-    )
 
 
 def test_patrol_config_404_means_none():
@@ -155,3 +152,50 @@ def test_patrol_config_404_means_none():
     cfg = ERPatrolAPI(c).get_patrol_config()
     assert cfg["teams"][0]["value"] == "alpha" and cfg["members"][0]["id"] == "g1"
     c._get.assert_called_with(path="activity/patrols/config/default", max_retries=0)
+
+
+def _real_client():
+    """A real ERClient with its HTTP layer stubbed: erclient's kwarg filtering runs."""
+    from erclient import ERClient
+
+    c = ERClient(
+        service_root="https://er.test/api/v1.0",
+        username="",
+        password="",
+        token="t",
+        client_id="x",
+    )
+    c._get = MagicMock(return_value=[{"id": "a"}, {"id": "z"}])
+    return c
+
+
+def test_subject_queries_use_the_params_erclient_forwards():
+    c = _real_client()
+    api = ERPatrolAPI(c)
+    assert api.group_subject_ids("g1") == {"a", "z"}
+    c._get.assert_called_with(
+        "subjects", params={"subject_group": "g1", "include_inactive": True}
+    )
+    api.list_subjects()
+    c._get.assert_called_with("subjects", params={"include_inactive": True})
+
+
+def test_group_add_is_skipped_under_dry_run():
+    inner = _client()
+    api = ERPatrolAPI(DryRunERClient(inner))
+    api.add_subjects_to_group("g1", ["a"])
+    inner._post.assert_not_called()
+    inner.add_subjects_to_subjectgroup.assert_not_called()
+
+
+def test_read_side_403_is_typed():
+    c = _client()
+    c.get_subjects.side_effect = ERClientPermissionDenied("no")
+    c.get_subjectgroups.side_effect = ERClientPermissionDenied("no")
+    api = ERPatrolAPI(c)
+    with pytest.raises(ERForbidden):
+        api.list_subjects()
+    with pytest.raises(ERForbidden):
+        api.group_subject_ids("g1")
+    with pytest.raises(ERForbidden):
+        api.find_subject_group("x")

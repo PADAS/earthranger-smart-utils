@@ -22,7 +22,6 @@ STATUS_PATH = "status"
 PATROL_TYPES_PATH = "activity/patrols/types"
 SEGMENT_SCHEMA_PATH = "activity/patrols/segments/types/default"
 PATROL_CONFIG_PATH = "activity/patrols/config/default"
-PAGE_SIZE = 500
 
 
 class ERForbidden(Exception):
@@ -72,20 +71,29 @@ class ERPatrolAPI:
     def get_patrol_config(self) -> dict | None:
         return self._get_or_none(PATROL_CONFIG_PATH)
 
+    def _read(self, fn, **kwargs):
+        try:
+            return fn(**kwargs)
+        except ERClientPermissionDenied as e:
+            raise ERForbidden(str(e)) from None
+
     def list_subjects(self) -> list:
-        return _results(
-            self.er.get_subjects(include_inactive=True, page_size=PAGE_SIZE)
-        )
+        # erclient.get_subjects forwards only `subject_group` and `include_inactive`
+        return _results(self._read(self.er.get_subjects, include_inactive=True))
 
     def group_subject_ids(self, group_id: str) -> set:
-        page = self.er.get_subjects(
-            subject_group_id=group_id, include_inactive=True, page_size=PAGE_SIZE
+        page = self._read(
+            self.er.get_subjects, subject_group=group_id, include_inactive=True
         )
         return {s["id"] for s in _results(page)}
 
     def find_subject_group(self, name: str) -> dict | None:
-        groups = self.er.get_subjectgroups(
-            include_inactive=False, include_hidden=True, isvisible=True, flat=True
+        groups = self._read(
+            self.er.get_subjectgroups,
+            include_inactive=False,
+            include_hidden=True,
+            isvisible=True,
+            flat=True,
         )
         wanted = name.strip().lower()
         return next(
@@ -147,8 +155,9 @@ class ERPatrolAPI:
         )
 
     def add_subjects_to_group(self, group_id: str, subject_ids: list) -> None:
+        # the endpoint erclient.add_subjects_to_subjectgroup posts to, but through
+        # `_post` so a DryRunERClient wrapper intercepts it
+        payload = [{"id": s} for s in subject_ids]
         self._write(
-            self.er.add_subjects_to_subjectgroup,
-            group_id=group_id,
-            subjects=[{"id": s} for s in subject_ids],
+            self.er._post, path=f"subjectgroup/{group_id}/subjects/", payload=payload
         )

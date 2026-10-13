@@ -9,6 +9,8 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 
+from erclient.er_errors import ERClientException
+
 from .bundle import Bundle
 from .choices import ChoicesStats, upsert_choices
 from .er_patrol_api import ERForbidden, ERPatrolAPI
@@ -30,9 +32,11 @@ CHECKLIST_ORDER = (
     "permission_patrol_types",
     "permission_segment_schema",
     "permission_subjects",
+    "permission_patrol_config",
     "permission_subject_group",
     "team",
     "roster_group",
+    "patrol_type_icons",
 )
 
 
@@ -66,6 +70,15 @@ class PatrolDatamodelResult:
     subject_ids: dict
 
 
+RERUN = "Re-run `er-smart-sync patrol-datamodel`."
+
+
+def _permission_item(code: str, title: str, grant: str) -> ChecklistItem:
+    return ChecklistItem(
+        code, title, [f"Django admin > Users > the operator > add {grant}.", RERUN]
+    )
+
+
 def _add_once(checklist: list, item: ChecklistItem) -> None:
     if not any(c.code == item.code for c in checklist):
         checklist.append(item)
@@ -74,7 +87,22 @@ def _add_once(checklist: list, item: ChecklistItem) -> None:
 def _sync_patrol_types(
     api: ERPatrolAPI, bundle: Bundle, stats: PatrolDatamodelStats, checklist: list
 ) -> None:
-    for plan in build_patrol_types(bundle):
+    plans = build_patrol_types(bundle)
+    if plans:
+        # ER's API cannot set a patrol type's icon (icon_id is read-only)
+        names = ", ".join(f"{p.value} ({p.display})" for p in plans)
+        checklist.append(
+            ChecklistItem(
+                "patrol_type_icons",
+                "Pick an icon for each patrol type",
+                [
+                    f"EarthRanger admin > Patrol types: choose an icon for {names}.",
+                    "The API cannot set icons; without one ER shows the default "
+                    "patrol icon.",
+                ],
+            )
+        )
+    for plan in plans:
         try:
             existing = api.get_patrol_type(plan.value)
             if existing is None:
@@ -103,14 +131,10 @@ def _sync_patrol_types(
             stats.errors.append(f"patrol type {plan.value}: {e}")
             _add_once(
                 checklist,
-                ChecklistItem(
+                _permission_item(
                     "permission_patrol_types",
                     "Grant the operator permission to manage patrol types",
-                    [
-                        "Django admin > Users > the operator > add "
-                        "`activity | patrol type | Can add/change patrol type`.",
-                        "Re-run `er-smart-sync patrol-datamodel`.",
-                    ],
+                    "`activity | patrol type | Can add/change patrol type`",
                 ),
             )
 
@@ -152,17 +176,15 @@ def _sync_segment_schema(
         stats.errors.append(f"segment schema: {e}")
         stats.schema_skipped = "forbidden"
         checklist.append(
-            ChecklistItem(
+            _permission_item(
                 "permission_segment_schema",
                 "Grant the operator permission to write the universal patrol fields",
-                [
-                    "Django admin > Users > the operator > add "
-                    "`activity | segment type | Can change segment type` "
-                    "(superuser today).",
-                    "Re-run `er-smart-sync patrol-datamodel`.",
-                ],
+                "`activity | segment type | Can change segment type` (superuser today)",
             )
         )
+    except ERClientException as e:
+        stats.errors.append(f"segment schema: {e}")
+        stats.schema_skipped = f"rejected: {e}"
 
 
 def _subject_payload(plan) -> dict:
@@ -178,10 +200,43 @@ def _subject_payload(plan) -> dict:
     }
 
 
+def _subjects_permission_item() -> ChecklistItem:
+    return _permission_item(
+        "permission_subjects",
+        "Grant the operator permission to manage subjects",
+        "`observations | subject | Can view/add/change subject`",
+    )
+
+
+def _patrol_config(
+    api: ERPatrolAPI, stats: PatrolDatamodelStats, checklist: list
+) -> dict:
+    """The patrol configuration, or {} when the site hides or forbids it."""
+    try:
+        return api.get_patrol_config() or {}
+    except ERForbidden as e:
+        if not any(x.startswith("patrol config:") for x in stats.errors):
+            stats.errors.append(f"patrol config: {e}")
+        _add_once(
+            checklist,
+            _permission_item(
+                "permission_patrol_config",
+                "Grant the operator permission to read the patrol configuration",
+                "`activity | patrol | Can view patrol` (the configuration needs it)",
+            ),
+        )
+        return {}
+
+
 def _sync_subjects(
     api: ERPatrolAPI, bundle: Bundle, stats: PatrolDatamodelStats, checklist: list
 ) -> dict:
-    existing = api.list_subjects()
+    try:
+        existing = api.list_subjects()
+    except ERForbidden as e:
+        stats.errors.append(f"subjects: {e}")
+        _add_once(checklist, _subjects_permission_item())
+        return {}
 
     def additional(s):
         return s.get("additional") or {}
@@ -228,18 +283,7 @@ def _sync_subjects(
                 stats.subjects_unchanged += 1
         except ERForbidden as e:
             stats.errors.append(f"subject {plan.name}: {e}")
-            _add_once(
-                checklist,
-                ChecklistItem(
-                    "permission_subjects",
-                    "Grant the operator permission to manage subjects",
-                    [
-                        "Django admin > Users > the operator > add "
-                        "`observations | subject | Can add/change subject`.",
-                        "Re-run `er-smart-sync patrol-datamodel`.",
-                    ],
-                ),
-            )
+            _add_once(checklist, _subjects_permission_item())
     return ids
 
 
@@ -251,14 +295,19 @@ def _sync_roster(
     roster_group: str | None,
 ) -> None:
     group = None
-    if roster_group:
-        group = api.find_subject_group(roster_group)
-        if group is None:
-            stats.errors.append(f"roster group {roster_group!r} not found")
-    else:
-        members = (api.get_patrol_config() or {}).get("members") or []
-        if members:
-            group = {"id": members[0]["id"], "name": members[0].get("name", "")}
+    try:
+        if roster_group:
+            group = api.find_subject_group(roster_group)
+            if group is None:
+                stats.errors.append(f"roster group {roster_group!r} not found")
+        else:
+            members = _patrol_config(api, stats, checklist).get("members") or []
+            if members:
+                group = {"id": members[0]["id"], "name": members[0].get("name", "")}
+    except ERForbidden as e:
+        stats.errors.append(f"subject groups: {e}")
+        _add_once(checklist, _subjects_permission_item())
+        return
     want = {i for i in ids.values() if i and i != "dry-run"}
     if group is None:
         checklist.append(
@@ -276,10 +325,10 @@ def _sync_roster(
             )
         )
         return
-    missing = sorted(want - api.group_subject_ids(group["id"]))
-    if not missing:
-        return
     try:
+        missing = sorted(want - api.group_subject_ids(group["id"]))
+        if not missing:
+            return
         api.add_subjects_to_group(group["id"], missing)
         stats.subjects_grouped = len(missing)
     except ERForbidden as e:
@@ -296,11 +345,13 @@ def _sync_roster(
         )
 
 
-def _team_items(bundle: Bundle, api: ERPatrolAPI, checklist: list) -> None:
+def _team_items(
+    bundle: Bundle, api: ERPatrolAPI, stats: PatrolDatamodelStats, checklist: list
+) -> None:
     reqs = build_team_requirements(bundle)
     if not reqs:
         return
-    teams = ((api.get_patrol_config() or {}).get("teams")) or []
+    teams = _patrol_config(api, stats, checklist).get("teams") or []
     existing = {
         (t.get(k) or "").strip().lower() for t in teams for k in ("display", "value")
     }
@@ -348,9 +399,13 @@ def run_patrol_datamodel(
     stats.choices = upsert_choices(
         er_client=er_client, choice_sets=build_patrol_choice_sets(bundle)
     )
+    if stats.choices.errored:
+        stats.errors.append(
+            f"{stats.choices.errored} choice write(s) failed; see the log above"
+        )
     ids = _sync_subjects(api, bundle, stats, checklist)
     _sync_roster(api, stats, checklist, ids, roster_group)
-    _team_items(bundle, api, checklist)
+    _team_items(bundle, api, stats, checklist)
     checklist.sort(
         key=lambda c: (
             CHECKLIST_ORDER.index(c.code)

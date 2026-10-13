@@ -79,8 +79,13 @@ def test_build_choice_sets():
     assert sets[CHOICE_FIELD_MANDATE].options[0].display == b.label(
         b.reference.mandates[0]
     )
-    # stations have no key: the value comes from the label; unlabelled ones are skipped
-    assert [o.value for o in sets[CHOICE_FIELD_STATION].options] == ["headquarters"]
+    # stations have no key: identity is the uuid (stable across languages)
+    stations = b.reference.stations
+    expected = [st.uuid.replace("-", "") for st in stations]
+    assert [o.value for o in sets[CHOICE_FIELD_STATION].options] == expected
+    by_value = {o.value: o for o in sets[CHOICE_FIELD_STATION].options}
+    assert by_value[stations[2].uuid.replace("-", "")].display == "Headquarters"
+    assert by_value[stations[0].uuid.replace("-", "")].display == stations[0].uuid
     assert [
         (o.value, o.display, o.is_active) for o in sets[CHOICE_FIELD_CLASS].options
     ] == [
@@ -276,9 +281,9 @@ def test_segment_schema_shape():
         "parent": SEGMENT_SECTION,
     }
     assert ui["fields"]["mandate"]["type"] == "CHOICE_LIST"
-    assert ui["fields"]["mandate"]["choices"]["existingChoiceList"] == [
-        "patrol_mandate"
-    ]
+    # das strips ui.fields[*].choices on save (normalize_v2_schema); emitting it
+    # would make every run see a difference and PUT again
+    assert "choices" not in ui["fields"]["mandate"]
 
 
 def test_segment_schema_custom_attributes(tmp_path):
@@ -385,3 +390,29 @@ def test_merge_keeps_admin_fields_and_detects_no_change():
     assert (
         merge_segment_schema(merged, ours) == merged
     )  # idempotent: a second merge changes nothing
+
+
+def test_merge_keeps_admin_field_order():
+    b = load_bundle(FIXTURE)
+    ours = build_segment_schema(b)
+    current = copy.deepcopy(ours)
+    left = current["ui"]["sections"][SEGMENT_SECTION]["leftColumn"]
+    left.reverse()  # the admin reordered the canonical fields
+    del current["json"]["properties"][
+        "armed"
+    ]  # and one of ours is missing from the site
+    del current["ui"]["fields"]["armed"]
+    current["ui"]["sections"][SEGMENT_SECTION]["leftColumn"] = [
+        f for f in left if f["name"] != "armed"
+    ]
+    merged = merge_segment_schema(current, ours)
+    names = [f["name"] for f in merged["ui"]["sections"][SEGMENT_SECTION]["leftColumn"]]
+    assert names == [
+        "comment",
+        "patrol_class",
+        "station",
+        "mandate",
+        "objective",
+        "armed",
+    ]
+    assert merge_segment_schema(merged, ours) == merged

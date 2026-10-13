@@ -50,6 +50,10 @@ class FakeAPI:
     def _check(self, op):
         if op in self.forbid:
             raise ERForbidden(op)
+        if op in getattr(self, "reject", ()):
+            from erclient.er_errors import ERClientException
+
+            raise ERClientException(f"{op} rejected: 400")
 
     def patrol_schemas_enabled(self):
         return self.flag
@@ -75,13 +79,22 @@ class FakeAPI:
     def put_segment_schema(self, doc):
         self._check("put_segment_schema")
         self.calls.append(("put_schema", doc))
-        self.schema = doc
+        # das normalises on save: ui.fields[*].choices is dropped
+        # (das/schemas/normalization.py)
+        import copy
+
+        stored = copy.deepcopy(doc)
+        for f in (stored.get("ui") or {}).get("fields", {}).values():
+            f.pop("choices", None)
+        self.schema = stored
         return {"id": "s"}
 
     def get_patrol_config(self):
+        self._check("get_patrol_config")
         return self.config if self.flag else None
 
     def list_subjects(self):
+        self._check("list_subjects")
         return [dict(s) for s in self.subjects]
 
     def create_subject(self, payload):
@@ -181,9 +194,10 @@ def test_fresh_site_creates_everything(no_choice_writes, tmp_path):
     assert s.subjects_grouped == 7 and api.group_subject_ids("g1") == set(
         r.subject_ids.values()
     )
-    assert [
-        c.code for c in r.checklist
-    ] == []  # nothing left for the admin on this site
+    assert [c.code for c in r.checklist] == [
+        "patrol_type_icons"
+    ]  # the API cannot set icons
+    assert "patrol_foot" in r.checklist[0].steps[0]
     assert "patrol types: 2 created" in format_summary(r)
 
 
@@ -257,7 +271,11 @@ def test_updates_and_legacy_subject_match(no_choice_writes):
     assert (r.stats.subjects_created, r.stats.subjects_updated) == (5, 2)
     assert r.subject_ids[e0.uuid] == "old-1" and r.subject_ids[e1.uuid] == "old-2"
     # the demo references a team SMART's table lacks, and no member group is configured
-    assert [c.code for c in r.checklist] == ["team", "roster_group"]
+    assert [c.code for c in r.checklist] == [
+        "team",
+        "roster_group",
+        "patrol_type_icons",
+    ]
 
 
 def test_flag_off_skips_schema_with_checklist(no_choice_writes):
@@ -271,6 +289,7 @@ def test_flag_off_skips_schema_with_checklist(no_choice_writes):
         "enable_patrol_schemas",
         "team",
         "roster_group",
+        "patrol_type_icons",
     ]
     md = render_checklist(r, b)
     assert "patrol_schemas" in md and "## 1. Enable" in md
@@ -309,7 +328,9 @@ def test_teams_and_named_roster_group(no_choice_writes, tmp_path):
         r.subject_ids.values()
     )
     codes = [c.code for c in r.checklist]
-    assert codes == ["team"] and r.checklist[0].title.endswith("Team One")
+    assert codes == ["team", "patrol_type_icons"] and r.checklist[0].title.endswith(
+        "Team One"
+    )
     md = render_checklist(r, b)
     assert (
         "Team One" in md
@@ -353,3 +374,41 @@ def test_replace_segment_schema(no_choice_writes):
     api2 = FakeAPI(flag=True, schema=current, config=NO_TEAM_MEMBERS)
     run_patrol_datamodel(api2, MagicMock(), b, replace_segment_schema=True)
     assert "radio" not in api2.schema["json"]["properties"]
+
+
+def test_read_side_forbidden_becomes_checklist_not_traceback(no_choice_writes):
+    b = load_bundle(FIXTURE)
+    api = FakeAPI(
+        flag=True,
+        schema=EMPTY_SCHEMA,
+        config=NO_TEAM_MEMBERS,
+        forbid={"list_subjects", "get_patrol_config"},
+    )
+    r = run_patrol_datamodel(api, MagicMock(), b)
+    assert r.stats.subjects_created == 0
+    assert {c.code for c in r.checklist} >= {
+        "permission_subjects",
+        "permission_patrol_config",
+    }
+    assert any("subjects" in e for e in r.stats.errors)
+    assert any("patrol config" in e for e in r.stats.errors)
+
+
+def test_schema_put_rejection_is_reported(no_choice_writes):
+    b = load_bundle(FIXTURE)
+    api = FakeAPI(flag=True, schema=EMPTY_SCHEMA, config=NO_TEAM_MEMBERS)
+    api.reject = {"put_segment_schema"}
+    r = run_patrol_datamodel(api, MagicMock(), b)
+    assert r.stats.schema_skipped.startswith("rejected") and not r.stats.schema_written
+    assert any("segment schema" in e for e in r.stats.errors)
+
+
+def test_choice_errors_count_as_errors():
+    b = load_bundle(FIXTURE)
+    api = FakeAPI(flag=True, schema=EMPTY_SCHEMA, config=NO_TEAM_MEMBERS)
+    with patch(
+        "er_smart_sync.patrol_datamodel.upsert_choices",
+        return_value=ChoicesStats(created=1, errored=2),
+    ):
+        r = run_patrol_datamodel(api, MagicMock(), b)
+    assert any("2 choice" in e for e in r.stats.errors)

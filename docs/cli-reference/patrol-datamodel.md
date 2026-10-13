@@ -14,7 +14,13 @@ can be imported:
 
 It then writes `checklist.md` next to the bundle directory with the steps an
 admin has to do by hand: enabling the preview feature, creating teams,
-granting permissions, choosing the roster group.
+granting permissions, choosing the roster group, and picking an icon for
+each patrol type (the API cannot set icons).
+
+Station choices are keyed by the station's SMART UUID, since SMART stations
+have no key of their own; the display is the label in the chosen language.
+In a dry run no subject gets a real id, so the summary always reports 0
+subjects added to the roster group.
 
 ## Usage
 
