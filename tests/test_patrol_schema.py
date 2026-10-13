@@ -166,7 +166,7 @@ def test_subject_names_and_duplicates(tmp_path):
 
 
 def test_subjects_include_members_without_employment(tmp_path):
-    """A leg member missing from the employee list still gets a subject named by uuid."""
+    """A leg member missing from the employee list gets a subject named by uuid."""
     ghost = "99999999-9999-9999-9999-999999999999"
 
     def edit(n, d):
@@ -228,3 +228,160 @@ def test_team_requirements_for_unknown_team():
         and req.member_names == []
     )
     assert req.referenced_by_patrols == sum(1 for p in b.patrols if p.get("team_uuid"))
+
+
+# ── universal segment schema ────────────────────────────────────
+
+import copy  # noqa: E402
+
+from er_smart_sync.smart_to_er_patrol_schema import (  # noqa: E402
+    CANONICAL_FIELDS,
+    SEGMENT_SECTION,
+    build_segment_schema,
+    merge_segment_schema,
+)
+
+
+def test_segment_schema_shape():
+    b = load_bundle(FIXTURE)
+    doc = build_segment_schema(b)
+    props = doc["json"]["properties"]
+    assert list(props) == list(CANONICAL_FIELDS)
+    assert doc["json"]["$schema"] == "https://json-schema.org/draft/2020-12/schema"
+    assert (
+        doc["json"]["unevaluatedProperties"] is False and doc["json"]["required"] == []
+    )
+    assert props["objective"] == {
+        "type": "string",
+        "title": "Objective",
+        "description": "",
+    }
+    assert props["armed"]["type"] == "boolean"
+    assert props["mandate"]["anyOf"] == [
+        {"$ref": "/api/v2.0/schemas/choices.json?field=patrol_mandate"}
+    ]
+    assert props["station"]["anyOf"][0]["$ref"].endswith("field=patrol_station")
+    assert props["patrol_class"]["anyOf"][0]["$ref"].endswith("field=patrol_class")
+    ui = doc["ui"]
+    assert (
+        ui["order"] == [SEGMENT_SECTION]
+        and ui["sections"][SEGMENT_SECTION]["label"] == "Patrol details"
+    )
+    assert [f["name"] for f in ui["sections"][SEGMENT_SECTION]["leftColumn"]] == list(
+        CANONICAL_FIELDS
+    )
+    assert ui["fields"]["comment"] == {
+        "type": "TEXT",
+        "inputType": "LONG_TEXT",
+        "parent": SEGMENT_SECTION,
+    }
+    assert ui["fields"]["mandate"]["type"] == "CHOICE_LIST"
+    assert ui["fields"]["mandate"]["choices"]["existingChoiceList"] == [
+        "patrol_mandate"
+    ]
+
+
+def test_segment_schema_custom_attributes(tmp_path):
+    def edit(n, d):
+        if n == "reference":
+            d["patrol_attributes"] += [
+                {
+                    "uuid": "22222222-2222-2222-2222-222222222222",
+                    "key": "Weather Now",
+                    "labels": {"en": "Weather"},
+                    "label": "Weather",
+                    "type": "LIST",
+                    "active": True,
+                    "options": [
+                        {
+                            "uuid": "33333333-3333-3333-3333-333333333333",
+                            "key": "sunny",
+                            "labels": {"en": "Sunny"},
+                            "label": "Sunny",
+                            "active": True,
+                        }
+                    ],
+                },
+                {
+                    "uuid": "55555555-5555-5555-5555-555555555555",
+                    "key": "km",
+                    "labels": {"en": "Km walked"},
+                    "label": "Km walked",
+                    "type": "NUMERIC",
+                    "active": True,
+                    "options": [],
+                },
+                {
+                    "uuid": "77777777-7777-7777-7777-777777777777",
+                    "key": "old",
+                    "labels": {"en": "Old"},
+                    "label": "Old",
+                    "type": "TEXT",
+                    "active": False,
+                    "options": [],
+                },
+            ]
+
+    b = _bundle_with(tmp_path, edit)
+    doc = build_segment_schema(b)
+    props = doc["json"]["properties"]
+    assert "smart_weather_now" in props
+    assert props["smart_weather_now"]["anyOf"][0]["$ref"].endswith(
+        "field=patrol_weather_now"
+    )
+    assert props["smart_km"] == {
+        "type": "number",
+        "title": "Km walked",
+        "description": "",
+    }
+    assert "smart_old" not in props  # inactive attributes are left out
+    names = [f["name"] for f in doc["ui"]["sections"][SEGMENT_SECTION]["leftColumn"]]
+    assert names[-2:] == ["smart_weather_now", "smart_km"]
+
+
+def test_merge_keeps_admin_fields_and_detects_no_change():
+    b = load_bundle(FIXTURE)
+    ours = build_segment_schema(b)
+    assert merge_segment_schema(None, ours) == ours
+    assert (
+        merge_segment_schema({"json": {"properties": {}}, "ui": {}}, ours) == ours
+    )  # empty envelope
+    current = copy.deepcopy(ours)
+    current["json"]["properties"]["radio_callsign"] = {
+        "type": "string",
+        "title": "Callsign",
+        "description": "",
+    }
+    current["ui"]["fields"]["radio_callsign"] = {
+        "type": "TEXT",
+        "inputType": "SHORT_TEXT",
+        "parent": SEGMENT_SECTION,
+    }
+    current["ui"]["sections"][SEGMENT_SECTION]["leftColumn"].append(
+        {"name": "radio_callsign", "type": "field"}
+    )
+    current["ui"]["sections"]["section-2"] = {
+        "label": "Extra",
+        "columns": 1,
+        "isActive": True,
+        "leftColumn": [],
+        "rightColumn": [],
+    }
+    current["ui"]["order"].append("section-2")
+    current["json"]["properties"]["mandate"]["title"] = (
+        "Old title"  # ours must win on canonical keys
+    )
+    merged = merge_segment_schema(current, ours)
+    assert (
+        "radio_callsign" in merged["json"]["properties"]
+        and "radio_callsign" in merged["ui"]["fields"]
+    )
+    assert merged["json"]["properties"]["mandate"]["title"] == "Mandate"
+    assert merged["ui"]["order"] == [SEGMENT_SECTION, "section-2"]
+    names = [f["name"] for f in merged["ui"]["sections"][SEGMENT_SECTION]["leftColumn"]]
+    assert names == list(CANONICAL_FIELDS) + ["radio_callsign"] and len(names) == len(
+        set(names)
+    )
+    assert (
+        merge_segment_schema(merged, ours) == merged
+    )  # idempotent: a second merge changes nothing

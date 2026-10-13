@@ -7,12 +7,14 @@ live further down in this module.
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass
 
 from smartconnect.choices import sanitize_choice_value
 
 from .bundle import Bundle
 from .choices import ChoiceOption, ChoiceSet
+from .smart_to_er_v2 import SCALAR_JSON, SCALAR_UI, _build_choice_property_pair
 
 CHOICE_FIELD_MANDATE = "patrol_mandate"
 CHOICE_FIELD_STATION = "patrol_station"
@@ -188,3 +190,148 @@ def build_team_requirements(bundle: Bundle) -> list:
                 )
             )
     return out
+
+
+# ── universal segment schema ────────────────────────────────────
+
+CANONICAL_FIELDS = (
+    "objective",
+    "mandate",
+    "station",
+    "patrol_class",
+    "armed",
+    "comment",
+)
+SEGMENT_SECTION = "section-1"
+SEGMENT_SECTION_LABEL = "Patrol details"
+
+
+def _scalar(smart_type: str, title: str) -> tuple:
+    json_prop = {**copy.deepcopy(SCALAR_JSON[smart_type]), "title": title}
+    ui = {**copy.deepcopy(SCALAR_UI[smart_type]), "parent": SEGMENT_SECTION}
+    return json_prop, ui
+
+
+def _choice(
+    title: str, field_name: str, choices_base_url: str, is_multiple: bool = False
+) -> tuple:
+    json_prop, ui = _build_choice_property_pair(
+        smart_type="MLIST" if is_multiple else "LIST",
+        display=title,
+        is_multiple=is_multiple,
+        field_name=field_name,
+        choices_base_url=choices_base_url,
+    )
+    ui["parent"] = SEGMENT_SECTION
+    return json_prop, ui
+
+
+def build_segment_schema(
+    bundle: Bundle, *, choices_base_url: str = "/api/v2.0/schemas"
+) -> dict:
+    """The universal patrol fields for this CA, as the das schema envelope."""
+    pairs: dict = {}
+    pairs["objective"] = _scalar("TEXT", "Objective")
+    pairs["mandate"] = _choice("Mandate", CHOICE_FIELD_MANDATE, choices_base_url)
+    pairs["station"] = _choice("Station", CHOICE_FIELD_STATION, choices_base_url)
+    pairs["patrol_class"] = _choice(
+        "Patrol class", CHOICE_FIELD_CLASS, choices_base_url
+    )
+    pairs["armed"] = _scalar("BOOLEAN", "Armed")
+    comment_json, comment_ui = _scalar("TEXT", "Comment")
+    comment_ui["inputType"] = "LONG_TEXT"
+    pairs["comment"] = (comment_json, comment_ui)
+    for attr in bundle.reference.patrol_attributes:
+        if not attr.active:
+            continue
+        name = f"smart_{sanitize_choice_value(attr.key)}"
+        t = attr.type.strip()
+        title = bundle.label(attr) or attr.key
+        if t in ("LIST", "MLIST", "TREE"):
+            pairs[name] = _choice(
+                title,
+                custom_choice_field(attr.key),
+                choices_base_url,
+                is_multiple=(t == "MLIST"),
+            )
+        elif t in SCALAR_JSON:
+            pairs[name] = _scalar(t, title)
+        else:
+            pairs[name] = _scalar("TEXT", title)
+    return {
+        "json": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "object",
+            "unevaluatedProperties": False,
+            "properties": {k: v[0] for k, v in pairs.items()},
+            "required": [],
+        },
+        "ui": {
+            "fields": {k: v[1] for k, v in pairs.items()},
+            "headers": {},
+            "order": [SEGMENT_SECTION],
+            "sections": {
+                SEGMENT_SECTION: {
+                    "label": SEGMENT_SECTION_LABEL,
+                    "columns": 1,
+                    "isActive": True,
+                    "leftColumn": [{"name": k, "type": "field"} for k in pairs],
+                    "rightColumn": [],
+                }
+            },
+        },
+    }
+
+
+def merge_segment_schema(current: dict | None, ours: dict) -> dict:
+    """Keep what an admin added by hand; our keys win where they overlap.
+    Returns a document equal to `current` when nothing needs to change."""
+    if not current or not (current.get("json") or {}).get("properties"):
+        return copy.deepcopy(ours)
+    merged = copy.deepcopy(current)
+    merged["json"].setdefault("$schema", ours["json"]["$schema"])
+    merged["json"].setdefault("type", "object")
+    merged["json"].setdefault("required", [])
+    merged["json"].setdefault("unevaluatedProperties", False)
+    merged["json"]["properties"] = {
+        **current["json"].get("properties", {}),
+        **ours["json"]["properties"],
+    }
+    ui = merged.setdefault("ui", {})
+    ui["fields"] = {
+        **(current.get("ui", {}).get("fields") or {}),
+        **ours["ui"]["fields"],
+    }
+    ui.setdefault("headers", {})
+    sections = ui.setdefault("sections", {})
+    if SEGMENT_SECTION not in sections:
+        sections[SEGMENT_SECTION] = copy.deepcopy(
+            ours["ui"]["sections"][SEGMENT_SECTION]
+        )
+    order = ui.setdefault("order", [])
+    if SEGMENT_SECTION not in order:
+        order.insert(0, SEGMENT_SECTION)
+    placed_elsewhere = {
+        f["name"]
+        for name, s in sections.items()
+        if name != SEGMENT_SECTION
+        for col in ("leftColumn", "rightColumn")
+        for f in s.get(col, [])
+    }
+    left = sections[SEGMENT_SECTION].setdefault("leftColumn", [])
+    ours_names = [
+        f["name"] for f in ours["ui"]["sections"][SEGMENT_SECTION]["leftColumn"]
+    ]
+    # our fields first, in our order (unless an admin moved one to another section),
+    # then whatever the admin placed here, without duplicates
+    seen: set = set()
+    new_left = []
+    for entry in [
+        {"name": n, "type": "field"} for n in ours_names if n not in placed_elsewhere
+    ] + left:
+        if entry["name"] in seen:
+            continue
+        seen.add(entry["name"])
+        new_left.append(entry)
+    sections[SEGMENT_SECTION]["leftColumn"] = new_left
+    return merged
