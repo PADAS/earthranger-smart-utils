@@ -295,10 +295,14 @@ precise source it has, in this order:
 Legs the bundle marks `placeholder_dates: true` (SMART stores an unset
 start date as 1970-01-01 and then generates a leg-day row for every day up
 to the end date; one export had 13 such legs with 93,697 leg days) are
-clamped to activity evidence: only leg days that have a timed track or at
-least one waypoint are imported, and the segment range comes from those
-days. Generated rows dated after 1970 carry no evidence and are dropped
-with the rest. When a placeholder leg has no evidence at all, it is
+clamped to activity evidence: only leg days that have a track (timed or
+not) or at least one waypoint are imported. Generated rows dated after
+1970 carry no evidence and are dropped with the rest. The segment range
+comes from the retained days using the normal precedence, except that a
+placeholder leg's own `start_time`/`end_time` are never trusted (SMART
+generated them too): a retained day with an untimed track and no timed
+waypoint takes the calendar day, its track points are spread across it,
+and the provenance records `track_times: interpolated` as in Tracks. When a placeholder leg has no evidence at all, it is
 imported as a single segment on the leg's `end_date` (the one date SMART
 did not generate), range `00:00` to `23:59:59` in the bundle timezone,
 with `time_source: placeholder` in the provenance so it can be found and
