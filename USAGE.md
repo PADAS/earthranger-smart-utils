@@ -5,6 +5,7 @@
 - **`datamodel`** — push SMART conservation-area data models into EarthRanger as event categories and event types.
 - **`events`** — poll EarthRanger events and publish them for routing to SMART.
 - **`patrols`** — poll EarthRanger patrols (with track points, segment events, and attached files) and publish them for routing to SMART.
+- **`patrol-datamodel`** — from a smart-able migration bundle, create the patrol types, universal patrol fields, choices and ranger subjects a SMART conservation area needs in EarthRanger, plus an admin checklist.
 - **`copy-event-type`** — copy one event type (and, for v2, the choice lists its schema references) from one EarthRanger site to another.
 - **`validate-config`**, **`list-cas`**, **`inspect-datamodel`** — read-only diagnostic commands intended for support work.
 

@@ -164,3 +164,38 @@ def test_er_config_migrate_legacy_v1_can_be_disabled():
         id="x", endpoint="https://x.pamdas.org", token="t", migrate_legacy_v1=False
     )
     assert cfg.migrate_legacy_v1 is False
+
+
+def test_patrol_tool_config_from_yaml(tmp_path):
+    from er_smart_sync.config import load_patrol_tool_config
+
+    p = tmp_path / "sync.yaml"
+    p.write_text(
+        "smart:\n"
+        "  endpoint: https://smart.example.org/server\n"
+        "  login: u\n"
+        "  password: p\n"
+        "  use_language_code: fr\n"
+        "  timezone: Asia/Manila\n"
+        "earthranger:\n"
+        "  id: site\n"
+        "  endpoint: site.pamdas.org\n"
+        "  token: tok\n"
+        "bundle:\n"
+        "  path: /data/bundle\n"
+    )
+    c = load_patrol_tool_config(str(p))
+    assert c.earthranger.endpoint == "https://site.pamdas.org/api/v1.0"
+    assert c.earthranger.token == "tok"
+    assert (
+        c.bundle.path == "/data/bundle"
+        and c.language == "fr"
+        and c.timezone == "Asia/Manila"
+    )
+    p.write_text(
+        "earthranger:\n  id: site\n  endpoint: site.pamdas.org\n  token: tok\n"
+    )
+    c = load_patrol_tool_config(str(p))
+    assert (
+        c.bundle is None and c.language is None and c.timezone is None
+    )  # smart: block optional

@@ -5,6 +5,17 @@ Notable changes by version. Every release is also published to
 [GitHub Releases](https://github.com/PADAS/earthranger-smart-utils/releases),
 which carry the full commit-level history.
 
+## Unreleased
+
+### Added
+
+**`patrol-datamodel`.** From a smart-able migration bundle, creates or
+updates the ER patrol types (one per SMART transport), the universal patrol
+fields and their choices, and the ranger subjects, then writes an admin
+checklist for what the API cannot do (ERA-14137). Idempotent; honours
+`--dry-run`; reads the bundle without SMART Connect. See
+[patrol-datamodel](cli-reference/patrol-datamodel.md).
+
 ## 0.5.1 — 2026-10-12
 
 ### Fixed
