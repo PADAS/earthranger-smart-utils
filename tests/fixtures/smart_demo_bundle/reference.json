@@ -1,0 +1,219 @@
+{
+ "patrol_types": [
+  {
+   "key": "AIR",
+   "active": false,
+   "max_speed": 500
+  },
+  {
+   "key": "GROUND",
+   "active": true,
+   "max_speed": 120
+  },
+  {
+   "key": "MARINE",
+   "active": false,
+   "max_speed": 70
+  },
+  {
+   "key": "MIXED",
+   "active": true,
+   "max_speed": 10000
+  }
+ ],
+ "transports": [
+  {
+   "uuid": "92b089a6-73a3-4749-84ce-f5d41caca2af",
+   "key": "foot",
+   "labels": {
+    "en": "Foot"
+   },
+   "label": "Foot",
+   "patrol_type": "GROUND",
+   "active": true
+  },
+  {
+   "uuid": "396b069b-5bef-4786-a27a-fd88a317dc5f",
+   "key": "vehicle",
+   "labels": {
+    "en": "Vehicle"
+   },
+   "label": "Vehicle",
+   "patrol_type": "GROUND",
+   "active": true
+  }
+ ],
+ "mandates": [
+  {
+   "uuid": "fc067b87-c1ee-4720-b5c1-6de775820d05",
+   "key": "antipoaching",
+   "labels": {
+    "en": "Anti-poaching"
+   },
+   "label": "Anti-poaching",
+   "active": true
+  },
+  {
+   "uuid": "1b866225-e84f-400a-9b57-44ccd71864f8",
+   "key": "followup",
+   "labels": {
+    "en": "Follow-up"
+   },
+   "label": "Follow-up",
+   "active": true
+  },
+  {
+   "uuid": "6fb86072-c160-42c1-bb88-e6edf539b952",
+   "key": "researchandmonitoring",
+   "labels": {
+    "en": "Research and Monitoring"
+   },
+   "label": "Research and Monitoring",
+   "active": true
+  },
+  {
+   "uuid": "b8e150b8-d7c5-4ec0-8f3d-e4dc8e85279d",
+   "key": "surveillance",
+   "labels": {
+    "en": "Surveillance"
+   },
+   "label": "Surveillance",
+   "active": true
+  }
+ ],
+ "stations": [
+  {
+   "uuid": "11f95b3a-ec44-4092-a266-d5e391c7bbce",
+   "labels": {},
+   "label": null,
+   "active": true
+  },
+  {
+   "uuid": "cb9e8cda-efdb-4bab-b397-d7811b0f79ce",
+   "labels": {},
+   "label": null,
+   "active": true
+  },
+  {
+   "uuid": "de064c78-d82a-428a-95c5-4a099024f8a3",
+   "labels": {
+    "en": "Headquarters"
+   },
+   "label": "Headquarters",
+   "active": true
+  }
+ ],
+ "patrol_attributes": [],
+ "agencies": [
+  {
+   "uuid": "efdf533c-a2dc-4b28-906f-ea79ce016516",
+   "key": "nationalparkdepartment"
+  }
+ ],
+ "ranks": [
+  {
+   "uuid": "56232d71-c699-4bcf-af09-baba01db642c",
+   "agency_uuid": "efdf533c-a2dc-4b28-906f-ea79ce016516",
+   "labels": {
+    "en": "Ranger"
+   },
+   "label": "Ranger"
+  },
+  {
+   "uuid": "6104e498-cfd3-422d-a2eb-ec5e7cacdf0d",
+   "agency_uuid": "efdf533c-a2dc-4b28-906f-ea79ce016516",
+   "labels": {
+    "en": "Patrol Leader"
+   },
+   "label": "Patrol Leader"
+  },
+  {
+   "uuid": "e5f3b46e-ea82-4e7d-9750-a0ce9d68c26b",
+   "agency_uuid": "efdf533c-a2dc-4b28-906f-ea79ce016516",
+   "labels": {
+    "en": "Park Warden"
+   },
+   "label": "Park Warden"
+  }
+ ],
+ "teams": [],
+ "employees": [
+  {
+   "uuid": "cd32e244-2ade-4e64-973f-0a9e6bc50c19",
+   "id": "195000012",
+   "given_name": "David",
+   "family_name": "Aliata",
+   "agency_uuid": "efdf533c-a2dc-4b28-906f-ea79ce016516",
+   "rank_uuid": "56232d71-c699-4bcf-af09-baba01db642c",
+   "employment_start": "2014-01-13",
+   "employment_end": null,
+   "active": true
+  },
+  {
+   "uuid": "bde8ccb7-ad3b-41b0-af41-2fe36318292c",
+   "id": "195000014",
+   "given_name": "Tim",
+   "family_name": "Obriek",
+   "agency_uuid": "efdf533c-a2dc-4b28-906f-ea79ce016516",
+   "rank_uuid": "6104e498-cfd3-422d-a2eb-ec5e7cacdf0d",
+   "employment_start": "2014-01-13",
+   "employment_end": null,
+   "active": true
+  },
+  {
+   "uuid": "2263dd5a-e7b3-4a92-b59a-94300369b182",
+   "id": "195000015",
+   "given_name": "John",
+   "family_name": "Peter",
+   "agency_uuid": "efdf533c-a2dc-4b28-906f-ea79ce016516",
+   "rank_uuid": "e5f3b46e-ea82-4e7d-9750-a0ce9d68c26b",
+   "employment_start": "2014-01-13",
+   "employment_end": null,
+   "active": true
+  },
+  {
+   "uuid": "f0535ecd-7ca6-4d52-b770-7772006f3c2f",
+   "id": "198000011",
+   "given_name": "Samnang",
+   "family_name": "Tang",
+   "agency_uuid": "efdf533c-a2dc-4b28-906f-ea79ce016516",
+   "rank_uuid": "6104e498-cfd3-422d-a2eb-ec5e7cacdf0d",
+   "employment_start": "2013-07-19",
+   "employment_end": null,
+   "active": true
+  },
+  {
+   "uuid": "6e5ace5a-25b5-4bff-a3f1-57918a074263",
+   "id": "195000013",
+   "given_name": "Tony",
+   "family_name": "Wambu",
+   "agency_uuid": "efdf533c-a2dc-4b28-906f-ea79ce016516",
+   "rank_uuid": "56232d71-c699-4bcf-af09-baba01db642c",
+   "employment_start": "2014-01-13",
+   "employment_end": null,
+   "active": true
+  },
+  {
+   "uuid": "cfc03b57-a608-436c-b4cf-755b34c81687",
+   "id": "195000016",
+   "given_name": "Lilian",
+   "family_name": "Wendy",
+   "agency_uuid": null,
+   "rank_uuid": null,
+   "employment_start": "2014-01-13",
+   "employment_end": null,
+   "active": true
+  },
+  {
+   "uuid": "769b6cf7-ebdd-4c57-8e95-1aaa215db04c",
+   "id": "195000010",
+   "given_name": "smart",
+   "family_name": "smart",
+   "agency_uuid": null,
+   "rank_uuid": null,
+   "employment_start": "2012-07-04",
+   "employment_end": null,
+   "active": true
+  }
+ ]
+}

@@ -17,6 +17,7 @@ dependencies = [
     "packaging",
     "click",
     "pyyaml",
+    "jsonschema>=4.23",
 ]
 
 [project.optional-dependencies]
@@ -35,6 +36,9 @@ docs = [
 
 [project.scripts]
 er-smart-sync = "er_smart_sync.cli:main"
+
+[tool.setuptools.package-data]
+er_smart_sync = ["bundle/schema.json"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

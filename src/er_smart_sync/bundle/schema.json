@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/PADAS/er-smart-able/export/bundle.schema.json",
+  "title": "smart-able migration bundle",
+  "description": "Four JSON files written by `smart-able export` under work/export/<ca_id>/bundle/. Validate each file against $defs/<file name without .json>. bundle_schema_version 1.",
+  "oneOf": [
+    {"$ref": "#/$defs/manifest"}, {"$ref": "#/$defs/reference"}, {"$ref": "#/$defs/patrols"}, {"$ref": "#/$defs/tracks"}
+  ],
+  "$defs": {
+    "uuid": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},
+    "uuid_or_null": {"oneOf": [{"$ref": "#/$defs/uuid"}, {"type": "null"}]},
+    "date": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+    "date_or_null": {"oneOf": [{"$ref": "#/$defs/date"}, {"type": "null"}]},
+    "timestamp": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?([+-][0-9]{2}:[0-9]{2}|Z)$"},
+    "timestamp_or_null": {"oneOf": [{"$ref": "#/$defs/timestamp"}, {"type": "null"}]},
+    "time_or_null": {"oneOf": [{"type": "string", "pattern": "^[0-9]{2}:[0-9]{2}:[0-9]{2}$"}, {"type": "null"}]},
+    "labels": {"type": "object", "additionalProperties": {"type": "string"}},
+    "labelled": {"type": "object", "properties": {"labels": {"$ref": "#/$defs/labels"}, "label": {"type": ["string", "null"]}}, "required": ["labels", "label"]},
+    "lonlat": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2},
+    "language": {"type": "object", "properties": {"code": {"type": "string"}, "default": {"type": "boolean"}, "labels": {"type": "integer"}, "missing": {"type": "integer"}}, "required": ["code", "default", "labels", "missing"]},
+
+    "manifest": {
+      "type": "object",
+      "properties": {
+        "bundle_schema_version": {"type": "integer", "const": 1},
+        "generated_at": {"$ref": "#/$defs/timestamp"},
+        "generator": {"type": "object", "properties": {"name": {"type": "string"}, "version": {"type": "string"}}, "required": ["name", "version"]},
+        "source": {"type": "object", "properties": {"kind": {"enum": ["backup", "export", null]}, "file": {"type": ["string", "null"]}, "smart_version": {"type": ["string", "null"]}}, "required": ["kind", "file", "smart_version"]},
+        "conservation_area": {"type": "object", "properties": {"uuid": {"$ref": "#/$defs/uuid"}, "id": {"type": "string"}, "name": {"type": "string"}, "designation": {"type": ["string", "null"]}, "country": {"type": ["string", "null"]}, "organization": {"type": ["string", "null"]}, "owner": {"type": ["string", "null"]}}, "required": ["uuid", "id", "name"]},
+        "timezone": {"type": "object", "properties": {"name": {"type": "string"}, "source": {"enum": ["configured", "inferred", "default"]}}, "required": ["name", "source"]},
+        "default_language": {"type": "string"},
+        "languages": {"type": "array", "items": {"$ref": "#/$defs/language"}},
+        "counts": {"type": "object", "properties": {"patrols": {"type": "integer"}, "legs": {"type": "integer"}, "leg_days": {"type": "integer"}, "waypoints": {"type": "integer"}, "observations": {"type": "integer"}, "tracks": {"type": "integer"}, "track_points": {"type": "integer"}, "employees": {"type": "integer"}, "attachments": {"type": "integer"}}, "required": ["patrols", "legs", "leg_days", "waypoints", "observations", "tracks", "track_points", "employees", "attachments"]},
+        "time_coverage": {"type": "object", "properties": {"leg_days": {"type": "integer"}, "track": {"type": "integer"}, "leg_day_times": {"type": "integer"}, "waypoints": {"type": "integer"}, "date_only": {"type": "integer"}}, "required": ["leg_days", "track", "leg_day_times", "waypoints", "date_only"]},
+        "warnings": {"type": "array", "items": {"type": "string"}}
+      },
+      "required": ["bundle_schema_version", "generated_at", "generator", "source", "conservation_area", "timezone", "default_language", "languages", "counts", "time_coverage", "warnings"]
+    },
+
+    "reference": {
+      "type": "object",
+      "properties": {
+        "patrol_types": {"type": "array", "items": {"type": "object", "properties": {"key": {"type": "string"}, "active": {"type": "boolean"}, "max_speed": {"type": ["number", "null"]}}, "required": ["key", "active"]}},
+        "transports": {"type": "array", "items": {"allOf": [{"$ref": "#/$defs/labelled"}, {"properties": {"uuid": {"$ref": "#/$defs/uuid"}, "key": {"type": "string"}, "patrol_type": {"type": ["string", "null"]}, "active": {"type": "boolean"}}, "required": ["uuid", "key", "patrol_type", "active"]}]}},
+        "mandates": {"type": "array", "items": {"allOf": [{"$ref": "#/$defs/labelled"}, {"properties": {"uuid": {"$ref": "#/$defs/uuid"}, "key": {"type": "string"}, "active": {"type": "boolean"}}, "required": ["uuid", "key", "active"]}]}},
+        "stations": {"type": "array", "items": {"allOf": [{"$ref": "#/$defs/labelled"}, {"properties": {"uuid": {"$ref": "#/$defs/uuid"}, "active": {"type": "boolean"}}, "required": ["uuid", "active"]}]}},
+        "patrol_attributes": {"type": "array", "items": {"allOf": [{"$ref": "#/$defs/labelled"}, {"properties": {"uuid": {"$ref": "#/$defs/uuid"}, "key": {"type": "string"}, "type": {"type": "string"}, "active": {"type": "boolean"}, "options": {"type": "array", "items": {"allOf": [{"$ref": "#/$defs/labelled"}, {"properties": {"uuid": {"$ref": "#/$defs/uuid"}, "key": {"type": "string"}, "active": {"type": "boolean"}}, "required": ["uuid", "key", "active"]}]}}}, "required": ["uuid", "key", "type", "active", "options"]}]}},
+        "agencies": {"type": "array", "items": {"type": "object", "properties": {"uuid": {"$ref": "#/$defs/uuid"}, "key": {"type": ["string", "null"]}}, "required": ["uuid"]}},
+        "ranks": {"type": "array", "items": {"allOf": [{"$ref": "#/$defs/labelled"}, {"properties": {"uuid": {"$ref": "#/$defs/uuid"}, "agency_uuid": {"$ref": "#/$defs/uuid_or_null"}}, "required": ["uuid"]}]}},
+        "teams": {"type": "array", "items": {"allOf": [{"$ref": "#/$defs/labelled"}, {"properties": {"uuid": {"$ref": "#/$defs/uuid"}, "member_uuids": {"type": "array", "items": {"$ref": "#/$defs/uuid"}}}, "required": ["uuid", "member_uuids"]}]}},
+        "employees": {"type": "array", "items": {"type": "object", "properties": {"uuid": {"$ref": "#/$defs/uuid"}, "id": {"type": ["string", "null"]}, "given_name": {"type": ["string", "null"]}, "family_name": {"type": ["string", "null"]}, "agency_uuid": {"$ref": "#/$defs/uuid_or_null"}, "rank_uuid": {"$ref": "#/$defs/uuid_or_null"}, "employment_start": {"$ref": "#/$defs/date_or_null"}, "employment_end": {"$ref": "#/$defs/date_or_null"}, "active": {"type": "boolean"}}, "required": ["uuid", "id", "given_name", "family_name", "agency_uuid", "rank_uuid", "employment_start", "employment_end", "active"], "not": {"anyOf": [{"required": ["smartuserid"]}, {"required": ["smartpassword"]}, {"required": ["birthdate"]}, {"required": ["gender"]}]}}}
+      },
+      "required": ["patrol_types", "transports", "mandates", "stations", "patrol_attributes", "agencies", "ranks", "teams", "employees"]
+    },
+
+    "attribute_value": {
+      "type": "object",
+      "properties": {"key": {"type": "string"}, "type": {"enum": ["LIST", "MLIST", "TREE", "NUMERIC", "BOOLEAN", "DATE", "TEXT", ""]},
+                     "value": {}, "label": {"type": ["string", "null"]}, "labels": {"type": "array", "items": {"type": ["string", "null"]}}},
+      "required": ["key", "type", "value"]
+    },
+    "observation": {
+      "type": "object",
+      "properties": {"uuid": {"$ref": "#/$defs/uuid"}, "category_key": {"type": "string"}, "category_hkey": {"type": "string"}, "employee_uuid": {"$ref": "#/$defs/uuid_or_null"}, "attributes": {"type": "array", "items": {"$ref": "#/$defs/attribute_value"}}},
+      "required": ["uuid", "category_key", "category_hkey", "employee_uuid", "attributes"]
+    },
+    "waypoint": {
+      "type": "object",
+      "properties": {"uuid": {"$ref": "#/$defs/uuid"}, "id": {"type": ["string", "null"]}, "leg_day_uuid": {"$ref": "#/$defs/uuid"}, "time": {"$ref": "#/$defs/timestamp_or_null"},
+                     "location": {"oneOf": [{"$ref": "#/$defs/lonlat"}, {"type": "null"}]}, "comment": {"type": ["string", "null"]}, "source": {"type": ["string", "null"]}, "last_modified_by_uuid": {"$ref": "#/$defs/uuid_or_null"},
+                     "attachments": {"type": "array", "items": {"type": "object", "properties": {"uuid": {"$ref": "#/$defs/uuid"}, "filename": {"type": "string"}, "path": {"type": "string"}}, "required": ["uuid", "filename", "path"]}},
+                     "observation_groups": {"type": "array", "items": {"type": "object", "properties": {"uuid": {"$ref": "#/$defs/uuid"}, "observations": {"type": "array", "items": {"$ref": "#/$defs/observation"}}}, "required": ["uuid", "observations"]}}},
+      "required": ["uuid", "id", "leg_day_uuid", "time", "location", "comment", "source", "last_modified_by_uuid", "attachments", "observation_groups"]
+    },
+    "leg_day": {
+      "type": "object",
+      "properties": {"uuid": {"$ref": "#/$defs/uuid"}, "date": {"$ref": "#/$defs/date"}, "start_time": {"$ref": "#/$defs/time_or_null"}, "end_time": {"$ref": "#/$defs/time_or_null"}, "rest_minutes": {"type": ["integer", "null"]}, "start": {"$ref": "#/$defs/timestamp_or_null"}, "end": {"$ref": "#/$defs/timestamp_or_null"}, "has_track": {"type": "boolean"}},
+      "required": ["uuid", "date", "start_time", "end_time", "rest_minutes", "start", "end", "has_track"]
+    },
+    "leg": {
+      "type": "object",
+      "properties": {"uuid": {"$ref": "#/$defs/uuid"}, "id": {"type": ["string", "null"]}, "transport_uuid": {"$ref": "#/$defs/uuid_or_null"}, "mandate_uuid": {"$ref": "#/$defs/uuid_or_null"}, "start_date": {"$ref": "#/$defs/date_or_null"}, "end_date": {"$ref": "#/$defs/date_or_null"}, "placeholder_dates": {"type": "boolean"},
+                     "members": {"type": "array", "items": {"type": "object", "properties": {"employee_uuid": {"$ref": "#/$defs/uuid"}, "leader": {"type": "boolean"}, "pilot": {"type": "boolean"}}, "required": ["employee_uuid", "leader", "pilot"]}},
+                     "days": {"type": "array", "items": {"$ref": "#/$defs/leg_day"}}, "waypoints": {"type": "array", "items": {"$ref": "#/$defs/waypoint"}}},
+      "required": ["uuid", "id", "transport_uuid", "mandate_uuid", "start_date", "end_date", "placeholder_dates", "members", "days", "waypoints"]
+    },
+    "patrol": {
+      "type": "object",
+      "properties": {"uuid": {"$ref": "#/$defs/uuid"}, "id": {"type": ["string", "null"]}, "patrol_type": {"type": ["string", "null"]}, "station_uuid": {"$ref": "#/$defs/uuid_or_null"}, "team_uuid": {"$ref": "#/$defs/uuid_or_null"}, "objective": {"type": ["string", "null"]}, "comment": {"type": ["string", "null"]}, "armed": {"type": ["boolean", "null"]}, "start_date": {"$ref": "#/$defs/date_or_null"}, "end_date": {"$ref": "#/$defs/date_or_null"},
+                     "attributes": {"type": "array", "items": {"type": "object", "properties": {"attribute_uuid": {"$ref": "#/$defs/uuid"}, "key": {"type": "string"}, "value": {}}, "required": ["attribute_uuid", "key", "value"]}},
+                     "legs": {"type": "array", "items": {"$ref": "#/$defs/leg"}}},
+      "required": ["uuid", "id", "patrol_type", "station_uuid", "team_uuid", "objective", "comment", "armed", "start_date", "end_date", "attributes", "legs"]
+    },
+    "patrols": {"type": "object", "properties": {"patrols": {"type": "array", "items": {"$ref": "#/$defs/patrol"}}}, "required": ["patrols"]},
+
+    "track": {
+      "type": "object",
+      "properties": {"uuid": {"$ref": "#/$defs/uuid"}, "leg_day_uuid": {"$ref": "#/$defs/uuid"}, "leg_uuid": {"$ref": "#/$defs/uuid"}, "patrol_uuid": {"$ref": "#/$defs/uuid"}, "distance_km": {"type": ["number", "null"]}, "start": {"$ref": "#/$defs/timestamp_or_null"}, "end": {"$ref": "#/$defs/timestamp_or_null"},
+                     "parts": {"type": "array", "items": {"type": "object", "properties": {"coordinates": {"type": "array", "items": {"$ref": "#/$defs/lonlat"}}, "times": {"type": "array", "items": {"$ref": "#/$defs/timestamp"}}}, "required": ["coordinates"]}}},
+      "required": ["uuid", "leg_day_uuid", "leg_uuid", "patrol_uuid", "distance_km", "start", "end", "parts"]
+    },
+    "tracks": {"type": "object", "properties": {"tracks": {"type": "array", "items": {"$ref": "#/$defs/track"}}}, "required": ["tracks"]}
+  }
+}
