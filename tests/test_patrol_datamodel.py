@@ -495,8 +495,62 @@ def test_unnamed_stations_in_summary_and_checklist(no_choice_writes, tmp_path):
     b = load_bundle(tmp_path / "b")
     api = FakeAPI(flag=True, schema=EMPTY_SCHEMA, config=NO_TEAM_MEMBERS)
     r = run_patrol_datamodel(api, MagicMock(), b)
-    assert (r.stats.stations_placeholder, r.stats.stations_omitted) == (1, 1)
-    assert "1 given a placeholder name, 1 left out" in format_summary(r)
+    assert (r.stats.stations_placeholder, r.stats.stations_inactive) == (2, 1)
+    assert "2 given a placeholder name, 1 of them inactive" in format_summary(r)
     item = next(c for c in r.checklist if c.code == "station_names")
     assert "`Unnamed station 11f95b3a`" in item.steps[0]
     assert [c.code for c in r.checklist][-1] == "station_names"
+
+
+def test_choices_never_deactivate_options_this_bundle_does_not_name(no_choice_writes):
+    b = load_bundle(FIXTURE)
+    api = FakeAPI(flag=True, schema=EMPTY_SCHEMA, config=NO_TEAM_MEMBERS)
+    run_patrol_datamodel(api, MagicMock(), b)
+    assert no_choice_writes.call_args.kwargs["deactivate_orphans"] is False
+
+
+def test_legacy_match_never_reclaims_another_employees_subject(no_choice_writes):
+    """SMART employee ids repeat; a subject that already has a smart_member_id is
+    never matched by id, and an id shared by two legacy subjects matches neither."""
+    b = load_bundle(FIXTURE)
+    e0, e1 = b.reference.employees[0], b.reference.employees[1]
+    owned = {
+        "id": "owned",
+        "name": "Someone Else",
+        "is_active": True,
+        "additional": {
+            "smart_member_id": "other-employee",
+            "smart_employee_id": e0.id,
+            "smart_ca_uuid": "another-ca",
+        },
+    }
+    twins = [
+        {
+            "id": f"twin-{n}",
+            "name": f"Twin {n}",
+            "is_active": True,
+            "additional": {"smart_employee_id": e1.id},
+        }
+        for n in (1, 2)
+    ]
+    api = FakeAPI(
+        flag=True, schema=EMPTY_SCHEMA, config=NO_TEAM_MEMBERS, subjects=[owned, *twins]
+    )
+    r = run_patrol_datamodel(api, MagicMock(), b)
+    assert not any(c[0] == "patch_subject" for c in api.calls)
+    assert r.subject_ids[e0.uuid] not in ("owned",)
+    assert r.subject_ids[e1.uuid] not in ("twin-1", "twin-2")
+    assert r.stats.subjects_created == 6
+
+
+def test_a_failing_step_does_not_stop_the_next(no_choice_writes):
+    b = load_bundle(FIXTURE)
+    api = FakeAPI(flag=True, schema=EMPTY_SCHEMA, config=NO_TEAM_MEMBERS)
+
+    def boom(value):
+        raise RuntimeError("network down")
+
+    api.get_patrol_type = boom
+    r = run_patrol_datamodel(api, MagicMock(), b)
+    assert r.stats.errors == ["patrol types: RuntimeError: network down"]
+    assert r.stats.schema_written and r.stats.subjects_created == 6

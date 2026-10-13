@@ -8,7 +8,7 @@ live further down in this module.
 from __future__ import annotations
 
 import copy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from smartconnect.choices import sanitize_choice_value
 
@@ -21,6 +21,8 @@ CHOICE_FIELD_STATION = "patrol_station"
 CHOICE_FIELD_CLASS = "patrol_class"
 PATROL_CLASSES = ("GROUND", "AIR", "MARINE", "MIXED")
 PATROL_TYPE_VALUE_MAX = 50  # PatrolType.value is a CharField(max_length=50)
+# universal patrol fields named so are this tool's, one per SMART custom attribute
+CUSTOM_FIELD_PREFIX = "smart_"
 
 
 @dataclass(frozen=True)
@@ -79,8 +81,7 @@ def build_patrol_types(bundle: Bundle) -> list:
 
 def _options(bundle: Bundle, items: list, unlabelled=None) -> tuple:
     """Choice options keyed by SMART key (or uuid). An item with no label in
-    any language shows its key or uuid, or what `unlabelled(item)` returns
-    instead; None from `unlabelled` leaves the item out."""
+    any language shows what `unlabelled(item)` returns, else its key or uuid."""
     out, seen = [], set()
     for it in items:
         # identity is the SMART key, or the uuid for key-less rows (stations): never
@@ -93,37 +94,42 @@ def _options(bundle: Bundle, items: list, unlabelled=None) -> tuple:
             continue  # nothing to identify the option by
         if value in seen:
             continue
+        seen.add(value)
         display = bundle.label(it)
         if not display and unlabelled is not None:
             display = unlabelled(it)
-            if display is None:
-                continue
-        seen.add(value)
         display = display or it.key or it.uuid
         out.append(ChoiceOption(value=value, display=display, is_active=it.active))
     return tuple(out)
 
 
 def _station_options(bundle: Bundle) -> tuple:
-    """SMART lets a station exist with no name in any language. One that no
-    patrol uses is left out; one a patrol uses gets a readable placeholder
-    instead of its uuid, which an admin can rename in ER."""
+    """SMART lets a station exist with no name in any language. It gets a
+    readable placeholder instead of its uuid; one no patrol uses is planned
+    inactive, so it is not offered but stays this bundle's to manage."""
+    unused = {st.uuid.replace("-", "") for st, in_use in _unnamed(bundle) if not in_use}
+    return tuple(
+        replace(o, is_active=False) if o.value in unused else o
+        for o in _options(
+            bundle,
+            bundle.reference.stations,
+            unlabelled=lambda st: f"Unnamed station {st.uuid[:8]}",
+        )
+    )
+
+
+def _unnamed(bundle: Bundle) -> list:
     used = {p.get("station_uuid") for p in bundle.patrols}
-
-    def unnamed(st):
-        return f"Unnamed station {st.uuid[:8]}" if st.uuid in used else None
-
-    return _options(bundle, bundle.reference.stations, unlabelled=unnamed)
+    return [
+        (st, st.uuid in used)
+        for st in bundle.reference.stations
+        if st.uuid and not bundle.label(st)
+    ]
 
 
 def unnamed_stations(bundle: Bundle) -> list:
     """(uuid, used by a patrol) for each station with no name in any language."""
-    used = {p.get("station_uuid") for p in bundle.patrols}
-    return [
-        (st.uuid, st.uuid in used)
-        for st in bundle.reference.stations
-        if st.uuid and not bundle.label(st)
-    ]
+    return [(st.uuid, in_use) for st, in_use in _unnamed(bundle)]
 
 
 def build_patrol_choice_sets(bundle: Bundle) -> list:
@@ -299,7 +305,7 @@ def build_segment_schema(
     for attr in bundle.reference.patrol_attributes:
         if not attr.active:
             continue
-        name = f"smart_{sanitize_choice_value(attr.key)}"
+        name = f"{CUSTOM_FIELD_PREFIX}{sanitize_choice_value(attr.key)}"
         t = attr.type.strip()
         title = bundle.label(attr) or attr.key
         if t in ("LIST", "MLIST", "TREE"):
@@ -352,6 +358,19 @@ def merge_segment_schema(current: dict | None, ours: dict) -> dict:
         **current["json"].get("properties", {}),
         **ours["json"]["properties"],
     }
+    # a `smart_<key>` field whose custom attribute is now inactive or gone is
+    # ours but no longer planned: deprecate it and take it off the form, but
+    # keep its definition so segments that already carry a value still validate
+    stale = {
+        k
+        for k in merged["json"]["properties"]
+        if k.startswith(CUSTOM_FIELD_PREFIX) and k not in ours["json"]["properties"]
+    }
+    for k in stale:
+        merged["json"]["properties"][k] = {
+            **merged["json"]["properties"][k],
+            "deprecated": True,
+        }
     ui = merged.setdefault("ui", {})
     ui["fields"] = {
         **(current.get("ui", {}).get("fields") or {}),
@@ -366,6 +385,10 @@ def merge_segment_schema(current: dict | None, ours: dict) -> dict:
     order = ui.setdefault("order", [])
     if SEGMENT_SECTION not in order:
         order.insert(0, SEGMENT_SECTION)
+    for sec in sections.values():
+        for col in ("leftColumn", "rightColumn"):
+            if any(f.get("name") in stale for f in sec.get(col, [])):
+                sec[col] = [f for f in sec[col] if f.get("name") not in stale]
     placed = {
         f["name"]
         for sec in sections.values()

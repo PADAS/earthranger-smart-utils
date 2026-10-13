@@ -28,9 +28,16 @@ SMART logins that never went on a patrol, such as the `smart` admin every
 SMART install creates, are not made ranger subjects, and a subject an
 earlier run made for one is deactivated. Logins that did patrol stay
 subjects. This reads `has_smart_login`, which smart-able bundles now carry.
-A station with no name in SMART is left out unless a patrol uses it, and
-then gets a readable placeholder and a checklist item instead of showing
-its UUID.
+A station with no name in SMART gets a readable placeholder instead of
+its UUID; it is inactive unless a patrol uses it, and then the checklist
+asks for a name. The patrol choice fields are site-wide, so the run changes
+only options its bundle names and never deactivates another conservation
+area's or an admin's. A custom patrol attribute that goes inactive is
+deprecated and taken off the form rather than removed, so past segments
+still validate. Each step's unexpected failure is recorded and the next
+step runs. A legacy subject is matched by SMART employee id only when that
+id is unique, since SMART reuses ids. `--er-token`, `--er-endpoint` and the
+other connection flags now override just their own setting in `--config`.
 
 ## 0.5.1 — 2026-10-12
 

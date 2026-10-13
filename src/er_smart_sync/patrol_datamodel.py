@@ -63,7 +63,7 @@ class PatrolDatamodelStats:
     subjects_deactivated: int = 0
     logins_skipped: list = field(default_factory=list)
     stations_placeholder: int = 0
-    stations_omitted: int = 0
+    stations_inactive: int = 0
     errors: list = field(default_factory=list)
 
 
@@ -246,6 +246,31 @@ def _patrol_config(
         return {}
 
 
+def _legacy_by_employee_id(bundle: Bundle, existing: list) -> dict:
+    """Subjects an earlier Connect-based run made carry `smart_employee_id` but
+    no `smart_member_id`. SMART employee ids are not unique (one id can belong
+    to several people across conservation areas), so a legacy subject is
+    matched only where the id is unique in the bundle and among legacy
+    subjects; a subject that already has a `smart_member_id` belongs to that
+    employee and is never re-claimed by id."""
+    from collections import Counter
+
+    legacy = [
+        s
+        for s in existing
+        if (s.get("additional") or {}).get("smart_employee_id")
+        and not (s.get("additional") or {}).get("smart_member_id")
+    ]
+    on_site = Counter(s["additional"]["smart_employee_id"] for s in legacy)
+    in_bundle = Counter(e.id for e in bundle.reference.employees if e.id)
+    return {
+        s["additional"]["smart_employee_id"]: s
+        for s in legacy
+        if on_site[s["additional"]["smart_employee_id"]] == 1
+        and in_bundle[s["additional"]["smart_employee_id"]] == 1
+    }
+
+
 def _sync_subjects(
     api: ERPatrolAPI, bundle: Bundle, stats: PatrolDatamodelStats, checklist: list
 ) -> dict:
@@ -264,11 +289,7 @@ def _sync_subjects(
         for s in existing
         if additional(s).get("smart_member_id")
     }
-    by_employee = {
-        additional(s)["smart_employee_id"]: s
-        for s in existing
-        if additional(s).get("smart_employee_id")
-    }
+    by_employee = _legacy_by_employee_id(bundle, existing)
     stats.logins_skipped = [
         " ".join(p for p in (e.given_name, e.family_name) if p) or e.id or e.uuid
         for e in login_only_employees(bundle)
@@ -428,13 +449,28 @@ def _team_items(
         )
 
 
+def _sync_choices(er_client, bundle: Bundle, stats: PatrolDatamodelStats) -> None:
+    # The patrol choice fields are site-wide: a second conservation area's
+    # bundle or an admin may own options in them, and a choice records no
+    # owner. Only options this bundle names are changed; the rest are counted.
+    stats.choices = upsert_choices(
+        er_client=er_client,
+        choice_sets=build_patrol_choice_sets(bundle),
+        deactivate_orphans=False,
+    )
+    if stats.choices.errored:
+        stats.errors.append(
+            f"{stats.choices.errored} choice write(s) failed; see the log above"
+        )
+
+
 def _station_items(
     bundle: Bundle, stats: PatrolDatamodelStats, checklist: list
 ) -> None:
     unnamed = unnamed_stations(bundle)
     used = [u for u, in_use in unnamed if in_use]
-    stats.stations_placeholder = len(used)
-    stats.stations_omitted = len(unnamed) - len(used)
+    stats.stations_placeholder = len(unnamed)
+    stats.stations_inactive = len(unnamed) - len(used)
     if used:
         checklist.append(
             ChecklistItem(
@@ -465,8 +501,20 @@ def run_patrol_datamodel(
 ) -> PatrolDatamodelResult:
     stats = PatrolDatamodelStats()
     checklist: list = []
-    _sync_patrol_types(api, bundle, stats, checklist)
-    _sync_segment_schema(
+
+    def phase(name, fn, *args, default=None, **kwargs):
+        """Run one step; an unexpected failure is recorded and the next step runs."""
+        try:
+            return fn(*args, **kwargs)
+        except Exception as e:
+            logger.exception("patrol-datamodel step %s failed", name)
+            stats.errors.append(f"{name}: {type(e).__name__}: {e}")
+            return default
+
+    phase("patrol types", _sync_patrol_types, api, bundle, stats, checklist)
+    phase(
+        "universal patrol fields",
+        _sync_segment_schema,
         api,
         bundle,
         stats,
@@ -475,17 +523,11 @@ def run_patrol_datamodel(
         choices_base_url=choices_base_url,
         backup_dir=schema_backup_dir,
     )
-    stats.choices = upsert_choices(
-        er_client=er_client, choice_sets=build_patrol_choice_sets(bundle)
-    )
-    if stats.choices.errored:
-        stats.errors.append(
-            f"{stats.choices.errored} choice write(s) failed; see the log above"
-        )
-    _station_items(bundle, stats, checklist)
-    ids = _sync_subjects(api, bundle, stats, checklist)
-    _sync_roster(api, stats, checklist, ids, roster_group)
-    _team_items(bundle, api, stats, checklist)
+    phase("choices", _sync_choices, er_client, bundle, stats)
+    phase("stations", _station_items, bundle, stats, checklist)
+    ids = phase("subjects", _sync_subjects, api, bundle, stats, checklist, default={})
+    phase("roster", _sync_roster, api, stats, checklist, ids, roster_group)
+    phase("teams", _team_items, bundle, api, stats, checklist)
     checklist.sort(
         key=lambda c: (
             CHECKLIST_ORDER.index(c.code)
@@ -516,7 +558,8 @@ def format_summary(result: PatrolDatamodelResult) -> str:
             else ""
         ),
         f"  choices: {ch.created} created, {ch.updated} updated, {ch.unchanged} "
-        f"unchanged, {ch.deactivated} deactivated, {ch.errored} errored",
+        f"unchanged, {ch.deactivated} deactivated, {ch.errored} errored, "
+        f"{ch.kept} from other sources left as they are",
         f"  subjects: {s.subjects_created} created, {s.subjects_updated} updated, "
         f"{s.subjects_unchanged} unchanged, {s.subjects_deactivated} deactivated, "
         f"{s.subjects_grouped} added to the roster group",
@@ -526,10 +569,11 @@ def format_summary(result: PatrolDatamodelResult) -> str:
             "  SMART logins that never patrolled, not made subjects: "
             + ", ".join(s.logins_skipped)
         )
-    if s.stations_placeholder or s.stations_omitted:
+    if s.stations_placeholder:
         lines.append(
             f"  stations with no name in SMART: {s.stations_placeholder} given a "
-            f"placeholder name, {s.stations_omitted} left out (no patrol uses them)"
+            f"placeholder name, {s.stations_inactive} of them inactive (no patrol "
+            "uses them)"
         )
     lines += [
         f"  checklist items: {len(result.checklist)}",

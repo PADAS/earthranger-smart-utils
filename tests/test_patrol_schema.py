@@ -11,10 +11,12 @@ from er_smart_sync.smart_to_er_patrol_schema import (
     CHOICE_FIELD_STATION,
     build_patrol_choice_sets,
     build_patrol_types,
+    build_segment_schema,
     build_subjects,
     build_team_requirements,
     custom_choice_field,
     login_only_employees,
+    merge_segment_schema,
     patrol_type_value,
     unnamed_stations,
 )
@@ -82,10 +84,14 @@ def test_build_choice_sets():
         b.reference.mandates[0]
     )
     # stations have no key: identity is the uuid (stable across languages). The
-    # demo's other two stations have no name in SMART and no patrol uses them.
-    stations = b.reference.stations
-    assert [(o.value, o.display) for o in sets[CHOICE_FIELD_STATION].options] == [
-        (stations[2].uuid.replace("-", ""), "Headquarters")
+    # demo's other two stations have no name in SMART and no patrol uses them:
+    # placeholders, inactive.
+    assert [
+        (o.value, o.display, o.is_active) for o in sets[CHOICE_FIELD_STATION].options
+    ] == [
+        ("11f95b3aec444092a266d5e391c7bbce", "Unnamed station 11f95b3a", False),
+        ("cb9e8cdaefdb4babb397d7811b0f79ce", "Unnamed station cb9e8cda", False),
+        ("de064c78d82a428a95c54a099024f8a3", "Headquarters", True),
     ]
     assert [
         (o.value, o.display, o.is_active) for o in sets[CHOICE_FIELD_CLASS].options
@@ -243,8 +249,6 @@ import copy  # noqa: E402
 from er_smart_sync.smart_to_er_patrol_schema import (  # noqa: E402
     CANONICAL_FIELDS,
     SEGMENT_SECTION,
-    build_segment_schema,
-    merge_segment_schema,
 )
 
 
@@ -471,12 +475,50 @@ def test_unnamed_station_a_patrol_uses_gets_a_placeholder(tmp_path):
 
     b = _bundle_with(tmp_path, edit)
     sets = {cs.field: cs for cs in build_patrol_choice_sets(b)}
-    assert [o.display for o in sets[CHOICE_FIELD_STATION].options] == [
-        "Unnamed station 11f95b3a",
-        "Headquarters",
+    assert [(o.display, o.is_active) for o in sets[CHOICE_FIELD_STATION].options] == [
+        ("Unnamed station 11f95b3a", True),
+        ("Unnamed station cb9e8cda", False),
+        ("Headquarters", True),
     ]
     assert sets[CHOICE_FIELD_STATION].options[0].value == unnamed.replace("-", "")
     assert unnamed_stations(b) == [
         (unnamed, True),
         ("cb9e8cda-efdb-4bab-b397-d7811b0f79ce", False),
     ]
+
+
+def test_merge_deprecates_custom_fields_no_longer_planned(tmp_path):
+    """A smart_<key> field whose attribute went inactive leaves the form but its
+    definition stays, deprecated; admin fields are untouched; re-merging is stable."""
+
+    def with_weather(active):
+        def edit(n, d):
+            if n == "reference":
+                d["patrol_attributes"].append(
+                    {
+                        "uuid": "22222222-2222-2222-2222-222222222222",
+                        "key": "weather",
+                        "labels": {"en": "Weather"},
+                        "label": "Weather",
+                        "type": "TEXT",
+                        "active": active,
+                        "options": [],
+                    }
+                )
+
+        return edit
+
+    before = build_segment_schema(_bundle_with(tmp_path / "a", with_weather(True)))
+    assert "smart_weather" in before["json"]["properties"]
+    before["json"]["properties"]["admin_note"] = {"type": "string", "deprecated": False}
+    before["ui"]["sections"]["section-1"]["leftColumn"].append(
+        {"name": "admin_note", "type": "field"}
+    )
+    ours = build_segment_schema(_bundle_with(tmp_path / "b", with_weather(False)))
+    merged = merge_segment_schema(before, ours)
+    props = merged["json"]["properties"]
+    assert props["smart_weather"]["deprecated"] is True
+    assert props["admin_note"]["deprecated"] is False
+    placed = [f["name"] for f in merged["ui"]["sections"]["section-1"]["leftColumn"]]
+    assert "smart_weather" not in placed and "admin_note" in placed
+    assert merge_segment_schema(merged, ours) == merged

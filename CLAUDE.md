@@ -9,8 +9,8 @@ er-smart-sync synchronizes data between **SMART Connect** (wildlife conservation
 1. **Datamodel sync** (SMART → ER): Push event categories and event types from SMART conservation areas to EarthRanger
 2. **Event sync** (ER → SMART): Poll EarthRanger events and publish them via message broker (Pub/Sub) for routing to SMART
 3. **Patrol sync** (ER → SMART): Poll EarthRanger patrols (with track points, segment events, files) and publish them
-5. **Patrol configuration** (bundle → ER): From a smart-able migration bundle (no SMART Connect), create the ER patrol types, universal patrol fields, choices and ranger subjects via the `patrol-datamodel` CLI subcommand; `patrol-preflight` and `import-patrols` follow (spec: `docs/superpowers/specs/2026-10-12-smart-patrol-migration-design.md`)
-4. **Event-type copy** (ER → ER): Copy a single event type (and the v2
+4. **Patrol configuration** (bundle → ER): From a smart-able migration bundle (no SMART Connect), create the ER patrol types, universal patrol fields, choices and ranger subjects via the `patrol-datamodel` CLI subcommand; `patrol-preflight` and `import-patrols` follow (spec: `docs/superpowers/specs/2026-10-12-smart-patrol-migration-design.md`)
+5. **Event-type copy** (ER → ER): Copy a single event type (and the v2
    choices its schema references) from one EarthRanger site to another via
    the `copy-event-type` CLI subcommand
 

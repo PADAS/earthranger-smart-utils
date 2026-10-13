@@ -817,20 +817,24 @@ def _resolve_bundle_options(
     bundle_path = bundle or (cfg.bundle.path if cfg and cfg.bundle else None)
     if not bundle_path:
         raise click.UsageError("--bundle DIR (or bundle.path in --config) is required")
-    if cfg and not er_endpoint:
-        er = cfg.earthranger
+    # each flag given overrides just its own setting in the config's earthranger
+    # block; --er-id only when it differs from its "cli" default
+    flags = {
+        "endpoint": er_endpoint,
+        "token": er_token,
+        "login": er_username,
+        "password": er_password,
+        "id": er_id if er_id != "cli" else None,
+    }
+    overrides = {k: v for k, v in flags.items() if v}
+    if cfg:
+        er = EarthRangerConfig(**{**cfg.earthranger.dict(), **overrides})
     else:
         if not er_endpoint:
             raise click.UsageError(
                 "--er-endpoint (or an earthranger block in --config) is required"
             )
-        er = EarthRangerConfig(
-            id=er_id,
-            endpoint=er_endpoint,
-            token=er_token or "",
-            login=er_username or "",
-            password=er_password or "",
-        )
+        er = EarthRangerConfig(**{"id": er_id, **overrides})
     language = smart_language or (cfg.language if cfg else None)
     tz = timezone or (cfg.timezone if cfg else None)
     return bundle_path, er, language, tz

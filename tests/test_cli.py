@@ -2382,3 +2382,53 @@ def test_patrol_datamodel_step_errors_exit_1(tmp_path):
     ):
         result = CliRunner().invoke(main, _pd_args(tmp_path))
     assert result.exit_code == 1 and "segment schema: forbidden" in result.output
+
+
+def test_bundle_options_merge_each_flag_into_the_config(tmp_path):
+    from er_smart_sync.cli import _resolve_bundle_options
+
+    cfg = tmp_path / "sync.yaml"
+    cfg.write_text(
+        "earthranger:\n"
+        "  id: site\n"
+        "  endpoint: https://a.pamdas.org/api/v1.0\n"
+        "  token: from-config\n"
+        "  choices_base_url: /custom\n"
+        "bundle:\n"
+        "  path: /b\n"
+    )
+
+    def er(**flags):
+        args = dict(
+            er_endpoint=None,
+            er_token=None,
+            er_username=None,
+            er_password=None,
+            er_id="cli",
+        )
+        args.update(flags)
+        return _resolve_bundle_options(
+            str(cfg),
+            None,
+            args["er_endpoint"],
+            args["er_token"],
+            args["er_username"],
+            args["er_password"],
+            args["er_id"],
+            None,
+            None,
+        )[1]
+
+    token_only = er(er_token="from-flag")
+    assert (token_only.token, token_only.endpoint) == (
+        "from-flag",
+        "https://a.pamdas.org/api/v1.0",
+    )
+    endpoint_only = er(er_endpoint="b.pamdas.org")
+    assert endpoint_only.endpoint == "https://b.pamdas.org/api/v1.0"
+    assert (endpoint_only.token, endpoint_only.choices_base_url, endpoint_only.id) == (
+        "from-config",
+        "/custom",
+        "site",
+    )
+    assert er(er_id="other").id == "other"
