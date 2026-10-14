@@ -3,13 +3,15 @@ from zoneinfo import ZoneInfo
 
 from er_smart_sync.bundle import load_bundle
 from er_smart_sync.patrol_ids import er_id, namespace
-from er_smart_sync.patrol_times import tracks_by_day
+from er_smart_sync.patrol_times import leg_times, tracks_by_day
 from er_smart_sync.smart_to_er_patrol_schema import build_patrol_types
 from er_smart_sync.smart_to_er_patrols import (
     Resolver,
     build_patrol,
+    build_track_batches,
     build_waypoint,
     event_value,
+    track_member,
 )
 
 FIXTURE = Path(__file__).parent / "fixtures" / "smart_demo_bundle"
@@ -193,3 +195,69 @@ def test_waypoint_without_observations_is_skipped():
         if not any(g["observations"] for g in w["observation_groups"])
     )
     assert build_waypoint(b, w, "seg", NS, _ev_resolver(b), None) is None
+
+
+def test_demo_tracks_use_recorded_times():
+    b = load_bundle(FIXTURE)
+    leg = b.patrols[0]["legs"][0]
+    by_day = tracks_by_day(b.tracks)
+    batches = build_track_batches(leg, leg_times(leg, by_day, TZ), by_day)
+    leader = next(m["employee_uuid"] for m in leg["members"] if m["leader"])
+    assert batches and all(
+        x.member_uuid == leader and not x.interpolated for x in batches
+    )
+    first = batches[0].observations[0]
+    track = by_day[batches[0].leg_day_uuid][0]
+    assert first["recorded_at"] == track["parts"][0]["times"][0]
+    lon, lat = track["parts"][0]["coordinates"][0]
+    assert first["location"] == {"latitude": lat, "longitude": lon}
+    assert first["additional"]["smart_leg_day_uuid"] == batches[0].leg_day_uuid
+
+
+def test_mismatched_times_are_interpolated_over_the_day():
+    day = {
+        "uuid": "d1",
+        "date": "2020-01-01",
+        "start_time": None,
+        "end_time": None,
+        "rest_minutes": None,
+        "start": "2020-01-01T08:00:00+01:00",
+        "end": "2020-01-01T10:00:00+01:00",
+        "has_track": True,
+    }
+    leg = {
+        "uuid": "L",
+        "id": "1",
+        "placeholder_dates": False,
+        "start_date": "2020-01-01",
+        "end_date": "2020-01-01",
+        "days": [day],
+        "waypoints": [],
+        "members": [{"employee_uuid": "m1", "leader": True, "pilot": False}],
+    }
+    track = {
+        "uuid": "t",
+        "leg_day_uuid": "d1",
+        "parts": [
+            {
+                "coordinates": [[0, 0], [1, 1], [2, 2]],
+                "times": ["2020-01-01T08:00:00+01:00"],
+            }
+        ],
+    }
+    by_day = tracks_by_day([track])
+    (batch,) = build_track_batches(leg, leg_times(leg, by_day, TZ), by_day)
+    assert batch.interpolated
+    times = [o["recorded_at"] for o in batch.observations]
+    assert times == [
+        "2020-01-01T08:00:00+01:00",
+        "2020-01-01T09:00:00+01:00",
+        "2020-01-01T10:00:00+01:00",
+    ]
+
+
+def test_track_member_falls_back_and_can_be_absent():
+    m = lambda u, lead: {"employee_uuid": u, "leader": lead, "pilot": False}  # noqa: E731
+    assert track_member({"members": [m("a", False), m("b", True)]}) == "b"
+    assert track_member({"members": [m("a", False), m("b", False)]}) == "a"
+    assert track_member({"members": []}) is None

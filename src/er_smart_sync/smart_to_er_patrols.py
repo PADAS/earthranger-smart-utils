@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 from .bundle import Bundle
 from .choices import sanitize_choice_value, shorten_choice_value
 from .patrol_ids import er_id
-from .patrol_times import LegTimes, leg_times
+from .patrol_times import DayTimes, LegTimes, leg_times
 from .smart_to_er_patrol_schema import CUSTOM_FIELD_PREFIX, choice_value
 
 
@@ -226,3 +226,72 @@ def build_waypoint(
     return WaypointPlan(
         w["uuid"], parent, events, list(w.get("attachments") or []), unmapped
     )
+
+
+@dataclass
+class TrackBatch:
+    member_uuid: str
+    leg_day_uuid: str
+    start: str
+    end: str
+    observations: list
+    interpolated: bool
+
+
+def track_member(leg: dict) -> str | None:
+    """Whose track it is: the leg leader, else the first member."""
+    members = leg.get("members") or []
+    leader = next((m for m in members if m["leader"]), None)
+    pick = leader or (members[0] if members else None)
+    return pick["employee_uuid"] if pick else None
+
+
+def _spread(day: DayTimes, n: int) -> list:
+    if n == 1:
+        return [day.start.isoformat()]
+    step = (day.end - day.start) / (n - 1)
+    return [(day.start + step * i).isoformat() for i in range(n)]
+
+
+def build_track_batches(leg: dict, lt: LegTimes, by_day: dict) -> list:
+    member = track_member(leg)
+    if member is None:
+        return []
+    out = []
+    for day in lt.days:
+        for t in by_day.get(day.leg_day_uuid, []) if day.leg_day_uuid else []:
+            parts = t.get("parts") or []
+            coords = [c for p in parts for c in p.get("coordinates") or []]
+            if not coords:
+                continue
+            recorded = all(
+                p.get("times") and len(p["times"]) == len(p.get("coordinates") or [])
+                for p in parts
+            )
+            times = (
+                [x for p in parts for x in p["times"]]
+                if recorded
+                else _spread(day, len(coords))
+            )
+            obs = [
+                {
+                    "recorded_at": ts,
+                    "location": {"latitude": c[1], "longitude": c[0]},
+                    "additional": {
+                        "smart_leg_day_uuid": day.leg_day_uuid,
+                        "smart_track_uuid": t.get("uuid"),
+                    },
+                }
+                for c, ts in zip(coords, times, strict=True)
+            ]
+            out.append(
+                TrackBatch(
+                    member,
+                    day.leg_day_uuid,
+                    day.start.isoformat(),
+                    day.end.isoformat(),
+                    obs,
+                    not recorded,
+                )
+            )
+    return out
