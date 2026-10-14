@@ -2531,3 +2531,29 @@ def test_patrol_preflight_bad_bundle(tmp_path):
             ],
         )
     assert r.exit_code == 1 and "manifest.json" in r.output
+
+
+def test_import_patrols_wires_options_and_exit_code(tmp_path, monkeypatch):
+    seen = {}
+
+    def fake_run(api, bundle, *, endpoint, ledger, opts, ns, importer_version):
+        from er_smart_sync.patrol_import import ImportResult
+
+        seen.update(opts=opts, ledger=ledger, endpoint=endpoint)
+        r = ImportResult()
+        r.failed["x"] = "boom"
+        return r
+
+    monkeypatch.setattr("er_smart_sync.patrol_import.run_import", fake_run)
+    monkeypatch.setattr("er_smart_sync.cli._make_er_client", lambda **k: MagicMock())
+    bundle = Path(__file__).parent / "fixtures" / "smart_demo_bundle"
+    result = CliRunner().invoke(main, [
+        "import-patrols", "--bundle", str(bundle), "--er-endpoint", "er.test",
+        "--er-token", "t", "--since", "2012-01-01", "--patrol", "SMART_000001",
+        "--skip-tracks", "--limit", "3", "--ledger", str(tmp_path / "l.json"),
+    ])
+    assert result.exit_code == 1, result.output
+    o = seen["opts"]
+    assert o.since.isoformat() == "2012-01-01" and o.patrols == ("SMART_000001",)
+    assert o.skip_tracks and o.limit == 3 and not seen["ledger"].read_only
+    assert "FAILED" in result.output

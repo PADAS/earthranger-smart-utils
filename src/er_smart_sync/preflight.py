@@ -859,14 +859,51 @@ def check_event_types(ctx: PreflightContext) -> list:
                 f"{len(variants)} observed categor(ies) exist only as configurable "
                 "model variants (one event type per form)",
                 "import-patrols cannot yet tell which variant an observation "
-                "belongs to. Re-push the data model with --cm-variant-mode "
-                "consolidate so each category also has one event type, then pass "
-                "--event-type-prefix for that push.",
+                "belongs to, and a consolidated push stores its fields under "
+                "other names, so these patrols cannot be imported yet. Run "
+                "import-patrols with --allow-blocking to import the others; "
+                "these need a variant mapping (a follow-up).",
                 [f"{h}: {', '.join(v)}" for h, v in sorted(variants.items())],
                 affected=set().union(*[used[h] for h in variants]),
             )
         )
     return out
+
+
+def check_collection_type(ctx: PreflightContext) -> list:
+    multi = [
+        (p["uuid"], w["uuid"])
+        for p in ctx.bundle.patrols
+        for leg in p["legs"]
+        for w in leg["waypoints"]
+        if sum(len(g["observations"]) for g in w["observation_groups"]) > 1
+    ]
+    if not multi:
+        return []
+    ets = ctx.once(
+        "event_types", lambda: ctx.api.list_event_types(ctx.event_type_version)
+    )
+    v1 = ctx.once("event_types_v1", lambda: ctx.api.list_event_types("v1"))
+    if any(
+        e.get("value") == "incident_collection"
+        and e.get("is_collection")
+        and e.get("is_active", True)
+        for e in list(ets) + list(v1)
+    ):
+        return []
+    return [
+        Finding.of(
+            "collection_type",
+            WARNING,
+            f"{len(multi)} waypoint(s) hold several observations but the site has "
+            "no active collection event type, so their events import ungrouped",
+            "Add or activate ER's incident_collection event type (EarthRanger "
+            "admin > Event types) to group them; no other collection type is "
+            "used.",
+            [w for _, w in multi],
+            affected=[p for p, _ in multi],
+        )
+    ]
 
 
 ALL_CHECKS = [
@@ -879,6 +916,7 @@ ALL_CHECKS = [
     check_inactive_members,
     check_teams,
     check_event_types,
+    check_collection_type,
     check_leg_span,
     check_time_coverage,
     check_timezone,

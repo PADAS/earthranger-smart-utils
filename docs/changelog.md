@@ -5,6 +5,25 @@ Notable changes by version. Every release is also published to
 [GitHub Releases](https://github.com/PADAS/earthranger-smart-utils/releases),
 which carry the full commit-level history.
 
+## Unreleased
+
+### Added
+
+**`import-patrols`.** Writes a smart-able bundle's patrol history into
+EarthRanger: a patrol per SMART patrol with a segment per leg (team, leader,
+members, times, universal fields and a `smart_` provenance block), an event
+per observation linked to its segment (multi-observation waypoints as
+incident collections, attachments posted once), and each leader's track as
+location observations. Runs the preflight checks first; `--allow-blocking`
+skips only the affected patrols. Re-runs write nothing new: ids are derived
+from SMART uuids and every row is looked up before it is written, and a
+ledger beside the bundle records finished stages. Retired members are
+reactivated for the run and retired again. Exit 0, 1 when a patrol failed,
+2 when preflight blocks (ERA-14139, ERA-14140, ERA-14141). Verified on
+gundi-dev.staging with SMART's demo bundle: 5 patrols, 141 events with the
+attachment, 232 track points; a re-run, and a re-run without the ledger,
+wrote nothing. See [import-patrols](cli-reference/import-patrols.md).
+
 ## 0.6.0 — 2026-10-13
 
 ### Added

@@ -2,8 +2,8 @@
 
 The patrol migration moves a SMART conservation area's patrol setup and
 history into EarthRanger's patrol model from a backup or export zip, without
-SMART Connect. This page covers the first step, `patrol-datamodel`; the
-readiness check and the history import follow in later releases.
+SMART Connect: the patrol configuration (`patrol-datamodel`), a readiness
+check (`patrol-preflight`), then the history (`import-patrols`).
 
 1. Get the site's SMART backup or Conservation Area export zip and run
    `./smart-able all <zip>` in
@@ -32,7 +32,10 @@ readiness check and the history import follow in later releases.
 6. Run `er-smart-sync patrol-preflight --config sync.yaml` and fix what it
    reports until it shows no blocking findings. See
    [patrol-preflight](../cli-reference/patrol-preflight.md).
-7. `import-patrols` follows in a later release.
+7. Run `er-smart-sync import-patrols --config sync.yaml --since <first day> --until <a week later>`,
+   check one patrol in ER (legs, members, events on the map, the leader's
+   track), then run without the date window. Re-running is safe: finished
+   patrols are skipped. See [import-patrols](../cli-reference/import-patrols.md).
 
 The universal patrol fields need the `patrol_schemas` preview feature; on a
 site where it is off the command still writes the patrol types, choices and
