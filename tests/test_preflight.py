@@ -728,3 +728,14 @@ def test_category_permission_blocks_only_its_patrols():
     assert f.examples == ["cat_a: add (event category)"]
     assert f.affected_patrols == _patrols_observing(b, target)
     assert len(f.affected_patrols) < len(b.patrols)
+
+
+def test_collection_type_warning():
+    from er_smart_sync.preflight import check_collection_type
+
+    b = load_bundle(FIXTURE)
+    ets = [{"value": "x", "is_active": True, "is_collection": False}]
+    (f,) = run_preflight(SiteFake(b, event_types=ets), b, checks=[check_collection_type]).findings
+    assert f.code == "collection_type" and f.level == WARNING and f.count == 18
+    ets.append({"value": "incident_collection", "is_active": True, "is_collection": True})
+    assert run_preflight(SiteFake(b, event_types=ets), b, checks=[check_collection_type]).findings == []

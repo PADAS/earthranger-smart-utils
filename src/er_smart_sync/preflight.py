@@ -869,6 +869,35 @@ def check_event_types(ctx: PreflightContext) -> list:
     return out
 
 
+def check_collection_type(ctx: PreflightContext) -> list:
+    multi = [
+        (p["uuid"], w["uuid"])
+        for p in ctx.bundle.patrols
+        for leg in p["legs"]
+        for w in leg["waypoints"]
+        if sum(len(g["observations"]) for g in w["observation_groups"]) > 1
+    ]
+    if not multi:
+        return []
+    ets = ctx.once(
+        "event_types", lambda: ctx.api.list_event_types(ctx.event_type_version)
+    )
+    if any(e.get("is_collection") and e.get("is_active", True) for e in ets):
+        return []
+    return [
+        Finding.of(
+            "collection_type",
+            WARNING,
+            f"{len(multi)} waypoint(s) hold several observations but the site has "
+            "no active collection event type, so their events import ungrouped",
+            "Activate ER's incident_collection event type (EarthRanger admin > "
+            "Event types) to group them.",
+            [w for _, w in multi],
+            affected=[p for p, _ in multi],
+        )
+    ]
+
+
 ALL_CHECKS = [
     check_feature_flag,
     check_permissions,
@@ -879,6 +908,7 @@ ALL_CHECKS = [
     check_inactive_members,
     check_teams,
     check_event_types,
+    check_collection_type,
     check_leg_span,
     check_time_coverage,
     check_timezone,

@@ -1,0 +1,241 @@
+from collections import Counter
+from pathlib import Path
+
+from erclient.er_errors import ERClientNotFound  # noqa: F401  (documents the 404 path)
+
+from er_smart_sync.bundle import load_bundle
+from er_smart_sync.import_ledger import ImportLedger
+from er_smart_sync.patrol_ids import namespace
+from er_smart_sync.patrol_import import ImportOptions, run_import, select_patrols
+from er_smart_sync.preflight import check_event_types, run_preflight
+
+FIXTURE = Path(__file__).parent / "fixtures" / "smart_demo_bundle"
+ENDPOINT = "https://site.pamdas.org/api/v1.0"
+
+
+class FakeAPI:
+    """A site that holds what was written; reads see earlier writes."""
+
+    def __init__(
+        self, b, *, inactive=(), event_types=None, collection="incident_collection"
+    ):
+        self.b = b
+        members = sorted(b.member_uuids())
+        self.subjects = [
+            {
+                "id": f"s{i}",
+                "name": m,
+                "is_active": m not in inactive,
+                "additional": {"smart_member_id": m},
+            }
+            for i, m in enumerate(members)
+        ]
+        self.patrols, self.events, self.sources = {}, {}, {}
+        self.observations, self.files, self.calls = [], [], Counter()
+        self.patches = []
+        self.collection = collection
+        self.event_types = event_types
+        self.fail_patrol = None
+
+    # reads (the preflight in these tests runs check_event_types only)
+    def list_subjects(self):
+        return self.subjects
+
+    def get_patrol_config(self):
+        teams = [
+            {
+                "id": f"t-{r.uuid[:8]}",
+                "display": r.name,
+                "value": r.name,
+                "is_active": True,
+            }
+            for r in __import__(
+                "er_smart_sync.smart_to_er_patrol_schema", fromlist=["x"]
+            ).build_team_requirements(self.b)
+        ]
+        return {"members": [{"id": "g"}], "teams": teams}
+
+    def list_event_types(self, version="v2"):
+        if self.event_types is not None:
+            return self.event_types
+        return [
+            {
+                "value": f"smart-ca-import_{h.strip('.').replace('.', '_')}",
+                "is_active": True,
+                "category": "c",
+            }
+            for h in self.b.observed_category_hkeys()
+        ]
+
+    # import reads/writes
+    def collection_event_type(self, version="v2"):
+        return self.collection
+
+    def get_patrol(self, i):
+        return self.patrols.get(i)
+
+    def create_patrol(self, p):
+        if self.fail_patrol and p["title"] == self.fail_patrol:
+            raise RuntimeError("boom")
+        self.calls["create_patrol"] += 1
+        self.patrols[p["id"]] = p
+        return p
+
+    def patch_patrol(self, i, p):
+        self.calls["patch_patrol"] += 1
+        self.patches.append(p)
+        return p
+
+    def get_event(self, i):
+        return self.events.get(i)
+
+    def create_event(self, e):
+        assert e["id"] not in self.events and "end_time" not in e
+        self.calls["create_event"] += 1
+        self.events[e["id"]] = e
+        return e
+
+    def attach_file(self, event_id, filepath, comment=""):
+        self.files.append((event_id, filepath))
+
+    def patch_subject(self, sid, payload):
+        self.calls["patch_subject"] += 1
+        for s in self.subjects:
+            if s["id"] == sid:
+                s.update(payload)
+
+    def ensure_source_provider(self, key, display):
+        pass  # get-or-create
+
+    def get_source(self, mid):
+        return self.sources.get(mid)
+
+    def create_source(self, p):
+        self.calls["create_source"] += 1
+        self.sources[p["manufacturer_id"]] = {"id": f"src-{p['manufacturer_id']}", **p}
+        return self.sources[p["manufacturer_id"]]
+
+    def assign_source(self, *a):
+        self.calls["assign"] += 1
+
+    def post_observations(self, batch):
+        new = [
+            o
+            for o in batch
+            if (o["source"], o["recorded_at"])
+            not in {(x["source"], x["recorded_at"]) for x in self.observations}
+        ]
+        self.observations += new
+        return bool(new)
+
+
+def _run(api, b, tmp_path, **kw):
+    led = ImportLedger(tmp_path / "ledger.json", "site|ca")
+    report = run_preflight(api, b, checks=[check_event_types])
+    return run_import(
+        api,
+        b,
+        endpoint=ENDPOINT,
+        ledger=led,
+        opts=ImportOptions(timezone="Africa/Libreville", **kw),
+        ns=namespace(ENDPOINT, b.ca_uuid),
+        importer_version="t",
+        report=report,
+    )
+
+
+def test_full_import_then_rerun_writes_nothing(tmp_path):
+    b = load_bundle(FIXTURE)
+    api = FakeAPI(b)
+    r = _run(api, b, tmp_path)
+    assert r.exit_code == 0 and len(r.imported) == 5 and not r.failed
+    assert len(api.patrols) == 5
+    assert api.calls["create_event"] == 141 + 18  # observations + collections
+    tracked = {t["leg_uuid"] for t in b.tracks}
+    leaders = {
+        next(m["employee_uuid"] for m in leg["members"] if m["leader"])
+        for p in b.patrols
+        for leg in p["legs"]
+        if leg["uuid"] in tracked
+    }
+    assert api.observations and api.calls["create_source"] == len(leaders)
+    writes = sum(api.calls.values())
+    r2 = _run(api, b, tmp_path)
+    assert r2.exit_code == 0 and sum(api.calls.values()) == writes
+
+
+def test_half_finished_events_are_completed_without_duplicates(tmp_path):
+    b = load_bundle(FIXTURE)
+    api = FakeAPI(b)
+    _run(api, b, tmp_path, skip_tracks=True)
+    first = next(iter(api.events))
+    del api.events[first]
+    led = ImportLedger(tmp_path / "ledger.json", "site|ca")
+    for p in b.patrols:
+        led._site["patrols"][p["uuid"]]["stages"] = ["patrol"]  # crash after patrol
+    led._save()
+    before = api.calls["create_event"]
+    _run(api, b, tmp_path, skip_tracks=True)
+    assert api.calls["create_event"] == before + 1  # only the missing one
+
+
+def test_retired_members_are_reactivated_then_retired(tmp_path):
+    b = load_bundle(FIXTURE)
+    m = sorted(b.member_uuids())[0]
+    api = FakeAPI(b, inactive={m})
+    r = _run(api, b, tmp_path)
+    assert r.exit_code == 0
+    s = next(s for s in api.subjects if s["additional"]["smart_member_id"] == m)
+    assert s["is_active"] is False and api.calls["patch_subject"] == 2
+    assert ImportLedger(tmp_path / "ledger.json", "site|ca").reactivated() == []
+
+
+def test_one_failing_patrol_does_not_stop_the_others(tmp_path):
+    b = load_bundle(FIXTURE)
+    api = FakeAPI(b)
+    api.fail_patrol = "SMART_000003"
+    r = _run(api, b, tmp_path)
+    assert r.exit_code == 1 and len(r.imported) == 4
+    (reason,) = r.failed.values()
+    assert "boom" in reason
+
+
+def test_existing_patrol_missing_a_segment_fails_with_a_fix(tmp_path):
+    b = load_bundle(FIXTURE)
+    api = FakeAPI(b)
+    _run(api, b, tmp_path, skip_events=True, skip_tracks=True)
+    pid = next(i for i, p in api.patrols.items() if p["title"] == "SMART_000005")
+    api.patrols[pid] = dict(
+        api.patrols[pid], patrol_segments=api.patrols[pid]["patrol_segments"][:1]
+    )
+    (tmp_path / "ledger.json").unlink()
+    r = _run(api, b, tmp_path, skip_events=True, skip_tracks=True)
+    p5 = next(p["uuid"] for p in b.patrols if p["id"] == "SMART_000005")
+    assert list(r.failed) == [p5] and "delete" in r.failed[p5].lower()
+
+
+def test_missing_attachment_file_is_counted_not_fatal(tmp_path):
+    b = load_bundle(FIXTURE)  # the fixture ships no attachment files
+    r = _run(FakeAPI(b), b, tmp_path, skip_tracks=True)
+    assert r.exit_code == 0 and r.counts["attachments_missing"] == 1
+
+
+def test_blocking_preflight_stops_unless_allowed(tmp_path):
+    b = load_bundle(FIXTURE)
+    api = FakeAPI(b, event_types=[])
+    r = _run(api, b, tmp_path)
+    assert r.stopped and r.exit_code == 2 and not api.patrols
+    r = _run(api, b, tmp_path, allow_blocking=True)
+    assert r.skipped and all("event_types" in v for v in r.skipped.values())
+
+
+def test_selection_filters():
+    from datetime import date
+
+    b = load_bundle(FIXTURE)
+    assert [
+        p["id"] for p in select_patrols(b, ImportOptions(patrols=("SMART_000004",)))
+    ] == ["SMART_000004"]
+    assert len(select_patrols(b, ImportOptions(limit=2))) == 2
+    since = select_patrols(b, ImportOptions(since=date(2099, 1, 1)))
+    assert since == []
