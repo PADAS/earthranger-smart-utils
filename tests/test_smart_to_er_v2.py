@@ -215,8 +215,7 @@ def test_choice_refs_shared_across_event_types():
         choice_scope_key(ca_uuid=CA_UUID, cm=None), "species"
     )
     for et in ets:
-        ui_choices = et.event_schema["ui"]["fields"]["species"]["choices"]
-        assert ui_choices["existingChoiceList"] == [expected_field]
+        assert "choices" not in et.event_schema["ui"]["fields"]["species"]
         assert et.event_schema["json"]["properties"]["species"]["anyOf"] == [
             {"$ref": f"/api/v2.0/schemas/choices.json?field={expected_field}"}
         ]
@@ -263,14 +262,15 @@ def test_list_single_value_emits_anyof_ref_and_choice_list():
     assert ui_field["inputType"] == "DROPDOWN"
     assert ui_field["placeholder"] == ""
     assert ui_field["parent"] == "section-1"
-    assert ui_field["choices"] == {
-        "type": "EXISTING_CHOICE_LIST",
-        "existingChoiceList": [expected_field],
-        "eventTypeCategories": [],
-        "featureCategories": [],
-        "myDataType": "",
-        "subjectGroups": [],
-        "subjectSubtypes": [],
+    # das's CHOICE_LIST ui metaschema allows only these keys (and strips the
+    # rest on save, so emitting more makes every re-run look changed); the
+    # options come from the json half's $ref.
+    assert set(ui_field) <= {
+        "conditionalDependents",
+        "inputType",
+        "parent",
+        "placeholder",
+        "type",
     }
 
 
@@ -442,7 +442,7 @@ def test_cm_deactivates_all_options_still_emits_choice_list():
     ui_field = schema["ui"]["fields"]["color"]
     assert ui_field["type"] == "CHOICE_LIST"
     assert ui_field["inputType"] == "DROPDOWN"
-    assert ui_field["choices"]["existingChoiceList"] == [expected_field]
+    assert "choices" not in ui_field
 
 
 def test_inactive_attribute_marked_deprecated_and_kept_in_section():

@@ -49,6 +49,16 @@ shortened with a hash suffix, a field an admin moved to another section
 keeps a matching `parent`, and a manifest that is not a JSON object is
 reported as an invalid bundle.
 
+### Fixed
+
+**`datamodel` re-runs no longer re-patch every v2 event type.** The v2
+builder put a `choices` block in each choice field's UI schema. das's
+metaschema has no such key and drops it on save, so every re-run saw a
+difference and PATCHed all event types. The builder now emits only the keys
+das accepts; the dropdown options still come from the `$ref` in the JSON
+schema. Verified on gundi-dev: a re-run reports 39 of 39 event types
+unchanged. Sites pushed before this need nothing: das never stored the key.
+
 ## 0.5.1 — 2026-10-12
 
 ### Fixed
