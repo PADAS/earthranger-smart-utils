@@ -859,9 +859,10 @@ def check_event_types(ctx: PreflightContext) -> list:
                 f"{len(variants)} observed categor(ies) exist only as configurable "
                 "model variants (one event type per form)",
                 "import-patrols cannot yet tell which variant an observation "
-                "belongs to. Re-push the data model with --cm-variant-mode "
-                "consolidate so each category also has one event type, then pass "
-                "--event-type-prefix for that push.",
+                "belongs to, and a consolidated push stores its fields under "
+                "other names, so these patrols cannot be imported yet. Run "
+                "import-patrols with --allow-blocking to import the others; "
+                "these need a variant mapping (a follow-up).",
                 [f"{h}: {', '.join(v)}" for h, v in sorted(variants.items())],
                 affected=set().union(*[used[h] for h in variants]),
             )

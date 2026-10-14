@@ -261,3 +261,39 @@ def test_track_member_falls_back_and_can_be_absent():
     assert track_member({"members": [m("a", False), m("b", True)]}) == "b"
     assert track_member({"members": [m("a", False), m("b", False)]}) == "a"
     assert track_member({"members": []}) is None
+
+
+def test_untimed_tracks_on_one_day_get_distinct_times():
+    day = {
+        "uuid": "d1",
+        "date": "2020-01-01",
+        "start_time": None,
+        "end_time": None,
+        "rest_minutes": None,
+        "start": "2020-01-01T08:00:00+01:00",
+        "end": "2020-01-01T10:00:00+01:00",
+        "has_track": True,
+    }
+    leg = {
+        "uuid": "L",
+        "id": "1",
+        "placeholder_dates": False,
+        "start_date": "2020-01-01",
+        "end_date": "2020-01-01",
+        "days": [day],
+        "waypoints": [],
+        "members": [{"employee_uuid": "m1", "leader": True, "pilot": False}],
+    }
+    tracks = [
+        {
+            "uuid": f"t{i}",
+            "leg_day_uuid": "d1",
+            "parts": [{"coordinates": [[i, 0], [i, 1], [i, 2]]}],
+        }
+        for i in range(2)
+    ]
+    by_day = tracks_by_day(tracks)
+    batches = build_track_batches(leg, leg_times(leg, by_day, TZ), by_day)
+    times = [o["recorded_at"] for b in batches for o in b.observations]
+    assert len(times) == 6 and len(set(times)) == 6
+    assert all(b.interpolated for b in batches)

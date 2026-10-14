@@ -579,7 +579,10 @@ def test_split_variants_get_their_own_finding():
         SiteFake(b, event_types=ets), b, checks=[check_event_types]
     ).findings
     (f,) = findings
-    assert f.level == BLOCKING and "--cm-variant-mode consolidate" in f.fix
+    assert f.level == BLOCKING
+    # a consolidated type names its fields section_N_<key>; import-patrols
+    # writes raw attribute keys, so consolidate mode is not a fix
+    assert "--cm-variant-mode" not in f.fix and "--allow-blocking" in f.fix
 
 
 def test_unmatched_fix_names_every_cause():
@@ -735,10 +738,21 @@ def test_collection_type_warning():
 
     b = load_bundle(FIXTURE)
     ets = [{"value": "x", "is_active": True, "is_collection": False}]
-    (f,) = run_preflight(SiteFake(b, event_types=ets), b, checks=[check_collection_type]).findings
+    (f,) = run_preflight(
+        SiteFake(b, event_types=ets), b, checks=[check_collection_type]
+    ).findings
     assert f.code == "collection_type" and f.level == WARNING and f.count == 18
     ets.append({"value": "other_collection", "is_active": True, "is_collection": True})
-    (f,) = run_preflight(SiteFake(b, event_types=ets), b, checks=[check_collection_type]).findings
+    (f,) = run_preflight(
+        SiteFake(b, event_types=ets), b, checks=[check_collection_type]
+    ).findings
     assert "incident_collection" in f.fix
-    ets.append({"value": "incident_collection", "is_active": True, "is_collection": True})
-    assert run_preflight(SiteFake(b, event_types=ets), b, checks=[check_collection_type]).findings == []
+    ets.append(
+        {"value": "incident_collection", "is_active": True, "is_collection": True}
+    )
+    assert (
+        run_preflight(
+            SiteFake(b, event_types=ets), b, checks=[check_collection_type]
+        ).findings
+        == []
+    )

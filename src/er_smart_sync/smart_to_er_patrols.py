@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 from .bundle import Bundle
 from .choices import sanitize_choice_value, shorten_choice_value
 from .patrol_ids import er_id
-from .patrol_times import DayTimes, LegTimes, leg_times
+from .patrol_times import DayTimes, LegTimes, fully_timed, leg_times
 from .smart_to_er_patrol_schema import CUSTOM_FIELD_PREFIX, choice_value
 
 
@@ -259,19 +259,24 @@ def build_track_batches(leg: dict, lt: LegTimes, by_day: dict) -> list:
         return []
     out = []
     for day in lt.days:
-        for t in by_day.get(day.leg_day_uuid, []) if day.leg_day_uuid else []:
-            parts = t.get("parts") or []
-            coords = [c for p in parts for c in p.get("coordinates") or []]
+        tracks = by_day.get(day.leg_day_uuid, []) if day.leg_day_uuid else []
+        coords_of = {
+            id(t): [c for p in t.get("parts") or [] for c in p.get("coordinates") or []]
+            for t in tracks
+        }
+        # untimed tracks of a day are spread as one sequence, so no two of
+        # their points share a time (das keeps one point per source and time)
+        untimed = [t for t in tracks if not fully_timed(t) and coords_of[id(t)]]
+        spread = iter(_spread(day, sum(len(coords_of[id(t)]) for t in untimed)))
+        for t in tracks:
+            coords = coords_of[id(t)]
             if not coords:
                 continue
-            recorded = all(
-                p.get("times") and len(p["times"]) == len(p.get("coordinates") or [])
-                for p in parts
-            )
+            recorded = fully_timed(t)
             times = (
-                [x for p in parts for x in p["times"]]
+                [x for p in t["parts"] for x in p["times"]]
                 if recorded
-                else _spread(day, len(coords))
+                else [next(spread) for _ in coords]
             )
             obs = [
                 {

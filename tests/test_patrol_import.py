@@ -284,3 +284,54 @@ def test_attachment_not_posted_twice_without_the_ledger(tmp_path):
     (tmp_path / "ledger.json").unlink()
     r = _run(api, b, tmp_path, skip_tracks=True)
     assert len(api.files) == 1 and r.counts["attachments_existing"] == 1
+
+
+def test_reactivation_failure_still_retires_those_reactivated(tmp_path):
+    b = load_bundle(FIXTURE)
+    first, second = sorted(b.member_uuids())[:2]
+    api = FakeAPI(b, inactive={first, second})
+    real = api.patch_subject
+    calls = []
+
+    def flaky(sid, payload):
+        calls.append(payload)
+        if payload == {"is_active": True} and len(calls) == 2:
+            raise RuntimeError("503")
+        real(sid, payload)
+
+    api.patch_subject = flaky
+    with pytest.raises(RuntimeError):
+        _run(api, b, tmp_path)
+    for m in (first, second):
+        s = next(s for s in api.subjects if s["additional"]["smart_member_id"] == m)
+        assert s["is_active"] is False
+    assert ImportLedger(tmp_path / "ledger.json", "site|ca").reactivated() == []
+
+
+def test_limit_moves_on_to_patrols_not_yet_imported(tmp_path):
+    b = load_bundle(FIXTURE)
+    api = FakeAPI(b)
+    _run(api, b, tmp_path, limit=2, skip_tracks=True)
+    _run(api, b, tmp_path, limit=2, skip_tracks=True)
+    assert len(api.patrols) == 4
+
+
+def test_attached_ids_are_dropped_once_events_are_done(tmp_path):
+    import shutil
+
+    shutil.copytree(FIXTURE, tmp_path / "b")
+    b0 = load_bundle(tmp_path / "b")
+    w = next(
+        w
+        for p in b0.patrols
+        for leg in p["legs"]
+        for w in leg["waypoints"]
+        if w["attachments"]
+    )
+    path = tmp_path / "b" / w["attachments"][0]["path"]
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"jpg")
+    b = load_bundle(tmp_path / "b")
+    _run(FakeAPI(b), b, tmp_path, skip_tracks=True)
+    led = ImportLedger(tmp_path / "ledger.json", "site|ca")
+    assert all("attached" not in led.ids(p["uuid"]) for p in b.patrols)

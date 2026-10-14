@@ -129,3 +129,25 @@ def test_leg_without_days_spans_its_dates():
     lt = leg_times(_leg([], start="2020-01-01", end="2020-01-03"), {}, TZ)
     assert [d.source for d in lt.days] == ["date_only"]
     assert lt.start.day == 1 and lt.end.day == 3
+
+
+def test_day_with_a_partly_untimed_track_is_flagged_interpolated():
+    day = _day(
+        "d1",
+        "2020-01-01",
+        "2020-01-01T08:00:00+01:00",
+        "2020-01-01T17:00:00+01:00",
+        has_track=True,
+    )
+    track = {
+        "leg_day_uuid": "d1",
+        "parts": [
+            {
+                "coordinates": [[0, 0], [1, 1]],
+                "times": ["2020-01-01T09:00:00+01:00", "2020-01-01T10:00:00+01:00"],
+            },
+            {"coordinates": [[2, 2], [3, 3]]},
+        ],
+    }
+    (d,) = leg_times(_leg([day]), tracks_by_day([track]), TZ).days
+    assert d.track_times == "interpolated"

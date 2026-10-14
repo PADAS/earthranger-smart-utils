@@ -115,4 +115,4 @@ A configurable model pushed in split mode (the default) creates one event
 type per form variant: `<prefix>_<category path>_<form name>_<8 hex>`. A
 category present only that way gets its own blocking finding, because
 `import-patrols` cannot yet tell which variant an observation belongs to.
-Re-push with `--cm-variant-mode consolidate` and pass that push's prefix.
+A consolidated push (`--cm-variant-mode consolidate`) is no fix either: it stores the fields under `section_N_<key>` names, and the import writes the attribute keys. These patrols cannot be imported yet; `import-patrols --allow-blocking` imports the others.

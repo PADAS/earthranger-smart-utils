@@ -47,6 +47,12 @@ class ImportLedger:
             p["ids"][key].append(value)
         self._save()
 
+    def drop_id(self, patrol_uuid: str, key: str) -> None:
+        """Forget a list once its stage is done, so the file stays small."""
+        p = self._site["patrols"].get(patrol_uuid)
+        if p and p["ids"].pop(key, None) is not None:
+            self._save()
+
     def reactivated(self) -> list:
         return list(self._site["reactivated"])
 

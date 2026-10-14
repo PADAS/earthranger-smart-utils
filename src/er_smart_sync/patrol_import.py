@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 from zoneinfo import ZoneInfo
 
@@ -112,9 +112,11 @@ def _reactivate(api, ledger: ImportLedger, subjects: dict, patrols: list) -> Non
         if m["employee_uuid"] in subjects
         and not subjects[m["employee_uuid"]].get("is_active", True)
     }
-    for sid in sorted(needed - set(ledger.reactivated())):
+    before = set(ledger.reactivated())
+    # recorded before any PATCH: a failure partway still retires every one
+    ledger.set_reactivated(sorted(needed | before))
+    for sid in sorted(needed - before):
         api.patch_subject(sid, {"is_active": True})
-    ledger.set_reactivated(sorted(needed | set(ledger.reactivated())))
 
 
 def _retire(api, ledger: ImportLedger) -> None:
@@ -238,11 +240,22 @@ def run_import(
         for p in f.affected_patrols:
             reasons.setdefault(p, []).append(f.code)
     selected = []
-    for p in select_patrols(bundle, opts):
+    want = (
+        {"patrol"}
+        | (set() if opts.skip_events else {"events"})
+        | (set() if opts.skip_tracks else {"tracks"})
+    )
+    # --limit counts patrols still to do, so successive runs move on
+    pending = 0
+    for p in select_patrols(bundle, replace(opts, limit=None)):
         if p["uuid"] in reasons:
             result.skipped[p["uuid"]] = "blocked by " + ", ".join(reasons[p["uuid"]])
-        else:
-            selected.append(p)
+            continue
+        if not want <= ledger.stages(p["uuid"]):
+            if opts.limit and pending >= opts.limit:
+                continue
+            pending += 1
+        selected.append(p)
     resolver, subjects = _resolver(api, bundle, report)
     resolver.collection_type = api.collection_event_type()
     tz = ZoneInfo(bundle.manifest.timezone["name"])
@@ -255,11 +268,6 @@ def run_import(
             api.ensure_source_provider(SOURCE_PROVIDER, "SMART patrol import")
         for p in selected:
             done = ledger.stages(p["uuid"])
-            want = (
-                {"patrol"}
-                | (set() if opts.skip_events else {"events"})
-                | (set() if opts.skip_tracks else {"tracks"})
-            )
             if want <= done:
                 result.counts["already_imported"] += 1
                 result.imported.append(p["uuid"])
@@ -276,6 +284,7 @@ def run_import(
                         api, bundle, p, plan, ns, resolver, ledger, result.counts
                     )
                     ledger.done(p["uuid"], "events")
+                    ledger.drop_id(p["uuid"], "attached")
                 if "tracks" in want and "tracks" not in done:
                     _import_tracks(api, p, plan, by_day, subjects, result.counts)
                     ledger.done(p["uuid"], "tracks")

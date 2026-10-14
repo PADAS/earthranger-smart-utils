@@ -53,6 +53,15 @@ def _whole_day(day: str, tz: ZoneInfo) -> tuple:
     )
 
 
+def fully_timed(track: dict) -> bool:
+    """Every part carries one time per vertex (else the track is spread)."""
+    parts = track.get("parts") or []
+    return bool(parts) and all(
+        p.get("times") and len(p["times"]) == len(p.get("coordinates") or [])
+        for p in parts
+    )
+
+
 def _track_times(tracks: list) -> list:
     out = []
     for t in tracks:
@@ -82,7 +91,10 @@ def _day(day: dict, tracks: list, wp_times: list, tz: ZoneInfo, trust: bool):
         lo, hi = min(lo, own[0]), max(hi, own[1])
     if source == "leg_day_times" and wp_times:
         lo, hi = min(lo, wp_times[0]), max(hi, wp_times[-1])
-    track_times = "recorded" if timed else ("interpolated" if tracks else None)
+    if any(not fully_timed(t) for t in tracks):
+        track_times = "interpolated"
+    else:
+        track_times = "recorded" if timed else None
     return DayTimes(day["uuid"], day["date"], lo, hi, source, track_times)
 
 
