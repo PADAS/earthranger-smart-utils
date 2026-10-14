@@ -21,6 +21,7 @@ from smartconnect.models import Attribute, Category, CategoryAttribute
 
 from .choices import (
     _discriminator_option_value,
+    _norm_path,
     _variant_disambiguator,
     choice_scope_key,
     derive_choice_field,
@@ -140,7 +141,62 @@ def build_event_types_v2(
                 )
                 if et is not None:
                     event_types.append(et)
+    if cm and observed_categories:
+        event_types += _build_observed_outside_cm(
+            dm=dm,
+            cm=cm,
+            ca_uuid=ca_uuid,
+            attributes=attributes,
+            attribute_configs=attribute_configs,
+            choices_base_url=choices_base_url,
+            observed=common["observed"],
+        )
     return event_types
+
+
+def _build_observed_outside_cm(
+    *,
+    dm: dict,
+    cm: dict,
+    ca_uuid: str,
+    attributes: list[Attribute],
+    attribute_configs: list | None,
+    choices_base_url: str,
+    observed: frozenset,
+) -> list[ERV2EventType]:
+    """Observed data model categories a configurable model does not carry.
+
+    Observations name data model categories; a configurable model is a
+    curated subset. Each observed category the CM lacks gets an inactive
+    event type built from the data model, under the CM's value prefix and
+    choice scope, so it sits next to the CM's own types.
+    """
+    covered = {
+        _norm_path(c.get("hkeyPath") or c.get("path"))
+        for c in cm.get("categories") or []
+    }
+    dm_cats = parse_obj_as(list[Category], dm.get("categories") or [])
+    dm_paths = [c.path for c in dm_cats]
+    out = []
+    for cat in dm_cats:
+        path = _norm_path(cat.path)
+        if path not in observed or path in covered:
+            continue
+        et = _build_one(
+            cat=cat,
+            cats=dm_cats,
+            cat_paths=dm_paths,
+            attributes=attributes,
+            attribute_configs=attribute_configs,
+            ca_uuid=f"{ca_uuid}_{cm['cm_uuid']}",
+            cm=None,
+            choices_base_url=choices_base_url,
+            scope_key=choice_scope_key(ca_uuid=ca_uuid, cm=cm),
+            force_inactive=True,
+        )
+        if et is not None:
+            out.append(et)
+    return out
 
 
 DISCRIMINATOR_SECTION_ID = "section-1"
@@ -298,11 +354,14 @@ def _build_one(
     scope_key: str = "",
     value_disambiguator: str | None = None,
     observed: frozenset = frozenset(),
+    force_inactive: bool = False,
 ) -> ERV2EventType | None:
     is_leaf = _is_leaf_node(cat_paths, cat.path)
-    is_active = bool(cm) or (cat.is_active and is_leaf)
+    is_active = not force_inactive and (bool(cm) or (cat.is_active and is_leaf))
+    # An inactive type kept for historical observations (datamodel --bundle).
+    historical = not is_active
 
-    if not is_active and _norm_path(cat.path) not in observed:
+    if historical and not force_inactive and _norm_path(cat.path) not in observed:
         # v2 has no equivalent of v1's "inactive event type" record — there
         # is no schema-less POST shape that passes the meta-schema. Skip,
         # unless historical observations use the category: then build it
@@ -325,7 +384,7 @@ def _build_one(
     leaf_attributes = list(cat.attributes or [])
     if not cm:
         leaf_attributes.extend(_get_inherited_attributes(cats, path_components))
-    if not leaf_attributes:
+    if not leaf_attributes and not historical:
         logger.warning(
             "Skipping v2 event type, no leaf attributes",
             extra=dict(value=value, display=cat.display),
@@ -340,7 +399,14 @@ def _build_one(
         choices_base_url=choices_base_url,
         scope_key=scope_key,
     )
-    if not properties:
+    if not properties and historical:
+        # Observations exist, so the import needs a target even with no
+        # fields; das's metaschema accepts an empty schema.
+        logger.info(
+            "v2 event type with no fields for observed category",
+            extra=dict(value=value, display=cat.display),
+        )
+    elif not properties:
         logger.warning(
             "Skipping v2 event type, no schema properties",
             extra=dict(value=value, display=cat.display),
@@ -527,10 +593,6 @@ def _build_choice_property_pair(
             "anyOf": [{"$ref": ref_url}],
         }
     return json_prop, ui_field
-
-
-def _norm_path(path: str | None) -> str:
-    return (path or "").strip(".").lower()
 
 
 def _is_leaf_node(node_paths: list[str], cur_node: str) -> bool:

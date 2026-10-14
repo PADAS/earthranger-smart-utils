@@ -733,7 +733,9 @@ class TestDatamodelSync:
             patch(
                 "er_smart_sync.synchronizer.build_event_types_v2", return_value=[]
             ) as mock_build,
-            patch("er_smart_sync.synchronizer.build_choice_sets", return_value=[]),
+            patch(
+                "er_smart_sync.synchronizer.build_choice_sets", return_value=[]
+            ) as mock_choices,
             patch(
                 "er_smart_sync.synchronizer.upsert_choices",
                 return_value=__import__(
@@ -745,6 +747,7 @@ class TestDatamodelSync:
                 dm=dm, smart_ca_uuid="u", ca_identifier="TEST"
             )
         assert mock_build.call_args.kwargs["observed_categories"] == {"animals.sign."}
+        assert mock_choices.call_args.kwargs["observed_categories"] == {"animals.sign."}
 
 
 def _event_dict(updated_at, serial_number=1001):

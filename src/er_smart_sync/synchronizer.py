@@ -404,6 +404,7 @@ class ERSmartSynchronizer:
                 cm=cdm_dict,
                 ca_uuid=smart_ca_uuid,
                 cm_variant_mode=self._cm_variant_mode,
+                observed_categories=self.observed_categories,
             )
             choices_stats = upsert_choices(
                 er_client=self.er_client,

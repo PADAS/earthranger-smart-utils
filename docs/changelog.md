@@ -15,7 +15,10 @@ event type, created inactive, with the category's own and inherited
 attributes. Without it, those historical observations would have no event
 type to import against. v2 only. Verified on gundi-dev with SMART's demo
 bundle: `animals.sign.` (a parent) and `humanactivity.rocksminerals.`
-(inactive) were created inactive.
+(inactive) were created inactive. The choice lists those categories use
+are pushed with them. A category with no attributes gets a schema with no
+fields. With `--cm-from-file`, observed data model categories the
+configurable model lacks get inactive types under the model's prefix.
 
 **`patrol-datamodel`.** From a smart-able migration bundle, creates or
 updates the ER patrol types (one per SMART transport), the universal patrol
