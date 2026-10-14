@@ -150,6 +150,18 @@ class Bundle:
     def patrol_team_uuids(self) -> set:
         return {p["team_uuid"] for p in self.patrols if p.get("team_uuid")}
 
+    def observed_category_hkeys(self) -> set:
+        """SMART category hkeys (with trailing dot) that observations use."""
+        return {
+            o["category_hkey"]
+            for p in self.patrols
+            for leg in p["legs"]
+            for w in leg["waypoints"]
+            for g in w["observation_groups"]
+            for o in g["observations"]
+            if o.get("category_hkey")
+        }
+
 
 def _read(path: Path, name: str, schema: dict) -> Any:
     f = path / f"{name}.json"

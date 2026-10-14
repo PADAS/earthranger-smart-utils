@@ -714,6 +714,38 @@ class TestDatamodelSync:
             )
         assert mock_build.call_args.kwargs["cm_variant_mode"] == "consolidate"
 
+    def test_synchronizer_passes_observed_categories_to_builder(
+        self, sync_config_v2, mock_er_client
+    ):
+        sync = ERSmartSynchronizer(
+            config=sync_config_v2,
+            er_client=mock_er_client,
+            smart_client=MagicMock(),
+        )
+        sync.observed_categories = {"animals.sign."}
+        dm = MagicMock()
+        dm.export_as_dict.return_value = {"categories": [], "attributes": []}
+        mock_er_client.get_event_categories.return_value = [
+            {"id": "c", "value": "test", "display": "T"}
+        ]
+        mock_er_client.get_event_types.return_value = []
+        with (
+            patch(
+                "er_smart_sync.synchronizer.build_event_types_v2", return_value=[]
+            ) as mock_build,
+            patch("er_smart_sync.synchronizer.build_choice_sets", return_value=[]),
+            patch(
+                "er_smart_sync.synchronizer.upsert_choices",
+                return_value=__import__(
+                    "er_smart_sync.choices", fromlist=["ChoicesStats"]
+                ).ChoicesStats(),
+            ),
+        ):
+            sync.push_smart_ca_datamodel_to_earthranger(
+                dm=dm, smart_ca_uuid="u", ca_identifier="TEST"
+            )
+        assert mock_build.call_args.kwargs["observed_categories"] == {"animals.sign."}
+
 
 def _event_dict(updated_at, serial_number=1001):
     return {

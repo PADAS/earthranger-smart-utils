@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import copy
 import logging
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from typing import Any
 
 import pydantic
@@ -94,8 +94,15 @@ def build_event_types_v2(
     ca_identifier: str,
     choices_base_url: str = "/api/v2.0/schemas",
     cm_variant_mode: str = "split",
+    observed_categories: Collection[str] = (),
 ) -> list[ERV2EventType]:
-    """Build ERV2EventType records for a SMART CA (optionally with a CM overlay)."""
+    """Build ERV2EventType records for a SMART CA (optionally with a CM overlay).
+
+    ``observed_categories`` holds category hkeys that historical observations
+    use (from a smart-able bundle). A parent or inactive category among them,
+    which would otherwise be skipped, gets an inactive event type so those
+    observations can be imported against it.
+    """
     del ca_identifier  # reserved; parity with v1 signature
 
     source = cm if cm else dm
@@ -113,6 +120,7 @@ def build_event_types_v2(
         cm=cm,
         choices_base_url=choices_base_url,
         scope_key=choice_scope_key(ca_uuid=ca_uuid, cm=cm),
+        observed=frozenset(_norm_path(h) for h in observed_categories),
     )
 
     event_types: list[ERV2EventType] = []
@@ -149,6 +157,7 @@ def _build_consolidated(
     cm: dict | None,
     choices_base_url: str = "/api/v2.0/schemas",
     scope_key: str = "",
+    observed: frozenset = frozenset(),  # unused: CM categories are always active
 ) -> ERV2EventType | None:
     """Build a single consolidated event type for a group of CM variant categories.
 
@@ -288,13 +297,16 @@ def _build_one(
     choices_base_url: str = "/api/v2.0/schemas",
     scope_key: str = "",
     value_disambiguator: str | None = None,
+    observed: frozenset = frozenset(),
 ) -> ERV2EventType | None:
     is_leaf = _is_leaf_node(cat_paths, cat.path)
     is_active = bool(cm) or (cat.is_active and is_leaf)
 
-    if not is_active:
+    if not is_active and _norm_path(cat.path) not in observed:
         # v2 has no equivalent of v1's "inactive event type" record — there
-        # is no schema-less POST shape that passes the meta-schema. Skip.
+        # is no schema-less POST shape that passes the meta-schema. Skip,
+        # unless historical observations use the category: then build it
+        # with a full schema and mark it inactive.
         return None
 
     hkey = cat.hkeyPath or cat.path or ""
@@ -308,7 +320,7 @@ def _build_one(
         value = f"{value}_{value_disambiguator}"
     value = value.lower()
 
-    et = ERV2EventType(value=value, display=cat.display, is_active=True)
+    et = ERV2EventType(value=value, display=cat.display, is_active=is_active)
 
     leaf_attributes = list(cat.attributes or [])
     if not cm:
@@ -515,6 +527,10 @@ def _build_choice_property_pair(
             "anyOf": [{"$ref": ref_url}],
         }
     return json_prop, ui_field
+
+
+def _norm_path(path: str | None) -> str:
+    return (path or "").strip(".").lower()
 
 
 def _is_leaf_node(node_paths: list[str], cur_node: str) -> bool:

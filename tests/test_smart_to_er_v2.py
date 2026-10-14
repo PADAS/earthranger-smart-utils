@@ -1186,3 +1186,50 @@ def test_leaf_override_of_inherited_attribute_appears_once():
     assert left == ["response"]
     # The leaf's isactive=false override wins over the inherited active entry.
     assert schema["json"]["properties"]["response"]["deprecated"] is True
+
+
+# ── observed parent / inactive categories ──────────────────────────
+
+
+def _observed_dm():
+    return {
+        "categories": [
+            _category("animals", attributes=[_cat_attr("species")]),
+            _category("animals.sign", attributes=[_cat_attr("age")]),
+            _category("animals.sign.dung"),
+            _category("animals.rocks", attributes=[_cat_attr("age")], is_active=False),
+            _category("animals.gone", attributes=[_cat_attr("age")], is_active=False),
+        ],
+        "attributes": [
+            _attr("species", "TEXT"),
+            _attr("age", "TEXT"),
+        ],
+    }
+
+
+def test_observed_parent_and_inactive_categories_get_inactive_event_types():
+    ets = build_event_types_v2(
+        dm=_observed_dm(),
+        cm=None,
+        ca_uuid=CA_UUID,
+        ca_identifier=CA_ID,
+        observed_categories={"animals.sign.", "animals.rocks.", "animals.sign.dung."},
+    )
+    by_value = {et.value.split("_", 1)[1]: et for et in ets}
+    assert by_value["animals_sign_dung"].is_active is True
+    for v in ("animals_sign", "animals_rocks"):
+        et = by_value[v]
+        assert et.is_active is False
+        # a real schema: das has no schema-less v2 shape
+        assert "age" in et.event_schema["json"]["properties"]
+    # the parent also carries what it inherits
+    assert "species" in by_value["animals_sign"].event_schema["json"]["properties"]
+    # unobserved inactive and unobserved parent categories are still skipped
+    assert "animals_gone" not in by_value and "animals" not in by_value
+
+
+def test_no_observed_categories_keeps_todays_output():
+    ets = build_event_types_v2(
+        dm=_observed_dm(), cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID
+    )
+    assert [et.value.split("_", 1)[1] for et in ets] == ["animals_sign_dung"]

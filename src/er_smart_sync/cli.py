@@ -407,6 +407,17 @@ def _validate_config(config: SyncConfig) -> None:
         "before pushing (v2 only). Default: migrate them."
     ),
 )
+@click.option(
+    "--bundle",
+    "bundle_dir",
+    type=click.Path(exists=True, file_okay=False),
+    default=None,
+    help=(
+        "smart-able migration bundle. Parent or inactive SMART categories its "
+        "observations use also get an event type, created inactive, so "
+        "import-patrols can import those observations (v2 only)."
+    ),
+)
 @click.pass_context
 def datamodel(
     ctx,
@@ -432,6 +443,7 @@ def datamodel(
     cm_variant_mode,
     skip_choices,
     no_migrate_legacy_v1,
+    bundle_dir,
 ):
     """Sync SMART data models to EarthRanger as event categories/types."""
     config = _build_config(
@@ -456,6 +468,15 @@ def datamodel(
         config.earthranger.cm_variant_mode = cm_variant_mode
     if no_migrate_legacy_v1:
         config.earthranger.migrate_legacy_v1 = False
+
+    observed_categories: set = set()
+    if bundle_dir:
+        if config.earthranger.event_type_version != "v2":
+            raise click.UsageError("--bundle needs v2 event types")
+        try:
+            observed_categories = load_bundle(bundle_dir).observed_category_hkeys()
+        except BundleError as e:
+            raise click.UsageError(f"--bundle: {e}") from None
 
     if cm_file and not datamodel_file:
         raise click.UsageError("--cm-from-file requires --from-file")
@@ -499,6 +520,7 @@ def datamodel(
         sync = _make_synchronizer(config, ctx=ctx)
         sync.sync_mode = mode
         sync.skip_choices = skip_choices
+        sync.observed_categories = observed_categories
 
         # Without a CM: just push the base data model (single call).
         # With a CM + --include-base-datamodel: push the base DM as its own
@@ -533,6 +555,7 @@ def datamodel(
         sync = _make_synchronizer(config, ctx=ctx)
         sync.sync_mode = mode
         sync.skip_choices = skip_choices
+        sync.observed_categories = observed_categories
         sync.synchronize_datamodel()
 
     _print_datamodel_summary(sync)

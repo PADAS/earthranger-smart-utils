@@ -9,6 +9,14 @@ which carry the full commit-level history.
 
 ### Added
 
+**`datamodel --bundle`.** With a smart-able migration bundle, parent or
+inactive SMART categories that the bundle's observations use also get an
+event type, created inactive, with the category's own and inherited
+attributes. Without it, those historical observations would have no event
+type to import against. v2 only. Verified on gundi-dev with SMART's demo
+bundle: `animals.sign.` (a parent) and `humanactivity.rocksminerals.`
+(inactive) were created inactive.
+
 **`patrol-datamodel`.** From a smart-able migration bundle, creates or
 updates the ER patrol types (one per SMART transport), the universal patrol
 fields and their choices, and the ranger subjects, then writes an admin
