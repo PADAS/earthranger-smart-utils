@@ -24,6 +24,9 @@ er-smart-sync [GLOBAL FLAGS] <subcommand> [SUBCOMMAND FLAGS]
 | [`inspect-datamodel`](inspect-datamodel.md) | Preview what `datamodel` would push, without making writes. |
 | [`events`](events.md) | Poll events from EarthRanger and publish them via the message broker. |
 | [`patrols`](patrols.md) | Poll patrols from EarthRanger and publish them via the message broker. |
+| [`patrol-datamodel`](patrol-datamodel.md) | From a smart-able bundle, create the patrol types, universal patrol fields, choices and ranger subjects in EarthRanger, plus an admin checklist. |
+| [`patrol-preflight`](patrol-preflight.md) | Read-only check that an EarthRanger site is ready to import a bundle's patrols; lists every gap with its fix. |
+| [`import-patrols`](import-patrols.md) | Write a bundle's patrols, waypoint events and tracks into EarthRanger; re-runs write nothing new. |
 | [`copy-event-type`](copy-event-type.md) | Copy one event type (and its v2 choice lists) from one ER site to another. |
 | [`validate-config`](validate-config.md) | Check that SMART and EarthRanger credentials work. |
 | [`list-cas`](list-cas.md) | List the conservation areas available on a SMART server. |

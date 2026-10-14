@@ -104,3 +104,6 @@ report all event types and choices as `unchanged` — the tool is idempotent.
 
 → [Workflows: Push a data model](../workflows/push-datamodel.md) — full
 procedure with diagrams.
+
+→ [Workflows: Migrate SMART patrols](../workflows/migrate-patrols.md) — if the
+site is moving its patrol history from SMART into EarthRanger.
