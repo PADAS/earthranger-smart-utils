@@ -5,7 +5,7 @@ Notable changes by version. Every release is also published to
 [GitHub Releases](https://github.com/PADAS/earthranger-smart-utils/releases),
 which carry the full commit-level history.
 
-## 0.6.0 — 2026-10-13
+## Unreleased
 
 ### Added
 
@@ -23,6 +23,10 @@ reactivated for the run and retired again. Exit 0, 1 when a patrol failed,
 gundi-dev.staging with SMART's demo bundle: 5 patrols, 141 events with the
 attachment, 232 track points; a re-run, and a re-run without the ledger,
 wrote nothing. See [import-patrols](cli-reference/import-patrols.md).
+
+## 0.6.0 — 2026-10-13
+
+### Added
 
 **`datamodel --bundle`.** With a smart-able migration bundle, parent or
 inactive SMART categories that the bundle's observations use also get an
