@@ -164,7 +164,16 @@ class ERPatrolAPI:
         return self._get_or_none(f"activity/event/{event_id}")
 
     def get_source(self, manufacturer_id: str) -> dict | None:
-        return self._get_or_none(f"source/{manufacturer_id}")
+        # source/<identifier> rejects ':' in a manufacturer id; use the list
+        page = self._get_or_none(
+            "sources",
+            manufacturer_id=manufacturer_id,
+            provider=SOURCE_PROVIDER,
+        )
+        return next(
+            (s for s in _results(page) if s.get("manufacturer_id") == manufacturer_id),
+            None,
+        )
 
     def collection_event_type(self) -> str | None:
         """ER's stock `incident_collection`, when active, for waypoints with

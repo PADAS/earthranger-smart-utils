@@ -352,3 +352,26 @@ def test_source_provider_created_only_when_missing():
             "additional": {},  # das: "This field is required."
         },
     )
+
+
+def test_source_lookup_uses_the_list_endpoint():
+    """das's source/<identifier> route rejects ':' so `smart:<uuid>` must be
+    found through sources?manufacturer_id=…&provider=…."""
+    c = _client()
+    c._get.return_value = {
+        "results": [
+            {
+                "id": "s1",
+                "manufacturer_id": "smart:abc",
+                "provider": "smart_patrol_import",
+            }
+        ]
+    }
+    assert ERPatrolAPI(c).get_source("smart:abc")["id"] == "s1"
+    c._get.assert_called_with(
+        path="sources",
+        params={"manufacturer_id": "smart:abc", "provider": "smart_patrol_import"},
+        max_retries=0,
+    )
+    c._get.return_value = {"results": []}
+    assert ERPatrolAPI(c).get_source("smart:abc") is None
