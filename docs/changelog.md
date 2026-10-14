@@ -20,6 +20,8 @@ the patrol types, universal fields, choices, six subjects on the roster and
 the team all passed; the run blocked only on the 27 observed categories with
 no event type (no data model had been pushed for the demo area), and warned
 about the inferred timezone.
+`patrol-datamodel` now finds a patrol type an admin deactivated and
+reactivates it, instead of trying to create a duplicate.
 See [patrol-preflight](cli-reference/patrol-preflight.md).
 
 

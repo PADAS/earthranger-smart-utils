@@ -62,7 +62,11 @@ class ERPatrolAPI:
         return bool(self.preview_features().get("patrol_schemas"))
 
     def get_patrol_type(self, value: str) -> dict | None:
-        return self._get_or_none(f"{PATROL_TYPES_PATH}/{value}")
+        # das hides inactive types unless asked; an inactive type must be found,
+        # not reported missing (that would invite a duplicate).
+        return self._get_or_none(
+            f"{PATROL_TYPES_PATH}/{value}", include_inactive="true"
+        )
 
     def get_segment_schema(self) -> dict | None:
         doc = self._get_or_none(SEGMENT_SCHEMA_PATH, include_schema="true")

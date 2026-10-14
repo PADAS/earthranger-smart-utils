@@ -172,14 +172,14 @@ Read-only. Checks, each a `Finding` with a `fix` string:
 | Code | Level | Check |
 | --- | --- | --- |
 | `feature_flag` | blocking | `GET status` reports `preview_features.patrol_schemas` on |
-| `permissions` | blocking | `GET user/me`: superuser, or add/change/view on `patrol`, view on `patrolconfiguration`, add on `eventrelatedsegments`, add/change on `event` (das has no dry-run patrol POST) |
-| `patrol_types` | blocking | every transport referenced by a leg in the bundle has its patrol type |
+| `permissions` | blocking | `GET user/me`: superuser, or add/change/view on `patrol` (das's `PatrolConfigurationPermission` also needs `view_patrol`), add on `eventrelatedsegments`, and add on each event category the resolved event types use (das checks `activity.<category>_create` per event; das has no dry-run patrol POST) |
+| `patrol_types` | blocking | every transport referenced by a leg in the bundle has an active patrol type (looked up with `include_inactive`) |
 | `segment_schema` | blocking | every canonical field is in the default segment schema |
 | `choices` | warning | every mandate, station, class and custom option used by a patrol exists as a choice |
 | `subjects` | blocking | every employee with a leg membership exists as a subject matched by `smart_member_id`, and every active one is on the roster das enforces (`GET patrols/config/default/resolved`); inactive subjects are handled by `inactive_members` |
 | `inactive_members` | warning | subjects for retired staff that segments will reference; the import reactivates them for the run. Blocking for a retired subject in no configured member group |
-| `teams` | blocking | every SMART team referenced by a patrol exists as a `PatrolConfigurationTeam` (matched by name) |
-| `event_types` | blocking | every category hkey used by an observation has an event type from the datamodel sync (`event_type_value_for`) |
+| `teams` | blocking | every SMART team referenced by a patrol exists and is active as a `PatrolConfigurationTeam` (matched by name in the configuration's full team list; `/resolved` omits inactive teams) |
+| `event_types` | blocking | every category hkey used by an observation has an event type from the datamodel sync (`event_type_value_for`), matched only in the value shapes that sync writes; split-mode configurable model variants get their own blocking finding |
 | `leg_span` | warning | legs with `placeholder_dates` (1970-01-01 start or more than a year of leg days); shows how many leg days will be clamped |
 | `time_coverage` | warning | leg days whose segment times will be whole days (`manifest.time_coverage.date_only > 0`); prints the coverage table |
 | `timezone` | warning | bundle timezone was inferred rather than configured |

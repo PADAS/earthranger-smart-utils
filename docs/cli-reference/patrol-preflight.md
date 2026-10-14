@@ -32,14 +32,14 @@ the other checks still run.
 | Code | Level | What it checks | Typical fix |
 | --- | --- | --- | --- |
 | `feature_flag` | blocking | the `patrol_schemas` preview feature is on (`GET status`) | enable it; the patrol-model checks below are skipped while it is off |
-| `permissions` | blocking | the operator has `add`/`change`/`view` on patrols, `view` on the patrol configuration, `add` on segment events and `add`/`change` on events (`GET user/me`; superusers pass) | grant them in Django admin |
-| `patrol_types` | blocking | every transport the legs use has its active patrol type | run `patrol-datamodel`, or reactivate the type |
+| `permissions` | blocking | the operator has `add`/`change`/`view` on patrols (this also covers reading the patrol configuration), `add` on segment events, and `add` on the event category of every event type the import uses, i.e. das's `<category>_create` (`GET user/me`; superusers pass) | grant them in Django admin |
+| `patrol_types` | blocking | every transport the legs use has its active patrol type (inactive types are looked up too, so they are reported as inactive, not missing) | run `patrol-datamodel`, or reactivate the type |
 | `segment_schema` | blocking | every universal patrol field is on the site and not deprecated | run `patrol-datamodel` |
 | `choices` | warning | every mandate, station, patrol class and custom option a patrol uses exists and is active | run `patrol-datamodel` |
 | `subjects` | blocking | every patrol member has a subject (matched by `smart_member_id`), and every active one is on the roster das enforces | run `patrol-datamodel --roster-group NAME`, or add them to a member group |
 | `inactive_members` | warning / blocking | retired members (inactive subjects); blocking only for those in no configured member group | see Retired staff |
-| `teams` | blocking | every team a patrol names exists and is active, matched by display or value | add the team under Patrol configuration > Teams |
-| `event_types` | blocking / warning | every SMART category with observations has exactly one active event type | push the data model, or pass `--event-type-prefix` |
+| `teams` | blocking | every team a patrol names exists and is active, matched by display or value against the patrol configuration's full team list | add the team under Patrol configuration > Teams |
+| `event_types` | blocking / warning | every SMART category with observations has exactly one active event type | push the data model, or pass `--event-type-prefix`; see Event types for the other causes |
 | `leg_span` | warning | legs with SMART's 1970-01-01 placeholder start | nothing; the import keeps only days with evidence |
 | `time_coverage` | warning | leg days whose segments will be whole days | nothing; recorded on the segment |
 | `timezone` | warning / blocking | the bundle's zone was inferred; blocking when `--timezone` disagrees | confirm with `smart.timezone`, or re-export |
@@ -72,7 +72,26 @@ case is blocking.
 with dots as underscores (`threats.charcoal.` → `threats_charcoal`). The
 prefix is `smart-ca-import` for `--from-file` pushes,
 `smart-ca-import_<cm uuid>` with a configurable model, and the SMART CA
-uuid for SMART Connect pushes. Preflight matches each observed category by
-that suffix. When a site holds more than one push for the same categories,
-the match is ambiguous; pass `--event-type-prefix` with the push to import
-against. The resolved mapping is what `import-patrols` will use.
+uuid for SMART Connect pushes. Preflight accepts only those shapes:
+`<prefix>_<category path>` with one of the prefixes above, or exactly
+`<--event-type-prefix>_<category path>` when the option is given. A longer
+path that happens to end the same way is never matched. When a site holds
+more than one push for the same categories, the match is ambiguous; pass
+`--event-type-prefix` with the push to import against. The resolved mapping
+is what `import-patrols` will use.
+
+A category with no matching event type is blocking. It has one of three
+causes:
+
+- The data model was not pushed, or was pushed with another prefix.
+- The category is a parent category, or is inactive in SMART. The data
+  model sync creates event types only for active leaf categories, so old
+  observations recorded against them have no type.
+- The operator cannot read the category. Non-superusers only see event
+  types of categories they have permission for.
+
+A configurable model pushed in split mode (the default) creates one event
+type per form variant: `<prefix>_<category path>_<form name>_<8 hex>`. A
+category present only that way gets its own blocking finding, because
+`import-patrols` cannot yet tell which variant an observation belongs to.
+Re-push with `--cm-variant-mode consolidate` and pass that push's prefix.

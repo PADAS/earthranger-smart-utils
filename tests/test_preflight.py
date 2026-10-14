@@ -217,7 +217,11 @@ class SiteFake:
         return (
             {
                 "members": [{"id": g} for g in self.groups],
-                "teams": self.resolved["teams"],
+                "teams": (
+                    self.config_teams
+                    if getattr(self, "config_teams", None) is not None
+                    else self.resolved["teams"]
+                ),
             }
             if self.flag
             else None
@@ -447,9 +451,7 @@ def test_ambiguous_event_types_need_a_prefix():
         {"value": f"smart-ca-import_{category_path(h)}", "is_active": True}
         for h in observed
     ]
-    ets.append(
-        {"value": f"0c7cbb41-1a60_{category_path(observed[0])}", "is_active": True}
-    )
+    ets.append({"value": f"{CM_UUID}_{category_path(observed[0])}", "is_active": True})
     (f,) = run_preflight(
         SiteFake(b, event_types=ets), b, checks=[check_event_types]
     ).findings
@@ -467,7 +469,7 @@ def test_ambiguous_event_types_need_a_prefix():
         ).findings
         == []
     )
-    chosen, ambiguous, unmatched = resolve_event_types(b, ets, "smart-ca-import")
+    chosen, ambiguous, unmatched, _ = resolve_event_types(b, ets, "smart-ca-import")
     assert (
         chosen[observed[0]] == f"smart-ca-import_{category_path(observed[0])}"
         and not ambiguous
@@ -533,3 +535,119 @@ def test_all_checks_are_read_only():
         )
     ]
     assert written == []
+
+
+# ── review fixes ─────────────────────────────────────────────────
+
+CM_UUID = "3b4cc64a-dcef-4422-9a44-00bce2a58901"
+
+
+def test_prefix_separates_file_and_cm_pushes():
+    b = load_bundle(FIXTURE)
+    observed = _observed(b)
+    ets = [
+        {"value": f"smart-ca-import_{category_path(h)}", "is_active": True}
+        for h in observed
+    ]
+    ets += [
+        {"value": f"smart-ca-import_{CM_UUID}_{category_path(h)}", "is_active": True}
+        for h in observed
+    ]
+    chosen, ambiguous, unmatched, _ = resolve_event_types(b, ets, None)
+    assert len(ambiguous) == len(observed) and not chosen
+    chosen, ambiguous, unmatched, _ = resolve_event_types(b, ets, "smart-ca-import")
+    assert not ambiguous and not unmatched
+    assert all(v == f"smart-ca-import_{category_path(h)}" for h, v in chosen.items())
+    chosen, ambiguous, unmatched, _ = resolve_event_types(
+        b, ets, f"smart-ca-import_{CM_UUID}"
+    )
+    assert not ambiguous and all(CM_UUID in v for v in chosen.values())
+
+
+def test_no_silent_pick_of_a_longer_path():
+    b = load_bundle(FIXTURE)
+    observed = _observed(b)
+    target = observed[0]  # e.g. animals.bushmeat.
+    others = [
+        {"value": f"smart-ca-import_{category_path(h)}", "is_active": True}
+        for h in observed[1:]
+    ]
+    wrong = {
+        "value": f"smart-ca-import_animals_{category_path(target)}",
+        "is_active": True,
+    }
+    chosen, ambiguous, unmatched, _ = resolve_event_types(b, others + [wrong], None)
+    assert target in unmatched and target not in chosen
+
+
+def test_split_variants_get_their_own_finding():
+    b = load_bundle(FIXTURE)
+    observed = _observed(b)
+    ets = [
+        {"value": f"smart-ca-import_{category_path(h)}", "is_active": True}
+        for h in observed[1:]
+    ]
+    ets.append(
+        {
+            "value": f"smart-ca-import_{CM_UUID}_{category_path(observed[0])}"
+            "_ranger_form_0a1b2c3d",
+            "is_active": True,
+        }
+    )
+    _, _, unmatched, variants = resolve_event_types(b, ets, None)
+    assert observed[0] in variants and observed[0] not in unmatched
+    findings = run_preflight(
+        SiteFake(b, event_types=ets), b, checks=[check_event_types]
+    ).findings
+    (f,) = findings
+    assert f.level == BLOCKING and "--cm-variant-mode consolidate" in f.fix
+
+
+def test_unmatched_fix_names_every_cause():
+    b = load_bundle(FIXTURE)
+    (f,) = run_preflight(
+        SiteFake(b, event_types=[]), b, checks=[check_event_types]
+    ).findings
+    assert "parent" in f.fix and "inactive" in f.fix and "category permission" in f.fix
+
+
+def test_permissions_follow_what_das_enforces():
+    b = load_bundle(FIXTURE)
+    observed = _observed(b)
+    ets = [
+        {
+            "value": f"smart-ca-import_{category_path(h)}",
+            "is_active": True,
+            "category": "smartdemo",
+        }
+        for h in observed
+    ]
+    me = {
+        "is_superuser": False,
+        "permissions": {
+            "patrol": ["add", "change", "view"],
+            "eventrelatedsegments": ["add"],
+            "smartdemo": ["add", "view"],
+        },
+    }
+    assert (
+        run_preflight(
+            SiteFake(b, me=me, event_types=ets), b, checks=[check_permissions]
+        ).findings
+        == []
+    )
+    me["permissions"].pop("smartdemo")
+    (f,) = run_preflight(
+        SiteFake(b, me=me, event_types=ets), b, checks=[check_permissions]
+    ).findings
+    assert f.examples == ["smartdemo: add (event category)"]
+
+
+def test_inactive_team_is_reported_as_inactive():
+    b = load_bundle(FIXTURE)
+    (req_uuid,) = b.patrol_team_uuids()
+    name = f"SMART team {req_uuid[:8]}"
+    site = SiteFake(b)
+    site.config_teams = [{"value": "t", "display": name, "is_active": False}]
+    (f,) = run_preflight(site, b, checks=[check_teams]).findings
+    assert "inactive" in f.examples[0]

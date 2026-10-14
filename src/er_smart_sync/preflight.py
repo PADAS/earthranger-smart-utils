@@ -6,6 +6,7 @@ finding names the patrols it affects so the importer can skip just those.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import asdict, dataclass, field
 
 from .bundle import Bundle
@@ -264,11 +265,14 @@ def run_preflight(
 
 # ── site checks ─────────────────────────────────────────────────
 
+# What das enforces, as user/me reports it: the patrol endpoints and the patrol
+# configuration need activity.*_patrol; linking an event to a segment needs
+# eventrelatedsegments. Creating an event is checked per event category
+# (activity.<category>_create, shown as "<category>": ["add"]); see
+# check_permissions.
 REQUIRED_PERMISSIONS = {
     "patrol": ("add", "change", "view"),
-    "patrolconfiguration": ("view",),
     "eventrelatedsegments": ("add",),
-    "event": ("add", "change"),
 }
 
 
@@ -307,6 +311,11 @@ def check_permissions(ctx: PreflightContext) -> list:
         for action in actions
         if action not in (have.get(model) or [])
     ]
+    missing += [
+        f"{cat}: add (event category)"
+        for cat in sorted(_event_categories(ctx))
+        if "add" not in (have.get(cat) or [])
+    ]
     if not missing:
         return []
     return [
@@ -315,7 +324,8 @@ def check_permissions(ctx: PreflightContext) -> list:
             BLOCKING,
             f"the operator lacks {len(missing)} permission(s) the import needs",
             "Django admin > Users > the operator: grant each permission listed (app "
-            "`activity`).",
+            "`activity`; an event category's add is its <category>_create "
+            "permission, usually granted through a permission set).",
             missing,
             affected=[p["uuid"] for p in ctx.bundle.patrols],
         )
@@ -607,7 +617,9 @@ def check_inactive_members(ctx: PreflightContext) -> list:
 def check_teams(ctx: PreflightContext) -> list:
     if not flag_on(ctx):
         return []
-    teams = _resolved(ctx).get("teams") or []
+    # The configuration lists every team with is_active; /resolved drops the
+    # inactive ones, which would report them as missing.
+    teams = (ctx.once("config", ctx.api.get_patrol_config) or {}).get("teams") or []
     names = {}
     for t in teams:
         for k in ("display", "value"):
@@ -679,32 +691,74 @@ def _observed_categories(bundle: Bundle) -> dict:
     return out
 
 
+_UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+# The prefixes the data model sync writes: smart-ca-import (--from-file) or the
+# CA uuid (Connect), optionally followed by a configurable model uuid.
+_KNOWN_PREFIX = rf"(?:smart-ca-import|{_UUID})(?:_{_UUID})?"
+# A configurable model in split mode appends _<display slug>_<8 hex> per variant.
+_VARIANT_TAIL = r"_.+_[0-9a-f]{8}"
+
+
 def resolve_event_types(bundle: Bundle, event_types: list, prefix: str | None):
+    """Map each observed category hkey to one active event type.
+
+    Returns (chosen, ambiguous, unmatched, variants): chosen {hkey: value};
+    ambiguous {hkey: [values]}; unmatched [hkey]; variants {hkey: [values]}
+    for categories present only as split-mode configurable model variants.
+    Only the value shapes the data model sync writes are accepted, so a
+    longer path that happens to end the same way is never picked.
+    """
     active = [
-        e["value"] for e in event_types if e.get("value") and e.get("is_active", True)
+        e["value"].lower()
+        for e in event_types
+        if e.get("value") and e.get("is_active", True)
     ]
-    chosen, ambiguous, unmatched = {}, {}, []
+    head = re.escape(prefix.lower()) if prefix else _KNOWN_PREFIX
+    chosen, ambiguous, unmatched, variants = {}, {}, [], {}
     for hkey in sorted(_observed_categories(bundle)):
-        suffix = "_" + category_path(hkey)
-        candidates = [v for v in active if v.lower().endswith(suffix)]
-        if prefix:
-            candidates = [
-                v for v in candidates if v.lower().startswith(prefix.lower() + "_")
-            ]
+        path = re.escape(category_path(hkey))
+        exact = re.compile(rf"^{head}_{path}$")
+        variant = re.compile(rf"^{head}_{path}{_VARIANT_TAIL}$")
+        candidates = sorted(v for v in active if exact.match(v))
         if len(candidates) == 1:
             chosen[hkey] = candidates[0]
         elif candidates:
-            ambiguous[hkey] = sorted(candidates)
+            ambiguous[hkey] = candidates
         else:
-            unmatched.append(hkey)
-    return chosen, ambiguous, unmatched
+            split = sorted(v for v in active if variant.match(v))
+            if split:
+                variants[hkey] = split
+            else:
+                unmatched.append(hkey)
+    return chosen, ambiguous, unmatched, variants
+
+
+def _event_categories(ctx: PreflightContext) -> set:
+    """The ER event categories of the event types the import will use."""
+    ets = ctx.once(
+        "event_types", lambda: ctx.api.list_event_types(ctx.event_type_version)
+    )
+    chosen, ambiguous, _, variants = resolve_event_types(
+        ctx.bundle, ets, ctx.event_type_prefix
+    )
+    used = set(chosen.values())
+    for vs in list(ambiguous.values()) + list(variants.values()):
+        used |= set(vs)
+    out = set()
+    for e in ets:
+        if (e.get("value") or "").lower() in used:
+            cat = e.get("category")
+            cat = cat.get("value") if isinstance(cat, dict) else cat
+            if cat:
+                out.add(cat)
+    return out
 
 
 def check_event_types(ctx: PreflightContext) -> list:
     ets = ctx.once(
         "event_types", lambda: ctx.api.list_event_types(ctx.event_type_version)
     )
-    chosen, ambiguous, unmatched = resolve_event_types(
+    chosen, ambiguous, unmatched, variants = resolve_event_types(
         ctx.bundle, ets, ctx.event_type_prefix
     )
     ctx.cache["event_types_map"] = chosen
@@ -718,11 +772,15 @@ def check_event_types(ctx: PreflightContext) -> list:
                 f"{len(unmatched)} observed SMART categor(ies) have no active event "
                 "type "
                 "on the site",
-                "Push the data model first: er-smart-sync datamodel --from-file "
-                "<ca>/datamodel.xml "
+                "Each has one of these causes. (1) The data model was not pushed: "
+                "er-smart-sync datamodel --from-file <ca>/datamodel.xml "
                 "[--cm-from-file <ca>/configurable_model_<uuid>.xml] --ca-identifier "
-                "<ID>. "
-                "With --event-type-prefix set, check the prefix is the one that push "
+                "<ID>. (2) It is a parent category, or one that is inactive in "
+                "SMART: the sync creates event types only for active leaf "
+                "categories, so these old observations have no type. (3) The "
+                "operator lacks the category permission to read its event types: "
+                "non-superusers only see event types of categories they can read. "
+                "With --event-type-prefix set, also check it is the prefix that push "
                 "used.",
                 unmatched,
                 affected=set().union(*[used[h] for h in unmatched]),
@@ -744,6 +802,21 @@ def check_event_types(ctx: PreflightContext) -> list:
                 "SMART CA uuid for Connect.",
                 [f"{h}: {', '.join(c)}" for h, c in sorted(ambiguous.items())],
                 affected=set().union(*[used[h] for h in ambiguous]),
+            )
+        )
+    if variants:
+        out.append(
+            Finding.of(
+                "event_types",
+                BLOCKING,
+                f"{len(variants)} observed categor(ies) exist only as configurable "
+                "model variants (one event type per form)",
+                "import-patrols cannot yet tell which variant an observation "
+                "belongs to. Re-push the data model with --cm-variant-mode "
+                "consolidate so each category also has one event type, then pass "
+                "--event-type-prefix for that push.",
+                [f"{h}: {', '.join(v)}" for h, v in sorted(variants.items())],
+                affected=set().union(*[used[h] for h in variants]),
             )
         )
     return out
