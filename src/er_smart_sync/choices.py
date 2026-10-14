@@ -305,6 +305,7 @@ def build_choice_sets(
             leaf_attrs.extend(_inherited_attributes(cats, (cat.path or "").split(".")))
         for cat_attr in leaf_attrs:
             attr_keys.setdefault(cat_attr.key, None)
+    historical_attr_keys: set[str] = set()
     if cm and observed:
         covered = {_norm_path(c.hkeyPath or c.path) for c in cats}
         dm_cats = parse_obj_as(list[Category], dm.get("categories") or [])
@@ -314,6 +315,7 @@ def build_choice_sets(
                     dm_cats, (cat.path or "").split(".")
                 ):
                     attr_keys.setdefault(cat_attr.key, None)
+                    historical_attr_keys.add(cat_attr.key)
 
     result: list[ChoiceSet] = []
     for key in attr_keys:
@@ -322,6 +324,7 @@ def build_choice_sets(
             attributes=attributes,
             attribute_configs=attribute_configs,
             field=derive_shared_choice_field(scope_key, key),
+            preserve_omitted=key in historical_attr_keys,
         )
         if cs is not None:
             result.append(cs)
@@ -362,6 +365,7 @@ def _choice_set_for_attr(
     attributes: list[Attribute],
     attribute_configs: list | None,
     field: str,
+    preserve_omitted: bool = False,
 ) -> ChoiceSet | None:
     """Build the ChoiceSet for one attribute key, or None if it bears no choices."""
     attribute = next((a for a in attributes if a.key == key), None)
@@ -389,6 +393,26 @@ def _choice_set_for_attr(
             )
             for o in options
         )
+
+    if options_cfg is not None and preserve_omitted:
+        # Historical categories outside the CM can use values that its curated
+        # forms omit. Keep those values resolvable without offering them in the
+        # shared dropdown for new reports. Explicit CM activity flags still win.
+        seen = {o.value for o in choice_options}
+        historical_options = (
+            _leaf_options(options) if attribute.type == "TREE" else options
+        )
+        for option in historical_options:
+            value = _shorten_value(sanitize_choice_value(option.key))
+            if value not in seen:
+                choice_options += (
+                    ChoiceOption(
+                        value=value,
+                        display=_shorten_display(option.display),
+                        is_active=False,
+                    ),
+                )
+                seen.add(value)
 
     if not choice_options:
         return None

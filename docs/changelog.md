@@ -19,6 +19,10 @@ bundle: `animals.sign.` (a parent) and `humanactivity.rocksminerals.`
 are pushed with them. A category with no attributes gets a schema with no
 fields. With `--cm-from-file`, observed data model categories the
 configurable model lacks get inactive types under the model's prefix.
+Choice options those historical categories need but the configurable model
+omits are retained as inactive entries, including when the model's option
+list is empty. They resolve historical values without widening the active
+dropdowns.
 
 **`patrol-datamodel`.** From a smart-able migration bundle, creates or
 updates the ER patrol types (one per SMART transport), the universal patrol
