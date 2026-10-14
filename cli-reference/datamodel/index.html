@@ -1754,6 +1754,11 @@
 <td>Skip the choices upsert phase (v2 only). Use if <code>er-smart-sync choices</code> was run separately.</td>
 </tr>
 <tr>
+<td><code>--bundle DIR</code></td>
+<td>none</td>
+<td>A smart-able migration bundle (v2 only). A parent or inactive SMART category gets no event type, since SMART records new observations only against active leaf categories. Old patrols can still hold observations against one, for example from before the category had sub-categories or was retired. With <code>--bundle</code>, each such category that the bundle's observations use gets an event type, created inactive, with the category's own and inherited attributes. Events can be imported against it, but it is not offered for new reports. Its choice lists are pushed too. A category with no attributes at all gets a schema with no fields. With <code>--cm-from-file</code>, each observed data model category the configurable model lacks gets such an inactive type under the configurable model's prefix.</td>
+</tr>
+<tr>
 <td><code>--no-migrate-legacy-v1</code></td>
 <td>off</td>
 <td>Do not convert colliding v1 event types via ER's migrate endpoint before pushing (v2 only). By default they are migrated in place so historical events stay attached.</td>
@@ -1849,6 +1854,18 @@
 <a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">  </span>--ca-identifier<span class="w"> </span>JKPERU<span class="w"> </span><span class="se">\</span>
 <a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">  </span>--event-type-version<span class="w"> </span>v1
 </code></pre></div>
+<p><strong>With a patrol migration bundle</strong> (adds inactive event types for parent or
+inactive categories the bundle's observations use):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>er-smart-sync<span class="w"> </span>datamodel<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span>--config<span class="w"> </span>sync.yaml<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span>--from-file<span class="w"> </span>work/export/&lt;ca_id&gt;/datamodel.xml<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">  </span>--ca-identifier<span class="w"> </span>JKPERU<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">  </span>--bundle<span class="w"> </span>work/export/&lt;ca_id&gt;/bundle
+</code></pre></div>
+<p>To remove them later, delete or deactivate the event types in EarthRanger
+admin &gt; Event types; they belong to the CA's event category and have the
+category's own path in their value (for example
+<code>smart-ca-import_animals_sign</code>).</p>
 <h2 id="summary-stats">Summary stats<a class="headerlink" href="#summary-stats" title="Permanent link">&para;</a></h2>
 <p>Printed at the end of every run. See
 <a href="../../workflows/push-datamodel/#reading-the-summary">Push a data model — Reading the summary</a>.</p>

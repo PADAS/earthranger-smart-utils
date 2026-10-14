@@ -1544,8 +1544,10 @@ readiness check and the history import follow in later releases.</p>
    <code>work/export/&lt;ca_id&gt;/datamodel.xml</code>, the configurable models and
    <code>work/export/&lt;ca_id&gt;/bundle/</code>.</li>
 <li>Push the event data model:
-   <code>er-smart-sync datamodel --from-file work/export/&lt;ca_id&gt;/datamodel.xml --cm-from-file work/export/&lt;ca_id&gt;/configurable_model_&lt;uuid&gt;.xml --ca-identifier &lt;ID&gt; ...</code>
-   (see <a href="../push-datamodel/">Push a data model</a>).</li>
+   <code>er-smart-sync datamodel --from-file work/export/&lt;ca_id&gt;/datamodel.xml --cm-from-file work/export/&lt;ca_id&gt;/configurable_model_&lt;uuid&gt;.xml --ca-identifier &lt;ID&gt; --bundle work/export/&lt;ca_id&gt;/bundle ...</code>
+   (see <a href="../push-datamodel/">Push a data model</a>). <code>--bundle</code> also creates
+   inactive event types for parent or inactive SMART categories that old
+   observations use, so <code>import-patrols</code> has a type for every observation.</li>
 <li>Pick the label language in smart-able's Data Model tab and note the
    timezone the bundle was written for (<code>manifest.json</code>); set
    <code>smart.use_language_code</code> and <code>smart.timezone</code> in <code>sync.yaml</code>, and
