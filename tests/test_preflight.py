@@ -477,19 +477,6 @@ def test_ambiguous_event_types_need_a_prefix():
     )
 
 
-def test_inactive_event_types_do_not_count():
-    b = load_bundle(FIXTURE)
-    observed = _observed(b)
-    ets = [
-        {"value": f"smart-ca-import_{category_path(h)}", "is_active": h != observed[0]}
-        for h in observed
-    ]
-    (f,) = run_preflight(
-        SiteFake(b, event_types=ets), b, checks=[check_event_types]
-    ).findings
-    assert f.level == BLOCKING and f.count == 1
-
-
 from er_smart_sync.preflight import ALL_CHECKS, render_json, render_text  # noqa: E402
 
 
@@ -651,3 +638,35 @@ def test_inactive_team_is_reported_as_inactive():
     site.config_teams = [{"value": "t", "display": name, "is_active": False}]
     (f,) = run_preflight(site, b, checks=[check_teams]).findings
     assert "inactive" in f.examples[0]
+
+
+def test_inactive_event_type_resolves_with_a_warning():
+    """datamodel --bundle creates inactive types for parent or retired
+    categories; das accepts events against them."""
+    b = load_bundle(FIXTURE)
+    observed = _observed(b)
+    ets = [
+        {"value": f"smart-ca-import_{category_path(h)}", "is_active": True}
+        for h in observed[1:]
+    ]
+    ets.append(
+        {"value": f"smart-ca-import_{category_path(observed[0])}", "is_active": False}
+    )
+    chosen, ambiguous, unmatched, _ = resolve_event_types(b, ets, None)
+    assert chosen[observed[0]] == f"smart-ca-import_{category_path(observed[0])}"
+    (f,) = run_preflight(
+        SiteFake(b, event_types=ets), b, checks=[check_event_types]
+    ).findings
+    assert f.level == WARNING and observed[0] in f.examples[0]
+
+
+def test_active_event_type_wins_over_inactive():
+    b = load_bundle(FIXTURE)
+    observed = _observed(b)
+    ets = [
+        {"value": f"smart-ca-import_{category_path(h)}", "is_active": True}
+        for h in observed
+    ]
+    ets.append({"value": f"{CM_UUID}_{category_path(observed[0])}", "is_active": False})
+    chosen, ambiguous, _, _ = resolve_event_types(b, ets, None)
+    assert not ambiguous and chosen[observed[0]].startswith("smart-ca-import_")

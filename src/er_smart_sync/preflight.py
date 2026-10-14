@@ -700,7 +700,10 @@ _VARIANT_TAIL = r"_.+_[0-9a-f]{8}"
 
 
 def resolve_event_types(bundle: Bundle, event_types: list, prefix: str | None):
-    """Map each observed category hkey to one active event type.
+    """Map each observed category hkey to one event type, preferring active
+    ones; an inactive match is used when no active one exists (datamodel
+    --bundle creates those for parent or retired categories, and das accepts
+    events against them).
 
     Returns (chosen, ambiguous, unmatched, variants): chosen {hkey: value};
     ambiguous {hkey: [values]}; unmatched [hkey]; variants {hkey: [values]}
@@ -713,13 +716,20 @@ def resolve_event_types(bundle: Bundle, event_types: list, prefix: str | None):
         for e in event_types
         if e.get("value") and e.get("is_active", True)
     ]
+    inactive = [
+        e["value"].lower()
+        for e in event_types
+        if e.get("value") and not e.get("is_active", True)
+    ]
     head = re.escape(prefix.lower()) if prefix else _KNOWN_PREFIX
     chosen, ambiguous, unmatched, variants = {}, {}, [], {}
     for hkey in sorted(_observed_categories(bundle)):
         path = re.escape(category_path(hkey))
         exact = re.compile(rf"^{head}_{path}$")
         variant = re.compile(rf"^{head}_{path}{_VARIANT_TAIL}$")
-        candidates = sorted(v for v in active if exact.match(v))
+        candidates = sorted(v for v in active if exact.match(v)) or sorted(
+            v for v in inactive if exact.match(v)
+        )
         if len(candidates) == 1:
             chosen[hkey] = candidates[0]
         elif candidates:
@@ -776,8 +786,9 @@ def check_event_types(ctx: PreflightContext) -> list:
                 "er-smart-sync datamodel --from-file <ca>/datamodel.xml "
                 "[--cm-from-file <ca>/configurable_model_<uuid>.xml] --ca-identifier "
                 "<ID>. (2) It is a parent category, or one that is inactive in "
-                "SMART: the sync creates event types only for active leaf "
-                "categories, so these old observations have no type. (3) The "
+                "SMART: the sync skips those unless given the bundle, so re-run "
+                "datamodel with --bundle <bundle dir> to create them inactive. "
+                "(3) The "
                 "operator lacks the category permission to read its event types: "
                 "non-superusers only see event types of categories they can read. "
                 "With --event-type-prefix set, also check it is the prefix that push "
@@ -802,6 +813,26 @@ def check_event_types(ctx: PreflightContext) -> list:
                 "SMART CA uuid for Connect.",
                 [f"{h}: {', '.join(c)}" for h, c in sorted(ambiguous.items())],
                 affected=set().union(*[used[h] for h in ambiguous]),
+            )
+        )
+    inactive = {
+        e["value"].lower()
+        for e in ets
+        if e.get("value") and not e.get("is_active", True)
+    }
+    retired = {h: v for h, v in chosen.items() if v in inactive}
+    if retired:
+        out.append(
+            Finding.of(
+                "event_types",
+                WARNING,
+                f"{len(retired)} observed categor(ies) map to an inactive event "
+                "type (a SMART parent or retired category)",
+                "Nothing to do: their events import against the inactive type, "
+                "which ER does not offer for new reports. Activate the type in "
+                "EarthRanger admin > Event types if rangers should keep using it.",
+                [f"{h}: {v}" for h, v in sorted(retired.items())],
+                affected=set().union(*[used[h] for h in retired]),
             )
         )
     if variants:

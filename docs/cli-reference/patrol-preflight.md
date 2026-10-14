@@ -39,7 +39,7 @@ the other checks still run.
 | `subjects` | blocking | every patrol member has a subject (matched by `smart_member_id`), and every active one is on the roster das enforces | run `patrol-datamodel --roster-group NAME`, or add them to a member group |
 | `inactive_members` | warning / blocking | retired members (inactive subjects); blocking only for those in no configured member group | see Retired staff |
 | `teams` | blocking | every team a patrol names exists and is active, matched by display or value against the patrol configuration's full team list | add the team under Patrol configuration > Teams |
-| `event_types` | blocking / warning | every SMART category with observations has exactly one active event type | push the data model, or pass `--event-type-prefix`; see Event types for the other causes |
+| `event_types` | blocking / warning | every SMART category with observations has exactly one event type, active preferred; an inactive match is a warning | push the data model, or pass `--event-type-prefix`; see Event types for the other causes |
 | `leg_span` | warning | legs with SMART's 1970-01-01 placeholder start | nothing; the import keeps only days with evidence |
 | `time_coverage` | warning | leg days whose segments will be whole days | nothing; recorded on the segment |
 | `timezone` | warning / blocking | the bundle's zone was inferred; blocking when `--timezone` disagrees | confirm with `smart.timezone`, or re-export |
@@ -85,8 +85,10 @@ causes:
 
 - The data model was not pushed, or was pushed with another prefix.
 - The category is a parent category, or is inactive in SMART. The data
-  model sync creates event types only for active leaf categories, so old
-  observations recorded against them have no type.
+  model sync skips those unless it is given the bundle: re-run
+  `er-smart-sync datamodel ... --bundle <bundle dir>` to create them as
+  inactive event types. Preflight then matches them, with a warning, and
+  `import-patrols` imports those observations against them.
 - The operator cannot read the category. Non-superusers only see event
   types of categories they have permission for.
 
