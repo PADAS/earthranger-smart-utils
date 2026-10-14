@@ -83,6 +83,8 @@ class EarthRangerConfig(pydantic.BaseModel):
     # the values about to be written via ER's migrate endpoint first.
     migrate_legacy_v1: bool = True
     choices_base_url: str = "/api/v2.0/schemas"
+    # import-patrols id namespace; set only for a site pre-seeded under another
+    patrol_namespace: str | None = None
 
     @pydantic.validator("endpoint")
     def _normalize_endpoint(cls, v):
