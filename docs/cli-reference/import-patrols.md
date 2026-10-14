@@ -50,6 +50,7 @@ Exit status:
   - the universal patrol fields `patrol-datamodel` set up.
 - `segment_details.smart_` records where the segment came from: the patrol and leg uuids and ids, the conservation area, the bundle's date, the importer version, and `time_source`.
 - `time_source` maps each leg day to where its times came from: `track`, `leg_day_times`, `waypoints`, `date_only` or `placeholder` (see smart-able's `quirks.html#patrol-times`).
+- A leg day whose recorded times are exactly 00:00 to 23:59:59 counts as having no times. SMART stores that when nobody entered times, so the track, then the waypoints, set that day's range instead.
 - ER marks a patrol whose segments all end in the past as done.
 
 **Events.**

@@ -289,7 +289,9 @@ precise source it has, in this order:
    point, end = last point.
 2. **Leg-day start and end times.** `patrol_leg_day.start_time`/`end_time`,
    local wall-clock, already anchored to the bundle timezone as `days[].start`
-   and `days[].end`. Used when there is no timed track.
+   and `days[].end`. Used when there is no timed track. A leg day stored
+   as exactly 00:00 to 23:59:59 counts as unset (SMART's default when
+   nobody entered times), so the track or the waypoints decide its range.
 3. **Waypoint times.** The earliest and latest `waypoints[].time` on that leg
    day. Used when the leg day has neither a track nor start/end times; it
    bounds the activity even though the day started before the first
