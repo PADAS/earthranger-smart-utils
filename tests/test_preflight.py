@@ -382,3 +382,107 @@ def test_teams():
     assert set(f.affected_patrols) == {
         p["uuid"] for p in b.patrols if p.get("team_uuid")
     }
+
+
+from er_smart_sync.preflight import (  # noqa: E402
+    category_path,
+    check_event_types,
+    resolve_event_types,
+)
+
+
+def _observed(b):
+    return sorted(
+        {
+            o["category_hkey"]
+            for p in b.patrols
+            for leg in p["legs"]
+            for w in leg["waypoints"]
+            for g in w["observation_groups"]
+            for o in g["observations"]
+        }
+    )
+
+
+def test_category_path():
+    assert category_path("threats.charcoal.") == "threats_charcoal"
+    assert category_path("Animals.LiveAnimals") == "animals_liveanimals"
+
+
+def test_event_types_all_present_and_map_kept():
+    b = load_bundle(FIXTURE)
+    ets = [
+        {"value": f"smart-ca-import_{category_path(h)}", "is_active": True}
+        for h in _observed(b)
+    ]
+    ctx_report = run_preflight(
+        SiteFake(b, event_types=ets), b, checks=[check_event_types]
+    )
+    assert ctx_report.findings == []
+
+
+def test_missing_event_types_block_the_patrols_that_use_them():
+    b = load_bundle(FIXTURE)
+    observed = _observed(b)
+    ets = [
+        {"value": f"smart-ca-import_{category_path(h)}", "is_active": True}
+        for h in observed[1:]
+    ]
+    (f,) = run_preflight(
+        SiteFake(b, event_types=ets), b, checks=[check_event_types]
+    ).findings
+    assert (
+        f.code == "event_types"
+        and f.level == BLOCKING
+        and f.count == 1
+        and observed[0] in f.examples[0]
+    )
+    assert f.affected_patrols and all(isinstance(p, str) for p in f.affected_patrols)
+
+
+def test_ambiguous_event_types_need_a_prefix():
+    b = load_bundle(FIXTURE)
+    observed = _observed(b)
+    ets = [
+        {"value": f"smart-ca-import_{category_path(h)}", "is_active": True}
+        for h in observed
+    ]
+    ets.append(
+        {"value": f"0c7cbb41-1a60_{category_path(observed[0])}", "is_active": True}
+    )
+    (f,) = run_preflight(
+        SiteFake(b, event_types=ets), b, checks=[check_event_types]
+    ).findings
+    assert (
+        f.code == "event_types"
+        and f.level == WARNING
+        and "--event-type-prefix" in f.fix
+    )
+    assert (
+        run_preflight(
+            SiteFake(b, event_types=ets),
+            b,
+            event_type_prefix="smart-ca-import",
+            checks=[check_event_types],
+        ).findings
+        == []
+    )
+    chosen, ambiguous, unmatched = resolve_event_types(b, ets, "smart-ca-import")
+    assert (
+        chosen[observed[0]] == f"smart-ca-import_{category_path(observed[0])}"
+        and not ambiguous
+        and not unmatched
+    )
+
+
+def test_inactive_event_types_do_not_count():
+    b = load_bundle(FIXTURE)
+    observed = _observed(b)
+    ets = [
+        {"value": f"smart-ca-import_{category_path(h)}", "is_active": h != observed[0]}
+        for h in observed
+    ]
+    (f,) = run_preflight(
+        SiteFake(b, event_types=ets), b, checks=[check_event_types]
+    ).findings
+    assert f.level == BLOCKING and f.count == 1

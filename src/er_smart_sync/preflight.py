@@ -658,3 +658,110 @@ ALL_CHECKS = [
     check_language,
     check_bundle_warnings,
 ]
+
+
+def category_path(hkey: str) -> str:
+    """The part of an event-type value that names the SMART category: the
+    hkey without its trailing dot, dots as underscores, lower-case (the rule
+    in choices.event_type_value_for)."""
+    return hkey.strip(".").replace(".", "_").lower()
+
+
+def _observed_categories(bundle: Bundle) -> dict:
+    out: dict = {}
+    for p in bundle.patrols:
+        for leg in p["legs"]:
+            for w in leg["waypoints"]:
+                for g in w["observation_groups"]:
+                    for o in g["observations"]:
+                        if o.get("category_hkey"):
+                            out.setdefault(o["category_hkey"], set()).add(p["uuid"])
+    return out
+
+
+def resolve_event_types(bundle: Bundle, event_types: list, prefix: str | None):
+    active = [
+        e["value"] for e in event_types if e.get("value") and e.get("is_active", True)
+    ]
+    chosen, ambiguous, unmatched = {}, {}, []
+    for hkey in sorted(_observed_categories(bundle)):
+        suffix = "_" + category_path(hkey)
+        candidates = [v for v in active if v.lower().endswith(suffix)]
+        if prefix:
+            candidates = [
+                v for v in candidates if v.lower().startswith(prefix.lower() + "_")
+            ]
+        if len(candidates) == 1:
+            chosen[hkey] = candidates[0]
+        elif candidates:
+            ambiguous[hkey] = sorted(candidates)
+        else:
+            unmatched.append(hkey)
+    return chosen, ambiguous, unmatched
+
+
+def check_event_types(ctx: PreflightContext) -> list:
+    ets = ctx.once(
+        "event_types", lambda: ctx.api.list_event_types(ctx.event_type_version)
+    )
+    chosen, ambiguous, unmatched = resolve_event_types(
+        ctx.bundle, ets, ctx.event_type_prefix
+    )
+    ctx.cache["event_types_map"] = chosen
+    used = _observed_categories(ctx.bundle)
+    out = []
+    if unmatched:
+        out.append(
+            Finding.of(
+                "event_types",
+                BLOCKING,
+                f"{len(unmatched)} observed SMART categor(ies) have no active event "
+                "type "
+                "on the site",
+                "Push the data model first: er-smart-sync datamodel --from-file "
+                "<ca>/datamodel.xml "
+                "[--cm-from-file <ca>/configurable_model_<uuid>.xml] --ca-identifier "
+                "<ID>. "
+                "With --event-type-prefix set, check the prefix is the one that push "
+                "used.",
+                unmatched,
+                affected=set().union(*[used[h] for h in unmatched]),
+            )
+        )
+    if ambiguous:
+        out.append(
+            Finding.of(
+                "event_types",
+                WARNING,
+                f"{len(ambiguous)} categor(ies) match more than one event type "
+                "(several "
+                "data model pushes on this site)",
+                "Pass --event-type-prefix with the prefix of the push to import "
+                "against: "
+                "smart-ca-import for "
+                "--from-file, smart-ca-import_<cm uuid> with a configurable model, or "
+                "the "
+                "SMART CA uuid for Connect.",
+                [f"{h}: {', '.join(c)}" for h, c in sorted(ambiguous.items())],
+                affected=set().union(*[used[h] for h in ambiguous]),
+            )
+        )
+    return out
+
+
+ALL_CHECKS = [
+    check_feature_flag,
+    check_permissions,
+    check_patrol_types,
+    check_segment_schema,
+    check_choices,
+    check_subjects,
+    check_inactive_members,
+    check_teams,
+    check_event_types,
+    check_leg_span,
+    check_time_coverage,
+    check_timezone,
+    check_language,
+    check_bundle_warnings,
+]
