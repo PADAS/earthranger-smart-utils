@@ -1059,6 +1059,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../cli-reference/patrol-preflight/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    patrol-preflight
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../cli-reference/copy-event-type/" class="md-nav__link">
         
   
@@ -2001,6 +2029,22 @@
 which carry the full commit-level history.</p>
 <h2 id="unreleased">Unreleased<a class="headerlink" href="#unreleased" title="Permanent link">&para;</a></h2>
 <h3 id="added">Added<a class="headerlink" href="#added" title="Permanent link">&para;</a></h3>
+<p><strong><code>patrol-preflight</code>.</strong> A read-only check that an EarthRanger site is ready
+for a smart-able bundle's patrols: the patrol_schemas flag, operator
+permissions, patrol types, universal patrol fields, choices, subjects on the
+roster das enforces, retired members, teams and event types, plus the
+bundle's own warnings. Text or <code>--json</code>; exit 0, 2 when something blocks, 1
+on error. Each blocking finding names the patrols it affects (ERA-14138).
+Verified against gundi-dev.staging with SMART's demo bundle. The patrol
+types, universal fields, choices, six subjects on the roster and the team
+all passed. After the demo data model was pushed with <code>datamodel --bundle</code>,
+the two observed categories SMART keeps no event type for (<code>animals.sign.</code>,
+a parent, and <code>humanactivity.rocksminerals.</code>, retired) matched their
+inactive event types with a warning; the run exited 0, with a second
+warning for the inferred timezone.
+<code>patrol-datamodel</code> now finds a patrol type an admin deactivated and
+reactivates it, instead of trying to create a duplicate.
+See <a href="../cli-reference/patrol-preflight/">patrol-preflight</a>.</p>
 <p><strong><code>patrol-datamodel</code>.</strong> From a smart-able migration bundle, creates or
 updates the ER patrol types (one per SMART transport), the universal patrol
 fields and their choices, and the ranger subjects, then writes an admin

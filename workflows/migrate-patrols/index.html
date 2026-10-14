@@ -1074,6 +1074,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../cli-reference/patrol-preflight/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    patrol-preflight
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../cli-reference/copy-event-type/" class="md-nav__link">
         
   
@@ -1532,7 +1560,10 @@ readiness check and the history import follow in later releases.</p>
    if it is off (then re-run step 4 so the universal patrol fields are
    written), create the teams it lists, and put the subjects in the roster
    group if the tool could not.</li>
-<li><code>patrol-preflight</code> and <code>import-patrols</code> follow in later releases.</li>
+<li>Run <code>er-smart-sync patrol-preflight --config sync.yaml</code> and fix what it
+   reports until it shows no blocking findings. See
+   <a href="../../cli-reference/patrol-preflight/">patrol-preflight</a>.</li>
+<li><code>import-patrols</code> follows in a later release.</li>
 </ol>
 <p>The universal patrol fields need the <code>patrol_schemas</code> preview feature; on a
 site where it is off the command still writes the patrol types, choices and
