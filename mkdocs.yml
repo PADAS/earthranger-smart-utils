@@ -87,6 +87,7 @@ nav:
     - events: cli-reference/events.md
     - patrols: cli-reference/patrols.md
     - patrol-datamodel: cli-reference/patrol-datamodel.md
+    - patrol-preflight: cli-reference/patrol-preflight.md
     - copy-event-type: cli-reference/copy-event-type.md
     - validate-config: cli-reference/validate-config.md
     - list-cas: cli-reference/list-cas.md

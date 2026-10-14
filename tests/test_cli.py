@@ -1,3 +1,4 @@
+import json
 from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
@@ -2453,3 +2454,60 @@ def test_patrol_datamodel_writes_a_run_record_only_for_real_runs(tmp_path):
         assert len(records) == (0 if dry else 1)
     assert json.loads(records[0].read_text())["changes"] == changes
     assert "Run record" in result.output
+
+
+def test_patrol_preflight_exit_codes_and_json(tmp_path):
+    from er_smart_sync.preflight import BLOCKING, Finding, PreflightReport
+
+    def report(findings):
+        return PreflightReport(
+            findings=findings,
+            context={
+                "conservation_area": {"id": "SMART", "name": "Demo"},
+                "patrols": 5,
+            },
+        )
+
+    args = [
+        "patrol-preflight",
+        "--bundle",
+        str(_pd_fixture()),
+        "--er-endpoint",
+        "x.pamdas.org",
+        "--er-token",
+        "t",
+    ]
+    with (
+        patch("er_smart_sync.cli._make_er_client", return_value=MagicMock()),
+        patch("er_smart_sync.cli.run_preflight", return_value=report([])) as run,
+    ):
+        ok = CliRunner().invoke(main, args + ["--event-type-prefix", "smart-ca-import"])
+    assert ok.exit_code == 0, ok.output
+    assert "All clear" in ok.output
+    assert run.call_args.kwargs["event_type_prefix"] == "smart-ca-import"
+    blocked = report(
+        [Finding("teams", BLOCKING, "m", "f", count=1, affected_patrols=["p"])]
+    )
+    with (
+        patch("er_smart_sync.cli._make_er_client", return_value=MagicMock()),
+        patch("er_smart_sync.cli.run_preflight", return_value=blocked),
+    ):
+        r = CliRunner().invoke(main, args + ["--json"])
+    assert r.exit_code == 2 and json.loads(r.output)["blocking"][0]["code"] == "teams"
+
+
+def test_patrol_preflight_bad_bundle(tmp_path):
+    with patch("er_smart_sync.cli._make_er_client", return_value=MagicMock()):
+        r = CliRunner().invoke(
+            main,
+            [
+                "patrol-preflight",
+                "--bundle",
+                str(tmp_path),
+                "--er-endpoint",
+                "x",
+                "--er-token",
+                "t",
+            ],
+        )
+    assert r.exit_code == 1 and "manifest.json" in r.output

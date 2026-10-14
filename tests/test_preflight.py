@@ -486,3 +486,50 @@ def test_inactive_event_types_do_not_count():
         SiteFake(b, event_types=ets), b, checks=[check_event_types]
     ).findings
     assert f.level == BLOCKING and f.count == 1
+
+
+from er_smart_sync.preflight import ALL_CHECKS, render_json, render_text  # noqa: E402
+
+
+def test_render_text_and_json():
+    b = load_bundle(FIXTURE)
+    report = run_preflight(
+        SiteFake(b, flag=False), b, checks=[check_feature_flag, check_timezone]
+    )
+    text = render_text(report)
+    assert text.splitlines()[0].startswith(
+        "Patrol preflight for Example Conservation Area (SMART)"
+    )
+    assert (
+        "BLOCKING" in text
+        and "[feature_flag]" in text
+        and "fix:" in text
+        and "WARNING" in text
+    )
+    assert "import-patrols will refuse to run" in text
+    doc = json.loads(render_json(report))
+    assert doc["exit_code"] == 2 and doc["blocking"][0]["code"] == "feature_flag"
+    assert len(doc["blocking"][0]["affected_patrols"]) == len(b.patrols)
+
+
+def test_all_checks_are_read_only():
+    """Every check against a MagicMock client: no write method is ever called."""
+    from er_smart_sync.er_patrol_api import ERPatrolAPI
+
+    b = load_bundle(FIXTURE)
+    client = MagicMock()
+    client._get.return_value = {
+        "preview_features": {"patrol_schemas": True},
+        "is_superuser": True,
+    }
+    client.get_subjects.return_value = []
+    client.get_event_types.return_value = []
+    run_preflight(ERPatrolAPI(client), b, checks=ALL_CHECKS)
+    written = [
+        c
+        for c in client.method_calls
+        if c[0].startswith(
+            ("post_", "patch_", "_post", "_patch", "_put", "delete_", "add_")
+        )
+    ]
+    assert written == []

@@ -9,6 +9,15 @@ which carry the full commit-level history.
 
 ### Added
 
+**`patrol-preflight`.** A read-only check that an EarthRanger site is ready
+for a smart-able bundle's patrols: the patrol_schemas flag, operator
+permissions, patrol types, universal patrol fields, choices, subjects on the
+roster das enforces, retired members, teams and event types, plus the
+bundle's own warnings. Text or `--json`; exit 0, 2 when something blocks, 1
+on error. Each blocking finding names the patrols it affects (ERA-14138).
+See [patrol-preflight](cli-reference/patrol-preflight.md).
+
+
 **`patrol-datamodel`.** From a smart-able migration bundle, creates or
 updates the ER patrol types (one per SMART transport), the universal patrol
 fields and their choices, and the ranger subjects, then writes an admin

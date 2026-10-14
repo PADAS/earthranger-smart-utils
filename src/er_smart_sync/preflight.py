@@ -765,3 +765,54 @@ ALL_CHECKS = [
     check_language,
     check_bundle_warnings,
 ]
+
+
+def _section(title: str, findings: list) -> list:
+    if not findings:
+        return []
+    out = [f"{title} ({len(findings)})"]
+    for f in findings:
+        out.append(f"- [{f.code}] {f.message}" + (f" ({f.count})" if f.count else ""))
+        out.append(f"    fix: {f.fix}")
+        out += [f"    e.g. {e}" for e in f.examples]
+        if f.count > len(f.examples) and f.examples:
+            out.append(f"    … and {f.count - len(f.examples)} more (see --json)")
+    out.append("")
+    return out
+
+
+def render_text(report: PreflightReport) -> str:
+    ca = report.context.get("conservation_area") or {}
+    lines = [
+        f"Patrol preflight for {ca.get('name')} ({ca.get('id')}): "
+        f"{report.context.get('patrols')} patrols, "
+        f"{len(report.blocking)} blocking, {len(report.warnings)} warning(s)",
+        "",
+    ]
+    lines += _section("BLOCKING", report.blocking)
+    lines += _section("WARNING", report.warnings)
+    if report.blocking:
+        lines.append(
+            f"{len(report.blocking)} blocking finding(s): import-patrols will refuse "
+            "to run "
+            f"(or skip the {len(report.blocked_patrols)} affected patrols "
+            "with --allow-blocking)."
+        )
+    else:
+        lines.append("All clear: no blocking findings.")
+    return "\n".join(lines)
+
+
+def render_json(report: PreflightReport) -> str:
+    import json
+
+    return json.dumps(
+        {
+            "context": report.context,
+            "exit_code": report.exit_code,
+            "blocking": [f.to_dict() for f in report.blocking],
+            "warnings": [f.to_dict() for f in report.warnings],
+        },
+        indent=1,
+        ensure_ascii=False,
+    )
