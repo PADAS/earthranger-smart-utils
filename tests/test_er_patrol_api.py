@@ -301,16 +301,40 @@ def test_post_observations_treats_409_as_already_there():
         ERPatrolAPI(c).post_observations([{"recorded_at": "t"}])
 
 
-def test_collection_event_type_prefers_incident_collection():
+def test_collection_event_type_is_only_incident_collection():
+    """Only ER's stock incident_collection is used, found in either listing
+    (it is often a v1-only type); another site's collection type is never
+    borrowed for SMART waypoints."""
     c = _client()
-    c.get_event_types.return_value = [
-        {"value": "other_collection", "is_collection": True, "is_active": True},
-        {"value": "incident_collection", "is_collection": True, "is_active": True},
-        {"value": "plain", "is_collection": False, "is_active": True},
-    ]
+    lists = {
+        "v2": [{"value": "plain", "is_collection": False, "is_active": True}],
+        "v1": [
+            {"value": "incident_collection", "is_collection": True, "is_active": True}
+        ],
+    }
+    c.get_event_types.side_effect = lambda **k: lists[k["version"]]
     assert ERPatrolAPI(c).collection_event_type() == "incident_collection"
-    c.get_event_types.return_value = [{"value": "x", "is_collection": False}]
+    lists["v1"] = [
+        {"value": "someones_test_incident", "is_collection": True, "is_active": True},
+        {"value": "incident_collection", "is_collection": True, "is_active": False},
+    ]
     assert ERPatrolAPI(c).collection_event_type() is None
+
+
+def test_existence_checks_do_not_log_errors(caplog):
+    """erclient logs every 404 at ERROR; a lookup that expects one must not
+    fill an import's log with errors."""
+    import logging
+
+    def missing(**kwargs):
+        logging.getLogger("ERClient").error("404 when calling x")
+        raise ERClientNotFound("nope")
+
+    c = _client()
+    c._get.side_effect = missing
+    with caplog.at_level(logging.INFO):
+        assert ERPatrolAPI(c).get_event("e") is None
+    assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
 
 
 def test_source_provider_created_only_when_missing():

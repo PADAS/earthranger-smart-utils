@@ -737,5 +737,8 @@ def test_collection_type_warning():
     ets = [{"value": "x", "is_active": True, "is_collection": False}]
     (f,) = run_preflight(SiteFake(b, event_types=ets), b, checks=[check_collection_type]).findings
     assert f.code == "collection_type" and f.level == WARNING and f.count == 18
+    ets.append({"value": "other_collection", "is_active": True, "is_collection": True})
+    (f,) = run_preflight(SiteFake(b, event_types=ets), b, checks=[check_collection_type]).findings
+    assert "incident_collection" in f.fix
     ets.append({"value": "incident_collection", "is_active": True, "is_collection": True})
     assert run_preflight(SiteFake(b, event_types=ets), b, checks=[check_collection_type]).findings == []

@@ -7,6 +7,7 @@ spec says so, and surfaces 403 as `ERForbidden` for the checklist.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 
 import requests
@@ -24,6 +25,21 @@ SEGMENT_SCHEMA_PATH = "activity/patrols/segments/types/default"
 PATROL_CONFIG_PATH = "activity/patrols/config/default"
 PATROLS_PATH = "activity/patrols"
 SOURCE_PROVIDER = "smart_patrol_import"
+
+
+COLLECTION_EVENT_TYPE = "incident_collection"
+
+
+@contextlib.contextmanager
+def _quiet_erclient():
+    """erclient logs every 404 at ERROR; an existence check expects them."""
+    log = logging.getLogger("ERClient")
+    level = log.level
+    log.setLevel(logging.CRITICAL)
+    try:
+        yield
+    finally:
+        log.setLevel(level)
 
 
 class ERForbidden(Exception):
@@ -48,9 +64,10 @@ class ERPatrolAPI:
     # -- reads -------------------------------------------------------------
     def _get_or_none(self, path: str, **params):
         try:
-            if params:
-                return self.er._get(path=path, params=params, max_retries=0)
-            return self.er._get(path=path, max_retries=0)
+            with _quiet_erclient():
+                if params:
+                    return self.er._get(path=path, params=params, max_retries=0)
+                return self.er._get(path=path, max_retries=0)
         except ERClientNotFound:
             return None
         except ERClientPermissionDenied as e:
@@ -149,17 +166,19 @@ class ERPatrolAPI:
     def get_source(self, manufacturer_id: str) -> dict | None:
         return self._get_or_none(f"source/{manufacturer_id}")
 
-    def collection_event_type(self, version: str = "v2") -> str | None:
-        """An active collection event type for multi-observation waypoints;
-        ER's stock `incident_collection` when present."""
-        values = [
-            e["value"]
-            for e in self.list_event_types(version)
-            if e.get("is_collection") and e.get("is_active", True)
-        ]
-        if "incident_collection" in values:
-            return "incident_collection"
-        return sorted(values)[0] if values else None
+    def collection_event_type(self) -> str | None:
+        """ER's stock `incident_collection`, when active, for waypoints with
+        several observations. Often a v1-only type, so both listings are
+        searched; another collection type on the site is never borrowed."""
+        for version in ("v2", "v1"):
+            for e in self.list_event_types(version):
+                if (
+                    e.get("value") == COLLECTION_EVENT_TYPE
+                    and e.get("is_collection")
+                    and e.get("is_active", True)
+                ):
+                    return COLLECTION_EVENT_TYPE
+        return None
 
     # -- writes ------------------------------------------------------------
     def _write(self, fn, **kwargs):

@@ -235,7 +235,7 @@ def run_import(
         else:
             selected.append(p)
     resolver, subjects = _resolver(api, bundle, report)
-    resolver.collection_type = api.collection_event_type(opts.event_type_version)
+    resolver.collection_type = api.collection_event_type()
     tz = ZoneInfo(bundle.manifest.timezone["name"])
     by_day = tracks_by_day(bundle.tracks)
     todo = [p for p in selected if not {"patrol"} <= ledger.stages(p["uuid"])]

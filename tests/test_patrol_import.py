@@ -68,7 +68,7 @@ class FakeAPI:
         ]
 
     # import reads/writes
-    def collection_event_type(self, version="v2"):
+    def collection_event_type(self):
         return self.collection
 
     def get_patrol(self, i):

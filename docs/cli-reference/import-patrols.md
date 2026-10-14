@@ -55,7 +55,7 @@ Exit status:
 - Each observation becomes an event of the type the data model sync created for its category, at the waypoint's time and place.
 - Its attribute values are stored the way that sync defined them.
 - `event_details.smart_` records the waypoint, observation and group uuids.
-- A waypoint with several observations becomes an incident collection that holds them. Without an active collection event type, they import ungrouped, and preflight's `collection_type` warning says so.
+- A waypoint with several observations becomes an incident collection that holds them. Only ER's stock `incident_collection` type is used, found in either the v1 or the v2 list. Without it, the events import ungrouped, and preflight's `collection_type` warning says so. No other collection type on the site is borrowed.
 - A waypoint's attachments are posted to its first event.
 
 **Tracks.**
