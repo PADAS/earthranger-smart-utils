@@ -89,6 +89,16 @@ def build_patrol_types(bundle: Bundle) -> list:
     ]
 
 
+def choice_value(item) -> str | None:
+    """The Choice value for a SMART list item: its key, sanitized, or for
+    key-less rows (stations) its uuid without hyphens. Never the label."""
+    if item.key:
+        return sanitize_choice_value(item.key)
+    if item.uuid:
+        return item.uuid.replace("-", "")
+    return None
+
+
 def _options(bundle: Bundle, items: list, unlabelled=None) -> tuple:
     """Choice options keyed by SMART key (or uuid). An item with no label in
     any language shows what `unlabelled(item)` returns, else its key or uuid."""
@@ -96,11 +106,8 @@ def _options(bundle: Bundle, items: list, unlabelled=None) -> tuple:
     for it in items:
         # identity is the SMART key, or the uuid for key-less rows (stations): never
         # the label, which changes with the language
-        if it.key:
-            value = sanitize_choice_value(it.key)
-        elif it.uuid:
-            value = it.uuid.replace("-", "")
-        else:
+        value = choice_value(it)
+        if value is None:
             continue  # nothing to identify the option by
         if value in seen:
             continue

@@ -213,3 +213,31 @@ def test_subject_lists_follow_every_page():
     c._get.assert_called_with(path="https://x/p3")
     c._get.side_effect = [{"results": [{"id": "z"}], "next": None}]
     assert api.group_subject_ids("g1") == {"a", "z"}
+
+
+def test_resolved_config_me_and_event_types():
+    c = _client()
+    api = ERPatrolAPI(c)
+    c._get.side_effect = ERClientNotFound("dark")
+    assert api.get_patrol_config_resolved() is None
+    c._get.side_effect = None
+    c._get.return_value = {
+        "members": [{"id": "s1", "is_active": True}],
+        "assets": [],
+        "teams": [],
+    }
+    assert api.get_patrol_config_resolved()["members"][0]["id"] == "s1"
+    c._get.assert_called_with(
+        path="activity/patrols/config/default/resolved", max_retries=0
+    )
+    c._get.return_value = {"is_superuser": False, "permissions": {"patrol": ["add"]}}
+    assert api.get_me()["permissions"] == {"patrol": ["add"]}
+    c._get.assert_called_with(path="user/me", max_retries=0)
+    c.get_event_types.return_value = [{"value": "a"}]
+    assert api.list_event_types() == [{"value": "a"}]
+    c.get_event_types.assert_called_with(
+        include_inactive=True, include_schema=False, version="v2"
+    )
+    c.get_event_types.side_effect = ERClientPermissionDenied("no")
+    with pytest.raises(ERForbidden):
+        api.list_event_types()
