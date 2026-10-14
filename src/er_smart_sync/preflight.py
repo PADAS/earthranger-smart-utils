@@ -16,6 +16,7 @@ from .smart_to_er_patrol_schema import (
     CHOICE_FIELD_STATION,
     build_patrol_types,
     build_segment_schema,
+    build_team_requirements,
     choice_value,
     custom_choice_field,
 )
@@ -474,6 +475,183 @@ ALL_CHECKS = [
     check_patrol_types,
     check_segment_schema,
     check_choices,
+    check_leg_span,
+    check_time_coverage,
+    check_timezone,
+    check_language,
+    check_bundle_warnings,
+]
+
+
+def subjects_by_member(ctx: PreflightContext) -> dict:
+    def build():
+        out = {}
+        for s in ctx.api.list_subjects():
+            mid = (s.get("additional") or {}).get("smart_member_id")
+            if mid:
+                out[str(mid)] = s
+        return out
+
+    return ctx.once("subjects", build)
+
+
+def _member_patrols(bundle: Bundle) -> dict:
+    out: dict = {}
+    for p in bundle.patrols:
+        for leg in p["legs"]:
+            for m in leg["members"]:
+                out.setdefault(m["employee_uuid"], set()).add(p["uuid"])
+    return out
+
+
+def _resolved(ctx):
+    return ctx.once("resolved", ctx.api.get_patrol_config_resolved) or {}
+
+
+def check_subjects(ctx: PreflightContext) -> list:
+    if not flag_on(ctx):
+        return []
+    subjects = subjects_by_member(ctx)
+    on_roster = {m["id"] for m in _resolved(ctx).get("members") or []}
+    bad, affected = [], set()
+    for member, patrols in sorted(_member_patrols(ctx.bundle).items()):
+        s = subjects.get(member)
+        if s is None:
+            bad.append(f"{member}: no subject with this smart_member_id")
+        elif s.get("is_active", True) and s["id"] not in on_roster:
+            bad.append(
+                f"{s['id']} ({s.get('name')}): active but not on the patrol member "
+                "roster"
+            )
+        else:
+            continue
+        affected |= patrols
+    if not bad:
+        return []
+    return [
+        Finding.of(
+            "subjects",
+            BLOCKING,
+            f"{len(bad)} patrol member(s) cannot be put on a segment",
+            "Run patrol-datamodel (it creates the subjects and, with --roster-group, "
+            "adds "
+            "them to the roster); "
+            "otherwise add them in Django admin > Subject groups to a group listed "
+            "under "
+            "Patrol configuration > members.",
+            bad,
+            affected=affected,
+        )
+    ]
+
+
+def check_inactive_members(ctx: PreflightContext) -> list:
+    if not flag_on(ctx):
+        return []
+    subjects = subjects_by_member(ctx)
+    configured = [
+        g["id"]
+        for g in (ctx.once("config", ctx.api.get_patrol_config) or {}).get("members")
+        or []
+    ]
+    in_groups = (
+        set().union(*[ctx.api.group_subject_ids(g) for g in configured])
+        if configured
+        else set()
+    )
+    retired, stranded, affected, stranded_affected = [], [], set(), set()
+    for member, patrols in sorted(_member_patrols(ctx.bundle).items()):
+        s = subjects.get(member)
+        if s is None or s.get("is_active", True):
+            continue
+        label = f"{s['id']} ({s.get('name')})"
+        retired.append(label)
+        affected |= patrols
+        if s["id"] not in in_groups:
+            stranded.append(label)
+            stranded_affected |= patrols
+    out = []
+    if retired:
+        out.append(
+            Finding.of(
+                "inactive_members",
+                WARNING,
+                f"{len(retired)} patrol member(s) are retired (inactive subjects)",
+                "Nothing to do: das accepts only active members on a segment, so "
+                "import-patrols reactivates "
+                "these subjects for the run and retires them again when it finishes "
+                "(recorded in its ledger).",
+                retired,
+                affected=affected,
+            )
+        )
+    if stranded:
+        out.append(
+            Finding.of(
+                "inactive_members",
+                BLOCKING,
+                f"{len(stranded)} retired member(s) are in no configured member group, "
+                "so "
+                "reactivating them "
+                "would still leave them off the roster",
+                "Add them to a group listed under Patrol configuration > members "
+                "(Django "
+                "admin > Subject groups).",
+                stranded,
+                affected=stranded_affected,
+            )
+        )
+    return out
+
+
+def check_teams(ctx: PreflightContext) -> list:
+    if not flag_on(ctx):
+        return []
+    teams = _resolved(ctx).get("teams") or []
+    names = {}
+    for t in teams:
+        for k in ("display", "value"):
+            if t.get(k):
+                names[t[k].strip().lower()] = t
+    team_patrols: dict = {}
+    for p in ctx.bundle.patrols:
+        if p.get("team_uuid"):
+            team_patrols.setdefault(p["team_uuid"], set()).add(p["uuid"])
+    bad, affected = [], set()
+    for req in build_team_requirements(ctx.bundle):
+        t = names.get(req.name.strip().lower())
+        if t is None or not t.get("is_active", True):
+            bad.append(
+                f"{req.name} ({'missing' if t is None else 'inactive'}, "
+                f"{req.referenced_by_patrols} patrols)"
+            )
+            affected |= team_patrols.get(req.uuid, set())
+    if not bad:
+        return []
+    return [
+        Finding.of(
+            "teams",
+            BLOCKING,
+            f"{len(bad)} patrol team(s) are missing or inactive",
+            "Django admin > Patrol configuration > Teams: add (or activate) a team "
+            "whose "
+            "display is the name shown; "
+            "patrol-datamodel's checklist lists their SMART members.",
+            bad,
+            affected=affected,
+        )
+    ]
+
+
+ALL_CHECKS = [
+    check_feature_flag,
+    check_permissions,
+    check_patrol_types,
+    check_segment_schema,
+    check_choices,
+    check_subjects,
+    check_inactive_members,
+    check_teams,
     check_leg_span,
     check_time_coverage,
     check_timezone,

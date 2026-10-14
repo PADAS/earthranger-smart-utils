@@ -308,3 +308,77 @@ def test_choices_used_by_patrols(monkeypatch):
     assert f.code == "choices" and f.level == WARNING
     assert any(e.startswith("patrol_mandate:") for e in f.examples)
     assert not any(e.startswith("patrol_class:") for e in f.examples)
+
+
+from er_smart_sync.preflight import (  # noqa: E402
+    check_inactive_members,
+    check_subjects,
+    check_teams,
+)
+
+
+def _subject(sid, member, active=True):
+    return {
+        "id": sid,
+        "name": sid,
+        "is_active": active,
+        "additional": {"smart_member_id": member},
+    }
+
+
+def test_inactive_and_off_roster_members():
+    b = load_bundle(FIXTURE)
+    members = sorted(b.member_uuids())
+    subjects = [_subject(f"s{i}", m) for i, m in enumerate(members)]
+    subjects[0]["is_active"] = False  # retired, still in the configured group
+    subjects[1]["is_active"] = False  # retired and out of every group
+    on_roster = [
+        {"id": s["id"], "is_active": True} for s in subjects[3:]
+    ]  # s2 is active but off the roster
+    site = SiteFake(
+        b,
+        subjects=subjects,
+        resolved={"members": on_roster, "assets": [], "teams": []},
+        groups={"g1": {"s0"} | {s["id"] for s in subjects[3:]}},
+    )
+    report = run_preflight(site, b, checks=[check_subjects, check_inactive_members])
+    by = {(f.code, f.level): f for f in report.findings}
+    assert (
+        by[("subjects", BLOCKING)].count == 1
+        and "s2" in by[("subjects", BLOCKING)].examples[0]
+    )
+    assert by[("inactive_members", WARNING)].count == 2
+    assert "reactivat" in by[("inactive_members", WARNING)].fix
+    assert (
+        by[("inactive_members", BLOCKING)].count == 1
+        and "s1" in by[("inactive_members", BLOCKING)].examples[0]
+    )
+
+
+def test_member_without_subject_is_blocking():
+    b = load_bundle(FIXTURE)
+    report = run_preflight(SiteFake(b, subjects=[]), b, checks=[check_subjects])
+    (f,) = report.findings
+    assert f.code == "subjects" and f.count == len(b.member_uuids())
+    assert set(f.affected_patrols) == {
+        p["uuid"] for p in b.patrols if any(leg["members"] for leg in p["legs"])
+    }
+
+
+def test_teams():
+    b = load_bundle(FIXTURE)
+    (req_uuid,) = b.patrol_team_uuids()
+    name = f"SMART team {req_uuid[:8]}"
+    ok = {
+        "members": [],
+        "assets": [],
+        "teams": [{"value": "x", "display": name, "is_active": True}],
+    }
+    assert (
+        run_preflight(SiteFake(b, resolved=ok), b, checks=[check_teams]).findings == []
+    )
+    (f,) = run_preflight(SiteFake(b), b, checks=[check_teams]).findings
+    assert f.code == "teams" and f.level == BLOCKING and name in f.examples[0]
+    assert set(f.affected_patrols) == {
+        p["uuid"] for p in b.patrols if p.get("team_uuid")
+    }
