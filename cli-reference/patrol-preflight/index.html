@@ -16,7 +16,7 @@
         <link rel="prev" href="../patrol-datamodel/">
       
       
-        <link rel="next" href="../copy-event-type/">
+        <link rel="next" href="../import-patrols/">
       
       
         
@@ -1194,6 +1194,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../import-patrols/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    import-patrols
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../copy-event-type/" class="md-nav__link">
         
   
@@ -1831,6 +1859,12 @@ the other checks still run.</p>
 <td>read them in <code>manifest.json</code></td>
 </tr>
 <tr>
+<td><code>collection_type</code></td>
+<td>warning</td>
+<td>waypoints with several observations, and no active <code>incident_collection</code> event type on the site, so their events import ungrouped</td>
+<td>add or activate <code>incident_collection</code></td>
+</tr>
+<tr>
 <td><code>check_failed</code></td>
 <td>blocking</td>
 <td>a check could not run</td>
@@ -1895,7 +1929,7 @@ causes:</p>
 type per form variant: <code>&lt;prefix&gt;_&lt;category path&gt;_&lt;form name&gt;_&lt;8 hex&gt;</code>. A
 category present only that way gets its own blocking finding, because
 <code>import-patrols</code> cannot yet tell which variant an observation belongs to.
-Re-push with <code>--cm-variant-mode consolidate</code> and pass that push's prefix.</p>
+A consolidated push (<code>--cm-variant-mode consolidate</code>) is no fix either: it stores the fields under <code>section_N_&lt;key&gt;</code> names, and the import writes the attribute keys. These patrols cannot be imported yet; <code>import-patrols --allow-blocking</code> imports the others.</p>
 
 
 

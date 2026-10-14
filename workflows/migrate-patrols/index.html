@@ -1102,6 +1102,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../cli-reference/import-patrols/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    import-patrols
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../cli-reference/copy-event-type/" class="md-nav__link">
         
   
@@ -1535,8 +1563,8 @@
 <h1 id="migrate-smart-patrols">Migrate SMART patrols<a class="headerlink" href="#migrate-smart-patrols" title="Permanent link">&para;</a></h1>
 <p>The patrol migration moves a SMART conservation area's patrol setup and
 history into EarthRanger's patrol model from a backup or export zip, without
-SMART Connect. This page covers the first step, <code>patrol-datamodel</code>; the
-readiness check and the history import follow in later releases.</p>
+SMART Connect: the patrol configuration (<code>patrol-datamodel</code>), a readiness
+check (<code>patrol-preflight</code>), then the history (<code>import-patrols</code>).</p>
 <ol>
 <li>Get the site's SMART backup or Conservation Area export zip and run
    <code>./smart-able all &lt;zip&gt;</code> in
@@ -1565,7 +1593,10 @@ readiness check and the history import follow in later releases.</p>
 <li>Run <code>er-smart-sync patrol-preflight --config sync.yaml</code> and fix what it
    reports until it shows no blocking findings. See
    <a href="../../cli-reference/patrol-preflight/">patrol-preflight</a>.</li>
-<li><code>import-patrols</code> follows in a later release.</li>
+<li>Run <code>er-smart-sync import-patrols --config sync.yaml --since &lt;first day&gt; --until &lt;a week later&gt;</code>,
+   check one patrol in ER (legs, members, events on the map, the leader's
+   track), then run without the date window. Re-running is safe: finished
+   patrols are skipped. See <a href="../../cli-reference/import-patrols/">import-patrols</a>.</li>
 </ol>
 <p>The universal patrol fields need the <code>patrol_schemas</code> preview feature; on a
 site where it is off the command still writes the patrol types, choices and
