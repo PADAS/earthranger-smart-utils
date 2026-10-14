@@ -147,3 +147,164 @@ def test_examples_are_capped_but_affected_is_complete(tmp_path):
     assert f.count == sum(len(p["legs"]) for p in b.patrols)
     assert sorted(f.affected_patrols) == sorted(p["uuid"] for p in b.patrols)
     assert report.blocked_patrols == set()  # a warning never blocks a patrol
+
+
+from er_smart_sync.preflight import (  # noqa: E402
+    check_choices,
+    check_feature_flag,
+    check_patrol_types,
+    check_permissions,
+    check_segment_schema,
+)
+from er_smart_sync.smart_to_er_patrol_schema import (  # noqa: E402
+    build_patrol_types,
+    build_segment_schema,
+)
+
+
+class SiteFake:
+    """The site as preflight reads it."""
+
+    def __init__(
+        self,
+        bundle,
+        *,
+        flag=True,
+        me=None,
+        types=None,
+        schema=None,
+        choices=None,
+        resolved=None,
+        subjects=None,
+        groups=None,
+        event_types=None,
+    ):
+        self.flag = flag
+        self.me = me if me is not None else {"is_superuser": True, "permissions": {}}
+        self.types = (
+            types
+            if types is not None
+            else {
+                p.value: {"value": p.value, "is_active": True}
+                for p in build_patrol_types(bundle)
+            }
+        )
+        self.schema = schema if schema is not None else build_segment_schema(bundle)
+        self.choices = choices or {}
+        self.resolved = (
+            resolved
+            if resolved is not None
+            else {"members": [], "assets": [], "teams": []}
+        )
+        self.subjects = subjects or []
+        self.groups = groups or {}
+        self.event_types = event_types or []
+        self.er = MagicMock()
+
+    def patrol_schemas_enabled(self):
+        return self.flag
+
+    def get_me(self):
+        return self.me
+
+    def get_patrol_type(self, value):
+        return self.types.get(value)
+
+    def get_segment_schema(self):
+        return self.schema if self.flag else None
+
+    def get_patrol_config(self):
+        return (
+            {
+                "members": [{"id": g} for g in self.groups],
+                "teams": self.resolved["teams"],
+            }
+            if self.flag
+            else None
+        )
+
+    def get_patrol_config_resolved(self):
+        return self.resolved if self.flag else None
+
+    def list_subjects(self):
+        return list(self.subjects)
+
+    def group_subject_ids(self, gid):
+        return set(self.groups.get(gid, ()))
+
+    def list_event_types(self, version="v2"):
+        return list(self.event_types)
+
+    def choice_records(self, field):
+        return [
+            {"value": v, "is_active": a} for v, a in self.choices.get(field, {}).items()
+        ]
+
+
+def test_flag_off_reports_once():
+    b = load_bundle(FIXTURE)
+    report = run_preflight(
+        SiteFake(b, flag=False),
+        b,
+        checks=[
+            check_feature_flag,
+            check_patrol_types,
+            check_segment_schema,
+            check_choices,
+        ],
+    )
+    assert _codes(report.findings) == [("feature_flag", BLOCKING)]
+    assert "patrol_schemas" in report.findings[0].fix
+
+
+def test_permissions():
+    b = load_bundle(FIXTURE)
+    assert run_preflight(SiteFake(b), b, checks=[check_permissions]).findings == []
+    me = {
+        "is_superuser": False,
+        "permissions": {"patrol": ["view"], "event": ["add", "change"]},
+    }
+    (f,) = run_preflight(SiteFake(b, me=me), b, checks=[check_permissions]).findings
+    assert f.code == "permissions" and f.level == BLOCKING
+    assert "patrol: add" in f.examples and "eventrelatedsegments: add" in f.examples
+
+
+def test_patrol_types_missing_and_inactive():
+    b = load_bundle(FIXTURE)
+    plans = build_patrol_types(b)
+    types = {plans[0].value: {"value": plans[0].value, "is_active": False}}
+    (f,) = run_preflight(
+        SiteFake(b, types=types), b, checks=[check_patrol_types]
+    ).findings
+    assert f.code == "patrol_types" and f.level == BLOCKING and f.count == len(plans)
+    assert any("inactive" in e for e in f.examples) and any(
+        "missing" in e for e in f.examples
+    )
+    assert set(f.affected_patrols) == {
+        p["uuid"] for p in b.patrols
+    }  # every demo patrol uses one of them
+
+
+def test_segment_schema_missing_and_deprecated_fields():
+    b = load_bundle(FIXTURE)
+    schema = build_segment_schema(b)
+    del schema["json"]["properties"]["mandate"]
+    schema["json"]["properties"]["armed"]["deprecated"] = True
+    (f,) = run_preflight(
+        SiteFake(b, schema=schema), b, checks=[check_segment_schema]
+    ).findings
+    assert f.code == "segment_schema" and f.level == BLOCKING
+    assert sorted(f.examples) == ["armed (deprecated)", "mandate (missing)"]
+
+
+def test_choices_used_by_patrols(monkeypatch):
+    b = load_bundle(FIXTURE)
+    site = SiteFake(b, choices={"patrol_mandate": {}, "patrol_class": {"ground": True}})
+    monkeypatch.setattr(
+        "er_smart_sync.preflight._choice_records",
+        lambda ctx, field: site.choice_records(field),
+    )
+    (f,) = run_preflight(site, b, checks=[check_choices]).findings
+    assert f.code == "choices" and f.level == WARNING
+    assert any(e.startswith("patrol_mandate:") for e in f.examples)
+    assert not any(e.startswith("patrol_class:") for e in f.examples)
