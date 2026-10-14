@@ -57,7 +57,7 @@ All three are pinned to specific wheel releases or minimum versions. Uses Pydant
 
 ### CLI
 
-The Click CLI (`cli.py`) has five main subcommands: `datamodel`, `events`, `patrols`, `patrol-datamodel`, `patrol-preflight`, `copy-event-type`. Each accepts either a `--config` YAML file or individual `--smart-*` / `--er-*` flags (except `copy-event-type`, which uses `--source-*` / `--dest-*` / `--event-type-value` / `--target-event-category` flags and a `--version v1|v2` flag).
+The Click CLI (`cli.py`) has six main subcommands: `datamodel`, `events`, `patrols`, `patrol-datamodel`, `patrol-preflight`, `copy-event-type`. Each accepts either a `--config` YAML file or individual `--smart-*` / `--er-*` flags (except `copy-event-type`, which uses `--source-*` / `--dest-*` / `--event-type-value` / `--target-event-category` flags and a `--version v1|v2` flag).
 
 ## Key Conventions
 

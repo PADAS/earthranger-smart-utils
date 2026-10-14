@@ -47,7 +47,7 @@ class Finding:
             message,
             fix,
             count=len(items),
-            examples=items[:MAX_EXAMPLES],
+            examples=items,  # all of them; the text report shows MAX_EXAMPLES
             affected_patrols=sorted(set(affected)),
         )
 
@@ -75,6 +75,8 @@ class PreflightContext:
 class PreflightReport:
     findings: list
     context: dict
+    # observed category hkey -> the event type value import-patrols will use
+    event_types_map: dict = field(default_factory=dict)
 
     @property
     def blocking(self) -> list:
@@ -246,9 +248,16 @@ def run_preflight(
                     "patrol-preflight again.",
                 )
             )
+    # A blocking finding that names no patrols (a timezone mismatch, a check
+    # that could not run) blocks the whole site, so it blocks every patrol.
+    everyone = sorted(p["uuid"] for p in bundle.patrols)
+    for f in findings:
+        if f.level == BLOCKING and not f.affected_patrols:
+            f.affected_patrols = everyone
     findings.sort(key=lambda f: (f.level != BLOCKING,))
     ca = bundle.manifest.conservation_area
     return PreflightReport(
+        event_types_map=dict(ctx.cache.get("event_types_map") or {}),
         findings=findings,
         context={
             "conservation_area": {
@@ -311,11 +320,15 @@ def check_permissions(ctx: PreflightContext) -> list:
         for action in actions
         if action not in (have.get(model) or [])
     ]
-    missing += [
-        f"{cat}: add (event category)"
-        for cat in sorted(_event_categories(ctx))
-        if "add" not in (have.get(cat) or [])
-    ]
+    # A global permission blocks every patrol; an event category's only the
+    # patrols with observations that resolve to its event types.
+    affected = {p["uuid"] for p in ctx.bundle.patrols} if missing else set()
+    used = _observed_categories(ctx.bundle)
+    for cat, hkeys in sorted(_event_categories(ctx).items()):
+        if "add" not in (have.get(cat) or []):
+            missing.append(f"{cat}: add (event category)")
+            for h in hkeys:
+                affected |= used.get(h, set())
     if not missing:
         return []
     return [
@@ -327,7 +340,7 @@ def check_permissions(ctx: PreflightContext) -> list:
             "`activity`; an event category's add is its <category>_create "
             "permission, usually granted through a permission set).",
             missing,
-            affected=[p["uuid"] for p in ctx.bundle.patrols],
+            affected=affected,
         )
     ]
 
@@ -743,24 +756,27 @@ def resolve_event_types(bundle: Bundle, event_types: list, prefix: str | None):
     return chosen, ambiguous, unmatched, variants
 
 
-def _event_categories(ctx: PreflightContext) -> set:
-    """The ER event categories of the event types the import will use."""
+def _event_categories(ctx: PreflightContext) -> dict:
+    """ER event category -> the observed hkeys whose event types it holds."""
     ets = ctx.once(
         "event_types", lambda: ctx.api.list_event_types(ctx.event_type_version)
     )
     chosen, ambiguous, _, variants = resolve_event_types(
         ctx.bundle, ets, ctx.event_type_prefix
     )
-    used = set(chosen.values())
-    for vs in list(ambiguous.values()) + list(variants.values()):
-        used |= set(vs)
-    out = set()
+    values: dict = {}  # event type value -> hkeys that resolve to it
+    for h, v in chosen.items():
+        values.setdefault(v, set()).add(h)
+    for h, vs in list(ambiguous.items()) + list(variants.items()):
+        for v in vs:
+            values.setdefault(v, set()).add(h)
+    out: dict = {}
     for e in ets:
-        if (e.get("value") or "").lower() in used:
-            cat = e.get("category")
-            cat = cat.get("value") if isinstance(cat, dict) else cat
-            if cat:
-                out.add(cat)
+        hkeys = values.get((e.get("value") or "").lower())
+        cat = e.get("category")
+        cat = cat.get("value") if isinstance(cat, dict) else cat
+        if hkeys and cat:
+            out.setdefault(cat, set()).update(hkeys)
     return out
 
 
@@ -801,7 +817,7 @@ def check_event_types(ctx: PreflightContext) -> list:
         out.append(
             Finding.of(
                 "event_types",
-                WARNING,
+                BLOCKING,
                 f"{len(ambiguous)} categor(ies) match more than one event type "
                 "(several "
                 "data model pushes on this site)",
@@ -878,9 +894,10 @@ def _section(title: str, findings: list) -> list:
     for f in findings:
         out.append(f"- [{f.code}] {f.message}" + (f" ({f.count})" if f.count else ""))
         out.append(f"    fix: {f.fix}")
-        out += [f"    e.g. {e}" for e in f.examples]
-        if f.count > len(f.examples) and f.examples:
-            out.append(f"    … and {f.count - len(f.examples)} more (see --json)")
+        shown = f.examples[:MAX_EXAMPLES]
+        out += [f"    e.g. {e}" for e in shown]
+        if len(f.examples) > len(shown):
+            out.append(f"    … and {len(f.examples) - len(shown)} more (see --json)")
     out.append("")
     return out
 
@@ -895,7 +912,14 @@ def render_text(report: PreflightReport) -> str:
     ]
     lines += _section("BLOCKING", report.blocking)
     lines += _section("WARNING", report.warnings)
-    if report.blocking:
+    if report.blocking and len(report.blocked_patrols) >= report.context.get(
+        "patrols", 0
+    ):
+        lines.append(
+            f"{len(report.blocking)} blocking finding(s): import-patrols will refuse "
+            "to run; every patrol is affected."
+        )
+    elif report.blocking:
         lines.append(
             f"{len(report.blocking)} blocking finding(s): import-patrols will refuse "
             "to run "
@@ -916,6 +940,7 @@ def render_json(report: PreflightReport) -> str:
             "exit_code": report.exit_code,
             "blocking": [f.to_dict() for f in report.blocking],
             "warnings": [f.to_dict() for f in report.warnings],
+            "event_types_map": report.event_types_map,
         },
         indent=1,
         ensure_ascii=False,

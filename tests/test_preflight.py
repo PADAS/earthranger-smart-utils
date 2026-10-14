@@ -7,15 +7,30 @@ from unittest.mock import MagicMock
 
 from er_smart_sync.bundle import load_bundle
 from er_smart_sync.preflight import (
+    ALL_CHECKS,
     BLOCKING,
     MAX_EXAMPLES,
     WARNING,
     Finding,
+    PreflightReport,
+    category_path,
     check_bundle_warnings,
+    check_choices,
+    check_event_types,
+    check_feature_flag,
+    check_inactive_members,
     check_language,
     check_leg_span,
+    check_patrol_types,
+    check_permissions,
+    check_segment_schema,
+    check_subjects,
+    check_teams,
     check_time_coverage,
     check_timezone,
+    render_json,
+    render_text,
+    resolve_event_types,
     run_preflight,
 )
 
@@ -36,15 +51,18 @@ def _codes(findings):
     return [(f.code, f.level) for f in findings]
 
 
-def test_finding_of_caps_examples():
+def test_finding_keeps_every_item_and_text_caps():
+    """--json carries every item; the text report shows MAX_EXAMPLES and
+    points at --json for the rest."""
     f = Finding.of(
         "x", BLOCKING, "m", "fix", [str(i) for i in range(25)], affected=["p1", "p2"]
     )
-    assert (
-        f.count == 25
-        and len(f.examples) == MAX_EXAMPLES
-        and f.affected_patrols == ["p1", "p2"]
-    )
+    assert f.count == 25 and len(f.examples) == 25
+    assert f.affected_patrols == ["p1", "p2"]
+    report = PreflightReport(findings=[f], context={})
+    text = render_text(report)
+    assert text.count("e.g. ") == MAX_EXAMPLES and "15 more (see --json)" in text
+    assert len(json.loads(render_json(report))["blocking"][0]["examples"]) == 25
 
 
 def test_bundle_only_checks_on_the_demo(tmp_path):
@@ -114,10 +132,7 @@ def test_leg_span_time_coverage_language_and_warnings(tmp_path):
     assert by["leg_span"].affected_patrols == [b.patrols[0]["uuid"]]
     assert by["time_coverage"].count == 3 and "whole day" in by["time_coverage"].message
     assert by["language"].count == 70 and "en" in by["language"].message
-    assert (
-        by["bundle_warnings"].count == 30
-        and len(by["bundle_warnings"].examples) == MAX_EXAMPLES
-    )
+    assert by["bundle_warnings"].count == 30
 
 
 def test_a_failing_check_does_not_hide_the_others():
@@ -149,13 +164,6 @@ def test_examples_are_capped_but_affected_is_complete(tmp_path):
     assert report.blocked_patrols == set()  # a warning never blocks a patrol
 
 
-from er_smart_sync.preflight import (  # noqa: E402
-    check_choices,
-    check_feature_flag,
-    check_patrol_types,
-    check_permissions,
-    check_segment_schema,
-)
 from er_smart_sync.smart_to_er_patrol_schema import (  # noqa: E402
     build_patrol_types,
     build_segment_schema,
@@ -314,13 +322,6 @@ def test_choices_used_by_patrols(monkeypatch):
     assert not any(e.startswith("patrol_class:") for e in f.examples)
 
 
-from er_smart_sync.preflight import (  # noqa: E402
-    check_inactive_members,
-    check_subjects,
-    check_teams,
-)
-
-
 def _subject(sid, member, active=True):
     return {
         "id": sid,
@@ -388,13 +389,6 @@ def test_teams():
     }
 
 
-from er_smart_sync.preflight import (  # noqa: E402
-    category_path,
-    check_event_types,
-    resolve_event_types,
-)
-
-
 def _observed(b):
     return sorted(
         {
@@ -457,8 +451,9 @@ def test_ambiguous_event_types_need_a_prefix():
     ).findings
     assert (
         f.code == "event_types"
-        and f.level == WARNING
+        and f.level == BLOCKING  # no silent pick: the import would lack a type
         and "--event-type-prefix" in f.fix
+        and f.affected_patrols
     )
     assert (
         run_preflight(
@@ -475,9 +470,6 @@ def test_ambiguous_event_types_need_a_prefix():
         and not ambiguous
         and not unmatched
     )
-
-
-from er_smart_sync.preflight import ALL_CHECKS, render_json, render_text  # noqa: E402
 
 
 def test_render_text_and_json():
@@ -670,3 +662,69 @@ def test_active_event_type_wins_over_inactive():
     ets.append({"value": f"{CM_UUID}_{category_path(observed[0])}", "is_active": False})
     chosen, ambiguous, _, _ = resolve_event_types(b, ets, None)
     assert not ambiguous and chosen[observed[0]].startswith("smart-ca-import_")
+
+
+def _patrols_observing(b, hkey):
+    return sorted(
+        {
+            p["uuid"]
+            for p in b.patrols
+            for leg in p["legs"]
+            for w in leg["waypoints"]
+            for g in w["observation_groups"]
+            for o in g["observations"]
+            if o.get("category_hkey") == hkey
+        }
+    )
+
+
+def test_site_wide_blocker_blocks_every_patrol():
+    b = load_bundle(FIXTURE)
+    report = run_preflight(
+        SiteFake(b), b, timezone="Europe/Paris", checks=[check_timezone]
+    )
+    assert report.blocking and report.blocked_patrols == {p["uuid"] for p in b.patrols}
+    assert "skip the 0" not in render_text(report)
+
+
+def test_report_carries_the_event_type_map():
+    b = load_bundle(FIXTURE)
+    observed = _observed(b)
+    ets = [
+        {"value": f"smart-ca-import_{category_path(h)}", "is_active": True}
+        for h in observed
+    ]
+    report = run_preflight(SiteFake(b, event_types=ets), b, checks=[check_event_types])
+    assert report.event_types_map[observed[0]] == (
+        f"smart-ca-import_{category_path(observed[0])}"
+    )
+    doc = json.loads(render_json(report))
+    assert doc["event_types_map"] == report.event_types_map
+
+
+def test_category_permission_blocks_only_its_patrols():
+    b = load_bundle(FIXTURE)
+    observed = _observed(b)
+    target = observed[0]
+    ets = [
+        {
+            "value": f"smart-ca-import_{category_path(h)}",
+            "is_active": True,
+            "category": "cat_a" if h == target else "cat_b",
+        }
+        for h in observed
+    ]
+    me = {
+        "is_superuser": False,
+        "permissions": {
+            "patrol": ["add", "change", "view"],
+            "eventrelatedsegments": ["add"],
+            "cat_b": ["add"],
+        },
+    }
+    (f,) = run_preflight(
+        SiteFake(b, me=me, event_types=ets), b, checks=[check_permissions]
+    ).findings
+    assert f.examples == ["cat_a: add (event category)"]
+    assert f.affected_patrols == _patrols_observing(b, target)
+    assert len(f.affected_patrols) < len(b.patrols)

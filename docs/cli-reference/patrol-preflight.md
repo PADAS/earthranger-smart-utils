@@ -19,7 +19,7 @@ er-smart-sync patrol-preflight --bundle work/export/050500/bundle \
 | `--timezone NAME` | the zone you know the site uses; a mismatch with the bundle is blocking |
 | `--event-type-prefix PREFIX` | which data model push to import against when several match (see Event types) |
 | `--event-type-version v1\|v2` | event type API version (default `earthranger.event_type_version`, v2) |
-| `--json` | print the report as JSON, with the full list of affected patrols per finding |
+| `--json` | print the report as JSON: every item of each finding (the text report shows the first 10), the affected patrols, and `event_types_map`, the event type each observed category resolves to |
 
 Exit status: **0** no blocking findings (warnings allowed), **2** blocking
 findings, **1** an error before the checks could run (an invalid bundle,
@@ -49,11 +49,25 @@ the other checks still run.
 
 ## Example
 
-Against gundi-dev.staging on 2026-10-14, after `patrol-datamodel` and the
-admin steps on its checklist, SMART's demo bundle reported one blocking
-finding, 27 categories with no event type, because the demo area's data
-model had not been pushed, and two warnings (inferred timezone, relayed from
-the bundle). Exit status 2.
+Against gundi-dev.staging, after `patrol-datamodel`, the admin steps on its
+checklist, and `datamodel --bundle` for the demo area, SMART's demo bundle
+reported no blocking findings and two warnings, exit status 0:
+
+```text
+Patrol preflight for Example Conservation Area (SMART): 5 patrols, 0 blocking, 2 warning(s)
+
+WARNING (2)
+- [event_types] 2 observed categor(ies) map to an inactive event type (a SMART parent or retired category) (2)
+    e.g. animals.sign.: smart-ca-import_animals_sign
+    e.g. humanactivity.rocksminerals.: smart-ca-import_humanactivity_rocksminerals
+- [bundle_warnings] smart-able recorded 1 warning(s) when it wrote the bundle (1)
+    e.g. timezone Africa/Libreville was inferred from waypoint positions; set SMART_ABLE_TIMEZONE to override
+
+All clear: no blocking findings.
+```
+
+(Fix lines omitted.) Before the data model push with `--bundle`, the same
+run blocked on those two categories with exit status 2.
 
 ## Retired staff
 
@@ -76,9 +90,13 @@ uuid for SMART Connect pushes. Preflight accepts only those shapes:
 `<prefix>_<category path>` with one of the prefixes above, or exactly
 `<--event-type-prefix>_<category path>` when the option is given. A longer
 path that happens to end the same way is never matched. When a site holds
-more than one push for the same categories, the match is ambiguous; pass
-`--event-type-prefix` with the push to import against. The resolved mapping
-is what `import-patrols` will use.
+more than one push for the same categories, the match is ambiguous and
+blocks those patrols; pass `--event-type-prefix` with the push to import
+against. The resolved mapping is what `import-patrols` will use.
+
+A blocking finding that names no patrols, such as a timezone mismatch or a
+check that could not run, blocks every patrol. A missing event-category
+permission blocks only the patrols whose observations use that category.
 
 A category with no matching event type is blocking. It has one of three
 causes:

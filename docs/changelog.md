@@ -15,11 +15,13 @@ permissions, patrol types, universal patrol fields, choices, subjects on the
 roster das enforces, retired members, teams and event types, plus the
 bundle's own warnings. Text or `--json`; exit 0, 2 when something blocks, 1
 on error. Each blocking finding names the patrols it affects (ERA-14138).
-Verified on 2026-10-14 against gundi-dev.staging with SMART's demo bundle:
-the patrol types, universal fields, choices, six subjects on the roster and
-the team all passed; the run blocked only on the 27 observed categories with
-no event type (no data model had been pushed for the demo area), and warned
-about the inferred timezone.
+Verified against gundi-dev.staging with SMART's demo bundle. The patrol
+types, universal fields, choices, six subjects on the roster and the team
+all passed. After the demo data model was pushed with `datamodel --bundle`,
+the two observed categories SMART keeps no event type for (`animals.sign.`,
+a parent, and `humanactivity.rocksminerals.`, retired) matched their
+inactive event types with a warning; the run exited 0, with a second
+warning for the inferred timezone.
 `patrol-datamodel` now finds a patrol type an admin deactivated and
 reactivates it, instead of trying to create a duplicate.
 See [patrol-preflight](cli-reference/patrol-preflight.md).
