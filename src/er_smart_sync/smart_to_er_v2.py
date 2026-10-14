@@ -477,20 +477,13 @@ def _build_choice_property_pair(
     ref_url = f"{choices_base_url}/choices.json?field={field_name}"
     is_array = smart_type == "MLIST" or (smart_type == "LIST" and is_multiple)
 
-    choices_block = {
-        "type": "EXISTING_CHOICE_LIST",
-        "existingChoiceList": [field_name],
-        "eventTypeCategories": [],
-        "featureCategories": [],
-        "myDataType": "",
-        "subjectGroups": [],
-        "subjectSubtypes": [],
-    }
+    # Only the keys das's CHOICE_LIST ui metaschema allows: das strips any
+    # other key on save, so emitting one makes every re-run see a change and
+    # PATCH. The options come from the json half's $ref.
     ui_field = {
         "type": "CHOICE_LIST",
         "inputType": "DROPDOWN",
         "placeholder": "",
-        "choices": choices_block,
         "parent": "section-1",
     }
 
