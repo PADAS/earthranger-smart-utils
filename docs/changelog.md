@@ -15,6 +15,11 @@ permissions, patrol types, universal patrol fields, choices, subjects on the
 roster das enforces, retired members, teams and event types, plus the
 bundle's own warnings. Text or `--json`; exit 0, 2 when something blocks, 1
 on error. Each blocking finding names the patrols it affects (ERA-14138).
+Verified on 2026-10-14 against gundi-dev.staging with SMART's demo bundle:
+the patrol types, universal fields, choices, six subjects on the roster and
+the team all passed; the run blocked only on the 27 observed categories with
+no event type (no data model had been pushed for the demo area), and warned
+about the inferred timezone.
 See [patrol-preflight](cli-reference/patrol-preflight.md).
 
 

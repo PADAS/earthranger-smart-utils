@@ -47,6 +47,14 @@ the other checks still run.
 | `bundle_warnings` | warning | warnings smart-able recorded when it wrote the bundle | read them in `manifest.json` |
 | `check_failed` | blocking | a check could not run | fix the cause and run again |
 
+## Example
+
+Against gundi-dev.staging on 2026-10-14, after `patrol-datamodel` and the
+admin steps on its checklist, SMART's demo bundle reported one blocking
+finding, 27 categories with no event type, because the demo area's data
+model had not been pushed, and two warnings (inferred timezone, relayed from
+the bundle). Exit status 2.
+
 ## Retired staff
 
 das accepts only active, person-type subjects on the configured member
