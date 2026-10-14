@@ -346,5 +346,9 @@ def test_source_provider_created_only_when_missing():
     ERPatrolAPI(c).ensure_source_provider("smart_patrol_import", "SMART")
     c._post.assert_called_with(
         path="sourceproviders",
-        payload={"provider_key": "smart_patrol_import", "display_name": "SMART"},
+        payload={
+            "provider_key": "smart_patrol_import",
+            "display_name": "SMART",
+            "additional": {},  # das: "This field is required."
+        },
     )

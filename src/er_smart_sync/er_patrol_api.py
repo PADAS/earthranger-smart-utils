@@ -264,7 +264,8 @@ class ERPatrolAPI:
         self._write(
             self.er._post,
             path="sourceproviders",
-            payload={"provider_key": key, "display_name": display},
+            # das requires `additional` on a source provider
+            payload={"provider_key": key, "display_name": display, "additional": {}},
         )
 
     def create_source(self, payload: dict) -> dict:

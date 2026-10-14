@@ -239,10 +239,11 @@ def run_import(
     tz = ZoneInfo(bundle.manifest.timezone["name"])
     by_day = tracks_by_day(bundle.tracks)
     todo = [p for p in selected if not {"patrol"} <= ledger.stages(p["uuid"])]
-    _reactivate(api, ledger, subjects, todo)
-    if not opts.skip_tracks:
-        api.ensure_source_provider(SOURCE_PROVIDER, "SMART patrol import")
     try:
+        # inside the try: whatever fails after this, the finally retires them
+        _reactivate(api, ledger, subjects, todo)
+        if not opts.skip_tracks:
+            api.ensure_source_provider(SOURCE_PROVIDER, "SMART patrol import")
         for p in selected:
             done = ledger.stages(p["uuid"])
             want = (

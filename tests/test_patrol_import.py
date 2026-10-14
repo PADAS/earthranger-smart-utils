@@ -1,6 +1,7 @@
 from collections import Counter
 from pathlib import Path
 
+import pytest
 from erclient.er_errors import ERClientNotFound  # noqa: F401  (documents the 404 path)
 
 from er_smart_sync.bundle import load_bundle
@@ -239,3 +240,19 @@ def test_selection_filters():
     assert len(select_patrols(b, ImportOptions(limit=2))) == 2
     since = select_patrols(b, ImportOptions(since=date(2099, 1, 1)))
     assert since == []
+
+
+def test_setup_failure_still_retires_reactivated_members(tmp_path):
+    b = load_bundle(FIXTURE)
+    m = sorted(b.member_uuids())[0]
+    api = FakeAPI(b, inactive={m})
+
+    def broken(key, display):
+        raise RuntimeError("provider refused")
+
+    api.ensure_source_provider = broken
+    with pytest.raises(RuntimeError):
+        _run(api, b, tmp_path)
+    s = next(s for s in api.subjects if s["additional"]["smart_member_id"] == m)
+    assert s["is_active"] is False
+    assert ImportLedger(tmp_path / "ledger.json", "site|ca").reactivated() == []
