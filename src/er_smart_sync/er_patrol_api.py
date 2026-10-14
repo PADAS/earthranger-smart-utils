@@ -22,6 +22,8 @@ STATUS_PATH = "status"
 PATROL_TYPES_PATH = "activity/patrols/types"
 SEGMENT_SCHEMA_PATH = "activity/patrols/segments/types/default"
 PATROL_CONFIG_PATH = "activity/patrols/config/default"
+PATROLS_PATH = "activity/patrols"
+SOURCE_PROVIDER = "smart_patrol_import"
 
 
 class ERForbidden(Exception):
@@ -138,6 +140,27 @@ class ERPatrolAPI:
         )
         return list(types or [])
 
+    def get_patrol(self, patrol_id: str) -> dict | None:
+        return self._get_or_none(f"{PATROLS_PATH}/{patrol_id}")
+
+    def get_event(self, event_id: str) -> dict | None:
+        return self._get_or_none(f"activity/event/{event_id}")
+
+    def get_source(self, manufacturer_id: str) -> dict | None:
+        return self._get_or_none(f"source/{manufacturer_id}")
+
+    def collection_event_type(self, version: str = "v2") -> str | None:
+        """An active collection event type for multi-observation waypoints;
+        ER's stock `incident_collection` when present."""
+        values = [
+            e["value"]
+            for e in self.list_event_types(version)
+            if e.get("is_collection") and e.get("is_active", True)
+        ]
+        if "incident_collection" in values:
+            return "incident_collection"
+        return sorted(values)[0] if values else None
+
     # -- writes ------------------------------------------------------------
     def _write(self, fn, **kwargs):
         try:
@@ -194,3 +217,57 @@ class ERPatrolAPI:
         self._write(
             self.er._post, path=f"subjectgroup/{group_id}/subjects/", payload=payload
         )
+
+    def create_patrol(self, payload: dict) -> dict:
+        return self._write(self.er._post, path=PATROLS_PATH, payload=payload)
+
+    def patch_patrol(self, patrol_id: str, payload: dict) -> dict:
+        return self._write(
+            self.er._patch, path=f"{PATROLS_PATH}/{patrol_id}", payload=payload
+        )
+
+    def create_event(self, payload: dict) -> dict:
+        # never send end_time on a POST: das reads self.instance there and 500s
+        return self._write(self.er._post, path="activity/events", payload=payload)
+
+    def attach_file(self, event_id: str, filepath: str, comment: str = "") -> dict:
+        return self._write(
+            self.er.post_event_file,
+            event_id=event_id,
+            filepath=filepath,
+            comment=comment,
+        )
+
+    def ensure_source_provider(self, key: str, display: str) -> None:
+        page = self._get_or_none("sourceproviders", provider_key=key) or {}
+        if any(p.get("provider_key") == key for p in _results(page)):
+            return
+        self._write(
+            self.er._post,
+            path="sourceproviders",
+            payload={"provider_key": key, "display_name": display},
+        )
+
+    def create_source(self, payload: dict) -> dict:
+        return self._write(self.er._post, path="sources", payload=payload)
+
+    def assign_source(self, subject_id: str, source_id: str, lower: str, upper: str):
+        return self._write(
+            self.er._post,
+            path=f"subject/{subject_id}/sources",
+            payload={
+                "source": source_id,
+                "assigned_range": {"lower": lower, "upper": upper},
+            },
+        )
+
+    def post_observations(self, batch: list) -> bool:
+        """das skips points it already has (unique on source + recorded_at)
+        and answers 409 only when none was new."""
+        try:
+            self._write(self.er._post, path="observations", payload=batch)
+            return True
+        except ERClientException as e:
+            if " 409 from ER" in str(e):
+                return False
+            raise

@@ -256,3 +256,71 @@ def test_patrol_type_lookup_includes_inactive():
         params={"include_inactive": "true"},
         max_retries=0,
     )
+
+
+def test_patrol_and_event_reads_treat_404_as_absent():
+    c = _client()
+    c._get.side_effect = ERClientNotFound("nope")
+    api = ERPatrolAPI(c)
+    assert api.get_patrol("p") is None and api.get_event("e") is None
+    assert api.get_source("smart:x") is None
+
+
+def test_patrol_and_event_writes_use_the_documented_paths():
+    c = _client()
+    api = ERPatrolAPI(c)
+    api.create_patrol({"id": "p"})
+    c._post.assert_called_with(path="activity/patrols", payload={"id": "p"})
+    api.patch_patrol("p", {"title": "t"})
+    c._patch.assert_called_with(path="activity/patrols/p", payload={"title": "t"})
+    api.create_event({"id": "e"})
+    c._post.assert_called_with(path="activity/events", payload={"id": "e"})
+    api.assign_source(
+        "s1", "src", "2020-01-01T00:00:00+00:00", "2020-01-02T00:00:00+00:00"
+    )
+    c._post.assert_called_with(
+        path="subject/s1/sources",
+        payload={
+            "source": "src",
+            "assigned_range": {
+                "lower": "2020-01-01T00:00:00+00:00",
+                "upper": "2020-01-02T00:00:00+00:00",
+            },
+        },
+    )
+
+
+def test_post_observations_treats_409_as_already_there():
+    from erclient.er_errors import ERClientException
+
+    c = _client()
+    c._post.side_effect = ERClientException("x\n\t 409 from ER. Message: dup")
+    assert ERPatrolAPI(c).post_observations([{"recorded_at": "t"}]) is False
+    c._post.side_effect = ERClientException("x\n\t 500 from ER. Message: boom")
+    with pytest.raises(ERClientException):
+        ERPatrolAPI(c).post_observations([{"recorded_at": "t"}])
+
+
+def test_collection_event_type_prefers_incident_collection():
+    c = _client()
+    c.get_event_types.return_value = [
+        {"value": "other_collection", "is_collection": True, "is_active": True},
+        {"value": "incident_collection", "is_collection": True, "is_active": True},
+        {"value": "plain", "is_collection": False, "is_active": True},
+    ]
+    assert ERPatrolAPI(c).collection_event_type() == "incident_collection"
+    c.get_event_types.return_value = [{"value": "x", "is_collection": False}]
+    assert ERPatrolAPI(c).collection_event_type() is None
+
+
+def test_source_provider_created_only_when_missing():
+    c = _client()
+    c._get.return_value = {"results": [{"provider_key": "smart_patrol_import"}]}
+    ERPatrolAPI(c).ensure_source_provider("smart_patrol_import", "SMART")
+    c._post.assert_not_called()
+    c._get.return_value = {"results": []}
+    ERPatrolAPI(c).ensure_source_provider("smart_patrol_import", "SMART")
+    c._post.assert_called_with(
+        path="sourceproviders",
+        payload={"provider_key": "smart_patrol_import", "display_name": "SMART"},
+    )
