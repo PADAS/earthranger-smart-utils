@@ -1,7 +1,8 @@
 # er-smart-sync
 
 Synchronize [SMART Connect](https://smartconservationtools.org/) wildlife-monitoring
-data with [EarthRanger](https://www.earthranger.com/).
+data with [EarthRanger](https://www.earthranger.com/), and migrate a SMART
+conservation area's patrol history into EarthRanger from a backup.
 
 ## 📖 Full documentation
 
@@ -18,6 +19,14 @@ a complete CLI reference, conceptual background, and troubleshooting.
   message broker.
 - **Patrol sync** (ER → SMART) — poll EarthRanger patrols with track points
   and attached files.
+- **Patrol migration** (SMART backup → ER) — from a migration bundle written
+  by [smart-able](https://github.com/PADAS/er-smart-able), with no SMART
+  Connect needed: `patrol-datamodel` creates the patrol types, universal
+  patrol fields, choices and ranger subjects; `patrol-preflight` checks the
+  site is ready; `import-patrols` writes the patrol history (a patrol with a
+  segment per leg, an event per observation, the leaders' tracks). Re-runs
+  write nothing new. See
+  [Migrate SMART patrols](https://padas.github.io/earthranger-smart-utils/workflows/migrate-patrols/).
 - **Event-type copy** (ER → ER) — copy a single event type (and the v2
   choices its schema references) from one EarthRanger site to another via
   the `copy-event-type` CLI subcommand.
