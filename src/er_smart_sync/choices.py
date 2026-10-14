@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from collections.abc import Collection
 from dataclasses import dataclass, field
 
 from pydantic import parse_obj_as
@@ -263,8 +264,14 @@ def build_choice_sets(
     cm: dict | None = None,
     ca_uuid: str,
     cm_variant_mode: str = "split",
+    observed_categories: Collection[str] = (),
 ) -> list[ChoiceSet]:
     """Walk a SMART data model and emit one shared ChoiceSet per choice attribute.
+
+    ``observed_categories`` (category hkeys from a smart-able bundle) adds
+    the attributes of observed parent or inactive categories, and with a CM
+    of observed data model categories the CM lacks, matching the inactive
+    event types ``build_event_types_v2`` builds for them.
 
     Choice lists are shared across all event types built from one datamodel
     sync: the field name hashes the (CA, CM) scope, not the event type, so an
@@ -287,16 +294,28 @@ def build_choice_sets(
     # order so output stays deterministic. With a CM every category is active;
     # without one, only active leaf categories count and they inherit parent
     # attributes.
+    observed = {_norm_path(h) for h in observed_categories}
     attr_keys: dict[str, None] = {}
     for cat in cats:
         leaf_attrs = list(cat.attributes or [])
         if not cm:
             is_leaf = _is_leaf_node(cat_paths, cat.path)
-            if not (cat.is_active and is_leaf):
+            if not (cat.is_active and is_leaf) and _norm_path(cat.path) not in observed:
                 continue
             leaf_attrs.extend(_inherited_attributes(cats, (cat.path or "").split(".")))
         for cat_attr in leaf_attrs:
             attr_keys.setdefault(cat_attr.key, None)
+    historical_attr_keys: set[str] = set()
+    if cm and observed:
+        covered = {_norm_path(c.hkeyPath or c.path) for c in cats}
+        dm_cats = parse_obj_as(list[Category], dm.get("categories") or [])
+        for cat in dm_cats:
+            if _norm_path(cat.path) in observed - covered:
+                for cat_attr in list(cat.attributes or []) + _inherited_attributes(
+                    dm_cats, (cat.path or "").split(".")
+                ):
+                    attr_keys.setdefault(cat_attr.key, None)
+                    historical_attr_keys.add(cat_attr.key)
 
     result: list[ChoiceSet] = []
     for key in attr_keys:
@@ -305,6 +324,7 @@ def build_choice_sets(
             attributes=attributes,
             attribute_configs=attribute_configs,
             field=derive_shared_choice_field(scope_key, key),
+            preserve_omitted=key in historical_attr_keys,
         )
         if cs is not None:
             result.append(cs)
@@ -345,6 +365,7 @@ def _choice_set_for_attr(
     attributes: list[Attribute],
     attribute_configs: list | None,
     field: str,
+    preserve_omitted: bool = False,
 ) -> ChoiceSet | None:
     """Build the ChoiceSet for one attribute key, or None if it bears no choices."""
     attribute = next((a for a in attributes if a.key == key), None)
@@ -373,9 +394,34 @@ def _choice_set_for_attr(
             for o in options
         )
 
+    if options_cfg is not None and preserve_omitted:
+        # Historical categories outside the CM can use values that its curated
+        # forms omit. Keep those values resolvable without offering them in the
+        # shared dropdown for new reports. Explicit CM activity flags still win.
+        seen = {o.value for o in choice_options}
+        historical_options = (
+            _leaf_options(options) if attribute.type == "TREE" else options
+        )
+        for option in historical_options:
+            value = _shorten_value(sanitize_choice_value(option.key))
+            if value not in seen:
+                choice_options += (
+                    ChoiceOption(
+                        value=value,
+                        display=_shorten_display(option.display),
+                        is_active=False,
+                    ),
+                )
+                seen.add(value)
+
     if not choice_options:
         return None
     return ChoiceSet(field=field, options=choice_options)
+
+
+def _norm_path(path: str | None) -> str:
+    """A category path or hkey without its dots at the ends, lower-case."""
+    return (path or "").strip(".").lower()
 
 
 def _is_leaf_node(node_paths: list[str], cur_node: str) -> bool:

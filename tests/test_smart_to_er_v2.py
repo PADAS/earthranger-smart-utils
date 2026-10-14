@@ -1186,3 +1186,133 @@ def test_leaf_override_of_inherited_attribute_appears_once():
     assert left == ["response"]
     # The leaf's isactive=false override wins over the inherited active entry.
     assert schema["json"]["properties"]["response"]["deprecated"] is True
+
+
+# ── observed parent / inactive categories ──────────────────────────
+
+
+def _observed_dm():
+    return {
+        "categories": [
+            _category("animals", attributes=[_cat_attr("species")]),
+            _category("animals.sign", attributes=[_cat_attr("age")]),
+            _category("animals.sign.dung"),
+            _category("animals.rocks", attributes=[_cat_attr("age")], is_active=False),
+            _category("animals.gone", attributes=[_cat_attr("age")], is_active=False),
+        ],
+        "attributes": [
+            _attr("species", "TEXT"),
+            _attr("age", "TEXT"),
+        ],
+    }
+
+
+def test_observed_parent_and_inactive_categories_get_inactive_event_types():
+    ets = build_event_types_v2(
+        dm=_observed_dm(),
+        cm=None,
+        ca_uuid=CA_UUID,
+        ca_identifier=CA_ID,
+        observed_categories={"animals.sign.", "animals.rocks.", "animals.sign.dung."},
+    )
+    by_value = {et.value.split("_", 1)[1]: et for et in ets}
+    assert by_value["animals_sign_dung"].is_active is True
+    for v in ("animals_sign", "animals_rocks"):
+        et = by_value[v]
+        assert et.is_active is False
+        # a real schema: das has no schema-less v2 shape
+        assert "age" in et.event_schema["json"]["properties"]
+    # the parent also carries what it inherits
+    assert "species" in by_value["animals_sign"].event_schema["json"]["properties"]
+    # unobserved inactive and unobserved parent categories are still skipped
+    assert "animals_gone" not in by_value and "animals" not in by_value
+
+
+def test_no_observed_categories_keeps_todays_output():
+    ets = build_event_types_v2(
+        dm=_observed_dm(), cm=None, ca_uuid=CA_UUID, ca_identifier=CA_ID
+    )
+    assert [et.value.split("_", 1)[1] for et in ets] == ["animals_sign_dung"]
+
+
+def _observed_choice_dm():
+    return {
+        "categories": [
+            _category("a", attributes=[_cat_attr("species")]),
+            _category("a.live", attributes=[_cat_attr("age")]),
+            _category("a.retired", attributes=[_cat_attr("mineral")], is_active=False),
+            _category("bare", is_active=False),
+        ],
+        "attributes": [
+            _attr("species", "TEXT"),
+            _attr("age", "TEXT"),
+            _attr("mineral", "LIST", options=[_option("gold")]),
+        ],
+    }
+
+
+def test_observed_category_choice_lists_are_built():
+    """A LIST attribute only an observed inactive category uses still gets
+    its choice set, so the inactive type's $ref resolves."""
+    from er_smart_sync.choices import (
+        build_choice_sets,
+        choice_scope_key,
+        derive_shared_choice_field,
+    )
+
+    dm = _observed_choice_dm()
+    field = derive_shared_choice_field(
+        choice_scope_key(ca_uuid=CA_UUID, cm=None), "mineral"
+    )
+    assert field not in {cs.field for cs in build_choice_sets(dm=dm, ca_uuid=CA_UUID)}
+    sets = build_choice_sets(dm=dm, ca_uuid=CA_UUID, observed_categories={"a.retired."})
+    assert field in {cs.field for cs in sets}
+
+
+def test_observed_category_without_attributes_gets_an_empty_schema():
+    ets = build_event_types_v2(
+        dm=_observed_choice_dm(),
+        ca_uuid=CA_UUID,
+        ca_identifier=CA_ID,
+        observed_categories={"bare."},
+    )
+    (bare,) = [et for et in ets if et.value.endswith("_bare")]
+    assert bare.is_active is False
+    assert bare.event_schema["json"]["properties"] == {}
+    assert bare.event_schema["ui"]["sections"]["section-1"]["leftColumn"] == []
+
+
+def test_cm_push_adds_observed_categories_the_cm_lacks():
+    """With a configurable model, observed categories the CM does not carry
+    get inactive types under the CM's prefix and choice scope, so preflight
+    and import-patrols find them next to the CM's own types."""
+    from er_smart_sync.choices import (
+        build_choice_sets,
+        choice_scope_key,
+        derive_shared_choice_field,
+    )
+
+    dm = _observed_choice_dm()
+    cm = {
+        "cm_uuid": "cm-1",
+        "categories": [_category("a.live", attributes=[_cat_attr("age")])],
+        "attributes": [],
+    }
+    observed = {"a.live.", "a.retired.", "a"}
+    ets = build_event_types_v2(
+        dm=dm, cm=cm, ca_uuid=CA_UUID, ca_identifier=CA_ID, observed_categories=observed
+    )
+    by_value = {et.value: et for et in ets}
+    assert by_value["ca-1234_cm-1_a_live"].is_active is True
+    for v in ("ca-1234_cm-1_a_retired", "ca-1234_cm-1_a"):
+        assert by_value[v].is_active is False
+    scope = choice_scope_key(ca_uuid=CA_UUID, cm=cm)
+    field = derive_shared_choice_field(scope, "mineral")
+    ref = by_value["ca-1234_cm-1_a_retired"].event_schema["json"]["properties"][
+        "mineral"
+    ]["anyOf"][0]["$ref"]
+    assert ref.endswith(f"field={field}")
+    sets = build_choice_sets(
+        dm=dm, cm=cm, ca_uuid=CA_UUID, observed_categories=observed
+    )
+    assert field in {cs.field for cs in sets}

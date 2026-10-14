@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
@@ -2455,6 +2456,25 @@ def test_patrol_datamodel_writes_a_run_record_only_for_real_runs(tmp_path):
     assert json.loads(records[0].read_text())["changes"] == changes
     assert "Run record" in result.output
 
+
+def test_datamodel_bundle_sets_observed_categories(tmp_path, monkeypatch):
+    sync = MagicMock()
+    sync.datamodel_stats = {}
+    monkeypatch.setattr(
+        "er_smart_sync.cli._make_synchronizer", lambda config, ctx=None: sync
+    )
+    dm_file = tmp_path / "dm.xml"
+    dm_file.write_text(_spanish_only_dm_xml())
+    bundle = Path(__file__).parent / "fixtures" / "smart_demo_bundle"
+    args = ["datamodel", "--from-file", str(dm_file), "--ca-identifier", "demo"]
+    args += ["--er-endpoint", "er.test", "--er-token", "t"]
+    result = CliRunner().invoke(main, args + ["--bundle", str(bundle)])
+    assert result.exit_code == 0, result.output
+    assert "animals.sign." in sync.observed_categories
+    result = CliRunner().invoke(
+        main, args + ["--bundle", str(bundle), "--event-type-version", "v1"]
+    )
+    assert result.exit_code == 2 and "v2" in result.output
 
 def test_patrol_preflight_exit_codes_and_json(tmp_path):
     from er_smart_sync.preflight import BLOCKING, Finding, PreflightReport

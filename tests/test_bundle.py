@@ -87,3 +87,10 @@ def test_manifest_that_is_not_an_object_is_a_bundle_error(tmp_path, doc):
     (tmp_path / "b" / "manifest.json").write_text(doc)
     with pytest.raises(BundleError, match="manifest.json"):
         load_bundle(tmp_path / "b")
+
+
+def test_observed_category_hkeys():
+    b = load_bundle(FIXTURE)
+    hkeys = b.observed_category_hkeys()
+    assert "animals.sign." in hkeys and "humanactivity.rocksminerals." in hkeys
+    assert all(h.endswith(".") for h in hkeys)

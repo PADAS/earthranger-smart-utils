@@ -9,6 +9,20 @@ which carry the full commit-level history.
 
 ### Added
 
+**`datamodel --bundle`.** With a smart-able migration bundle, parent or
+inactive SMART categories that the bundle's observations use also get an
+event type, created inactive, with the category's own and inherited
+attributes. Without it, those historical observations would have no event
+type to import against. v2 only. Verified on gundi-dev with SMART's demo
+bundle: `animals.sign.` (a parent) and `humanactivity.rocksminerals.`
+(inactive) were created inactive. The choice lists those categories use
+are pushed with them. A category with no attributes gets a schema with no
+fields. With `--cm-from-file`, observed data model categories the
+configurable model lacks get inactive types under the model's prefix.
+Choice options those historical categories need but the configurable model
+omits are retained as inactive entries, including when the model's option
+list is empty. They resolve historical values without widening the active
+dropdowns.
 **`patrol-preflight`.** A read-only check that an EarthRanger site is ready
 for a smart-able bundle's patrols: the patrol_schemas flag, operator
 permissions, patrol types, universal patrol fields, choices, subjects on the

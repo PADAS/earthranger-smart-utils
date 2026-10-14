@@ -229,6 +229,9 @@ class ERSmartSynchronizer:
         self.skip_choices: bool = False
         self._event_type_version: str = config.earthranger.event_type_version
         self._cm_variant_mode: str = config.earthranger.cm_variant_mode
+        # Category hkeys historical observations use (datamodel --bundle):
+        # parent or inactive ones among them get inactive v2 event types.
+        self.observed_categories: set[str] = set()
         # Datamodel-sync run summary counters, populated by create_or_update_er_event_types.
         self.datamodel_stats: dict[str, int] = {
             "categories_created": 0,
@@ -401,6 +404,7 @@ class ERSmartSynchronizer:
                 cm=cdm_dict,
                 ca_uuid=smart_ca_uuid,
                 cm_variant_mode=self._cm_variant_mode,
+                observed_categories=self.observed_categories,
             )
             choices_stats = upsert_choices(
                 er_client=self.er_client,
@@ -434,6 +438,7 @@ class ERSmartSynchronizer:
                 ca_identifier=ca_identifier,
                 choices_base_url=self.config.earthranger.choices_base_url,
                 cm_variant_mode=self._cm_variant_mode,
+                observed_categories=self.observed_categories,
             )
             if self._er_v1_event_types_cache is None and self._migration_enabled():
                 # Direct push (e.g. --from-file): no run-level snapshot yet.

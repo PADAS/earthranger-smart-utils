@@ -450,6 +450,65 @@ def test_build_choice_sets_cm_omits_option_entirely():
     assert [o.value for o in result[0].options] == ["red", "blue"]
 
 
+@pytest.mark.parametrize("smart_type", ["LIST", "MLIST", "TREE"])
+@pytest.mark.parametrize("restrict_all", [False, True])
+def test_observed_outside_cm_preserves_omitted_options_inactive(
+    smart_type, restrict_all
+):
+    """Historical types retain choices the CM omits without widening its dropdowns."""
+    from er_smart_sync.choices import build_choice_sets
+
+    options = [
+        _option("gold", "Gold"),
+        _option("silver", "Silver"),
+        _option("quartz", "Quartz"),
+    ]
+    if smart_type == "TREE":
+        options.append(_option("silver.child", "Silver child"))
+    dm = {
+        "categories": [
+            _category("a", attributes=[_cat_attr("mineral")]),
+            _category("a.live"),
+            _category("a.retired", is_active=False),
+        ],
+        "attributes": [_attr("mineral", smart_type, options=options)],
+    }
+    cm = {
+        "cm_uuid": "cm-1",
+        "categories": [_category("a.live", attributes=[_cat_attr("mineral")])],
+        "attributes": [
+            {
+                "key": "mineral",
+                "options": []
+                if restrict_all
+                else [
+                    {"key": "gold", "isActive": True},
+                    {"key": "quartz", "isActive": False},
+                ],
+            }
+        ],
+    }
+    plain = build_choice_sets(dm=dm, cm=cm, ca_uuid=CA_UUID)
+    assert [o.value for cs in plain for o in cs.options] == (
+        [] if restrict_all else ["gold", "quartz"]
+    )
+    sets = build_choice_sets(
+        dm=dm, cm=cm, ca_uuid=CA_UUID, observed_categories={"a.retired."}
+    )
+    assert len(sets) == 1
+    if plain:
+        assert sets[0].field == plain[0].field
+    actual = {o.value: (o.display, o.is_active) for o in sets[0].options}
+    assert actual == {
+        "gold": ("Gold", not restrict_all),
+        "quartz": ("Quartz", False),
+        "silver_child" if smart_type == "TREE" else "silver": (
+            "Silver child" if smart_type == "TREE" else "Silver",
+            False,
+        ),
+    }
+
+
 def test_build_choice_sets_tree_flattens_to_leaves():
     from er_smart_sync.choices import build_choice_sets
 
