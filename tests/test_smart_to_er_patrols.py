@@ -5,7 +5,12 @@ from er_smart_sync.bundle import load_bundle
 from er_smart_sync.patrol_ids import er_id, namespace
 from er_smart_sync.patrol_times import tracks_by_day
 from er_smart_sync.smart_to_er_patrol_schema import build_patrol_types
-from er_smart_sync.smart_to_er_patrols import Resolver, build_patrol
+from er_smart_sync.smart_to_er_patrols import (
+    Resolver,
+    build_patrol,
+    build_waypoint,
+    event_value,
+)
 
 FIXTURE = Path(__file__).parent / "fixtures" / "smart_demo_bundle"
 TZ = ZoneInfo("Africa/Libreville")
@@ -92,3 +97,99 @@ def test_leg_without_leader_or_members():
     ]
     seg = build_patrol(b, p, NS, _resolver(b), TZ, {}, "t").patrol["patrol_segments"][0]
     assert "leader" not in seg and len(seg["members"]) == 4
+
+
+def _wps(b):
+    return [w for p in b.patrols for leg in p["legs"] for w in leg["waypoints"]]
+
+
+def _ev_resolver(b, collection="incident_collection"):
+    r = _resolver(b)
+    r.event_types = {
+        h: f"smart-ca-import_{h.strip('.').replace('.', '_')}"
+        for h in b.observed_category_hkeys()
+    }
+    r.collection_type = collection
+    return r
+
+
+def test_event_values_follow_the_choice_rules():
+    assert event_value({"type": "LIST", "value": "Fresh Sign"}) == "fresh_sign"
+    assert event_value({"type": "TREE", "value": "a.b.c"}) == "a_b_c"
+    assert event_value({"type": "MLIST", "value": ["x y", "z"]}) == ["x_y", "z"]
+    assert event_value({"type": "NUMERIC", "value": 3.0}) == 3.0
+    assert event_value({"type": "BOOLEAN", "value": True}) is True
+
+
+def test_single_observation_waypoint():
+    b = load_bundle(FIXTURE)
+    w = next(
+        w
+        for w in _wps(b)
+        if sum(len(g["observations"]) for g in w["observation_groups"]) == 1
+    )
+    obs = w["observation_groups"][0]["observations"][0]
+    plan = build_waypoint(b, w, "seg", NS, _ev_resolver(b), None)
+    assert plan.parent is None
+    (ev,) = plan.events
+    assert ev["id"] == er_id(NS, "event", obs["uuid"])
+    assert ev["patrol_segments"] == ["seg"] and ev["time"] == w["time"]
+    assert ev["location"] == {
+        "latitude": w["location"][1],
+        "longitude": w["location"][0],
+    }
+    assert ev["event_details"]["smart_"]["observation_uuid"] == obs["uuid"]
+    assert "end_time" not in ev and "collection" not in ev
+
+
+def test_multi_observation_waypoint_becomes_a_collection():
+    b = load_bundle(FIXTURE)
+    w = next(
+        w
+        for w in _wps(b)
+        if sum(len(g["observations"]) for g in w["observation_groups"]) > 1
+    )
+    plan = build_waypoint(b, w, "seg", NS, _ev_resolver(b), None)
+    assert plan.parent["id"] == er_id(NS, "incident", w["uuid"])
+    assert plan.parent["event_type"] == "incident_collection"
+    assert all(e["collection"] == {"id": plan.parent["id"]} for e in plan.events)
+    ungrouped = build_waypoint(b, w, "seg", NS, _ev_resolver(b, None), None)
+    assert ungrouped.parent is None and all(
+        "collection" not in e for e in ungrouped.events
+    )
+
+
+def test_waypoint_without_time_or_location():
+    b = load_bundle(FIXTURE)
+    w = next(
+        w
+        for w in _wps(b)
+        if w["observation_groups"] and w["observation_groups"][0]["observations"]
+    )
+    w = dict(w, time=None, location=None)
+    plan = build_waypoint(b, w, "seg", NS, _ev_resolver(b), "2012-03-17T08:00:00+01:00")
+    assert all(e["time"] == "2012-03-17T08:00:00+01:00" for e in plan.events)
+    assert all("location" not in e for e in plan.events)
+
+
+def test_observation_without_event_type_is_reported_not_posted():
+    b = load_bundle(FIXTURE)
+    w = next(
+        w
+        for w in _wps(b)
+        if w["observation_groups"] and w["observation_groups"][0]["observations"]
+    )
+    r = _ev_resolver(b)
+    r.event_types = {}
+    plan = build_waypoint(b, w, "seg", NS, r, None)
+    assert plan.events == [] and len(plan.unmapped) >= 1
+
+
+def test_waypoint_without_observations_is_skipped():
+    b = load_bundle(FIXTURE)
+    w = next(
+        w
+        for w in _wps(b)
+        if not any(g["observations"] for g in w["observation_groups"])
+    )
+    assert build_waypoint(b, w, "seg", NS, _ev_resolver(b), None) is None

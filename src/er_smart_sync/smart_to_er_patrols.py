@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from zoneinfo import ZoneInfo
 
 from .bundle import Bundle
-from .choices import sanitize_choice_value
+from .choices import sanitize_choice_value, shorten_choice_value
 from .patrol_ids import er_id
 from .patrol_times import LegTimes, leg_times
 from .smart_to_er_patrol_schema import CUSTOM_FIELD_PREFIX, choice_value
@@ -143,3 +143,86 @@ def build_patrol(
         ]
     plan.patrol = body
     return plan
+
+
+def _choice_key(v) -> str:
+    return shorten_choice_value(sanitize_choice_value(str(v)))
+
+
+def event_value(a: dict):
+    """An observation attribute value as the event type built by the data
+    model sync stores it (option values are sanitized, shortened keys)."""
+    t, v = (a.get("type") or "").strip(), a.get("value")
+    if v is None:
+        return None
+    if t in ("LIST", "TREE"):
+        return _choice_key(v)
+    if t == "MLIST":
+        return [_choice_key(x) for x in (v if isinstance(v, list) else [v])]
+    return v
+
+
+@dataclass
+class WaypointPlan:
+    waypoint_uuid: str
+    parent: dict | None
+    events: list
+    attachments: list
+    unmapped: list
+
+
+def build_waypoint(
+    bundle: Bundle,
+    w: dict,
+    segment_id: str,
+    ns,
+    resolver: Resolver,
+    fallback_time: str | None,
+) -> WaypointPlan | None:
+    observations = [(g, o) for g in w["observation_groups"] for o in g["observations"]]
+    if not observations:
+        return None
+    base: dict = {
+        "time": w.get("time") or fallback_time,
+        "patrol_segments": [segment_id],
+    }
+    if w.get("location"):
+        lon, lat = w["location"]
+        base["location"] = {"latitude": lat, "longitude": lon}
+    parent = None
+    if len(observations) > 1 and resolver.collection_type:
+        parent = {
+            **base,
+            "id": er_id(ns, "incident", w["uuid"]),
+            "event_type": resolver.collection_type,
+            "title": f"SMART waypoint {w.get('id') or w['uuid']}",
+            "event_details": {"smart_": {"waypoint_uuid": w["uuid"]}},
+        }
+    events, unmapped = [], []
+    for g, o in observations:
+        etype = resolver.event_types.get(o["category_hkey"])
+        if not etype:
+            unmapped.append(o["uuid"])
+            continue
+        details = {
+            a["key"]: event_value(a)
+            for a in o["attributes"]
+            if event_value(a) is not None
+        }
+        details["smart_"] = {
+            "waypoint_uuid": w["uuid"],
+            "observation_uuid": o["uuid"],
+            "group_uuid": g["uuid"],
+        }
+        ev = {
+            **base,
+            "id": er_id(ns, "event", o["uuid"]),
+            "event_type": etype,
+            "event_details": details,
+        }
+        if parent:
+            ev["collection"] = {"id": parent["id"]}
+        events.append(ev)
+    return WaypointPlan(
+        w["uuid"], parent, events, list(w.get("attachments") or []), unmapped
+    )
