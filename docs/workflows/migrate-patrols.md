@@ -29,7 +29,10 @@ readiness check and the history import follow in later releases.
    if it is off (then re-run step 4 so the universal patrol fields are
    written), create the teams it lists, and put the subjects in the roster
    group if the tool could not.
-6. `patrol-preflight` and `import-patrols` follow in later releases.
+6. Run `er-smart-sync patrol-preflight --config sync.yaml` and fix what it
+   reports until it shows no blocking findings. See
+   [patrol-preflight](../cli-reference/patrol-preflight.md).
+7. `import-patrols` follows in a later release.
 
 The universal patrol fields need the `patrol_schemas` preview feature; on a
 site where it is off the command still writes the patrol types, choices and

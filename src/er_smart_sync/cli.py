@@ -22,6 +22,7 @@ from .patrol_datamodel import (
     run_patrol_datamodel,
     write_run_record,
 )
+from .preflight import render_json, render_text, run_preflight
 from .synchronizer import ERSmartSynchronizer
 from .utils import describe_unresolved_language
 
@@ -1007,6 +1008,92 @@ def patrol_datamodel_cmd(
         click.echo(f"  - {item.title}")
     if result.stats.errors:
         ctx.exit(1)
+
+
+@main.command("patrol-preflight")
+@click.option(
+    "--config",
+    "config_file",
+    type=click.Path(exists=True),
+    help="YAML config file (as for patrol-datamodel)",
+)
+@click.option(
+    "--bundle",
+    "bundle_dir",
+    type=click.Path(file_okay=False),
+    help="smart-able migration bundle directory",
+)
+@er_options
+@click.option(
+    "--smart-language", default=None, help="Language the import will use for labels"
+)
+@click.option(
+    "--timezone", default=None, help="Assert the bundle's timezone (IANA name)"
+)
+@click.option(
+    "--event-type-prefix",
+    default=None,
+    help=(
+        "Prefix of the data model push to import against "
+        "(smart-ca-import, smart-ca-import_<cm uuid>, or the CA uuid)"
+    ),
+)
+@click.option(
+    "--event-type-version",
+    type=click.Choice(["v1", "v2"]),
+    default=None,
+    help="Event type API version (default: earthranger.event_type_version, v2)",
+)
+@click.option("--json", "as_json", is_flag=True, help="Print the report as JSON")
+@click.pass_context
+def patrol_preflight_cmd(
+    ctx,
+    config_file,
+    bundle_dir,
+    er_endpoint,
+    er_token,
+    er_username,
+    er_password,
+    er_id,
+    smart_language,
+    timezone,
+    event_type_prefix,
+    event_type_version,
+    as_json,
+):
+    """Read-only check that an ER site is ready for import-patrols.
+
+    Exit status: 0 no blocking findings, 2 blocking findings, 1 error.
+    """
+    from pathlib import Path
+
+    bundle_path, er, language, tz = _resolve_bundle_options(
+        config_file,
+        bundle_dir,
+        er_endpoint,
+        er_token,
+        er_username,
+        er_password,
+        er_id,
+        smart_language,
+        timezone,
+    )
+    try:
+        bundle = load_bundle(Path(bundle_path), language=language)
+    except BundleError as e:
+        raise click.ClickException(str(e)) from None
+    er_client = _make_er_client(
+        endpoint=er.endpoint, token=er.token, username=er.login, password=er.password
+    )
+    report = run_preflight(
+        ERPatrolAPI(er_client),
+        bundle,
+        timezone=tz,
+        event_type_prefix=event_type_prefix,
+        event_type_version=event_type_version or er.event_type_version,
+    )
+    click.echo(render_json(report) if as_json else render_text(report))
+    ctx.exit(report.exit_code)
 
 
 # ── copy-event-type subcommand (ER → ER) ────────────────────────

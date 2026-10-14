@@ -23,6 +23,23 @@ Choice options those historical categories need but the configurable model
 omits are retained as inactive entries, including when the model's option
 list is empty. They resolve historical values without widening the active
 dropdowns.
+**`patrol-preflight`.** A read-only check that an EarthRanger site is ready
+for a smart-able bundle's patrols: the patrol_schemas flag, operator
+permissions, patrol types, universal patrol fields, choices, subjects on the
+roster das enforces, retired members, teams and event types, plus the
+bundle's own warnings. Text or `--json`; exit 0, 2 when something blocks, 1
+on error. Each blocking finding names the patrols it affects (ERA-14138).
+Verified against gundi-dev.staging with SMART's demo bundle. The patrol
+types, universal fields, choices, six subjects on the roster and the team
+all passed. After the demo data model was pushed with `datamodel --bundle`,
+the two observed categories SMART keeps no event type for (`animals.sign.`,
+a parent, and `humanactivity.rocksminerals.`, retired) matched their
+inactive event types with a warning; the run exited 0, with a second
+warning for the inferred timezone.
+`patrol-datamodel` now finds a patrol type an admin deactivated and
+reactivates it, instead of trying to create a duplicate.
+See [patrol-preflight](cli-reference/patrol-preflight.md).
+
 
 **`patrol-datamodel`.** From a smart-able migration bundle, creates or
 updates the ER patrol types (one per SMART transport), the universal patrol
@@ -63,6 +80,16 @@ A custom attribute key too long for ER's 40-character choice field is
 shortened with a hash suffix, a field an admin moved to another section
 keeps a matching `parent`, and a manifest that is not a JSON object is
 reported as an invalid bundle.
+
+### Fixed
+
+**`datamodel` re-runs no longer re-patch every v2 event type.** The v2
+builder put a `choices` block in each choice field's UI schema. das's
+metaschema has no such key and drops it on save, so every re-run saw a
+difference and PATCHed all event types. The builder now emits only the keys
+das accepts; the dropdown options still come from the `$ref` in the JSON
+schema. Verified on gundi-dev: a re-run reports 39 of 39 event types
+unchanged. Sites pushed before this need nothing: das never stored the key.
 
 ## 0.5.1 — 2026-10-12
 
