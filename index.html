@@ -1649,10 +1649,10 @@
 
 
 <h1 id="er-smart-sync">er-smart-sync<a class="headerlink" href="#er-smart-sync" title="Permanent link">&para;</a></h1>
-<p><strong>SMART Connect ↔ EarthRanger synchronization</strong>, packaged as a Python CLI for the
-PADAS support team and project managers.</p>
+<p><strong>SMART ↔ EarthRanger synchronization and migration</strong>, packaged as a Python CLI
+for the PADAS support team and project managers.</p>
 <h2 id="what-it-does">What it does<a class="headerlink" href="#what-it-does" title="Permanent link">&para;</a></h2>
-<p>Three sync flows in one tool:</p>
+<p>Five flows in one tool:</p>
 <ol>
 <li><strong>Push a data model</strong> (SMART → ER) — turn a SMART conservation area's data model
    and configurable model overlays into EarthRanger event categories, event types,
@@ -1661,6 +1661,15 @@ PADAS support team and project managers.</p>
    the message broker for routing back into SMART.</li>
 <li><strong>Sync patrols</strong> (ER → SMART) — poll EarthRanger patrols (with track points,
    segment events, and attached files) and forward them the same way.</li>
+<li><strong>Migrate patrols</strong> (SMART backup → ER) — move a conservation area's patrol
+   setup and history into EarthRanger's patrol model from a migration bundle that
+   <a href="https://github.com/PADAS/er-smart-able">smart-able</a> writes from a SMART backup,
+   with no SMART Connect server involved. Three subcommands, run in order:
+   <code>patrol-datamodel</code> (patrol types, universal patrol fields, choices, ranger
+   subjects), <code>patrol-preflight</code> (read-only readiness check), <code>import-patrols</code>
+   (patrols, their events and tracks). Every step is safe to re-run.</li>
+<li><strong>Copy an event type</strong> (ER → ER) — copy one event type, with the choice lists
+   its schema references, from one EarthRanger site to another.</li>
 </ol>
 <h2 id="who-this-is-for">Who this is for<a class="headerlink" href="#who-this-is-for" title="Permanent link">&para;</a></h2>
 <ul>
@@ -1677,6 +1686,8 @@ reference.</p>
   <a href="getting-started/first-run/">First run</a></li>
 <li><strong>Need to push a SMART data model into ER?</strong> →
   <a href="workflows/push-datamodel/">Push a data model</a></li>
+<li><strong>Moving a site's patrol history from SMART into ER?</strong> →
+  <a href="workflows/migrate-patrols/">Migrate SMART patrols</a></li>
 <li><strong>Hitting an error?</strong> → <a href="troubleshooting/">Troubleshooting</a></li>
 <li><strong>Looking up a specific flag?</strong> → <a href="cli-reference/overview/">CLI reference</a></li>
 </ul>
