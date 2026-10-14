@@ -19,8 +19,10 @@ skips only the affected patrols. Re-runs write nothing new: ids are derived
 from SMART uuids and every row is looked up before it is written, and a
 ledger beside the bundle records finished stages. Retired members are
 reactivated for the run and retired again. Exit 0, 1 when a patrol failed,
-2 when preflight blocks (ERA-14139, ERA-14140, ERA-14141). See
-[import-patrols](cli-reference/import-patrols.md).
+2 when preflight blocks (ERA-14139, ERA-14140, ERA-14141). Verified on
+gundi-dev.staging with SMART's demo bundle: 5 patrols, 141 events with the
+attachment, 232 track points; a re-run, and a re-run without the ledger,
+wrote nothing. See [import-patrols](cli-reference/import-patrols.md).
 
 **`datamodel --bundle`.** With a smart-able migration bundle, parent or
 inactive SMART categories that the bundle's observations use also get an

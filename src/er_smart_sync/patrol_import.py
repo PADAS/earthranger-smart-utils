@@ -153,15 +153,24 @@ def _import_events(api, bundle, patrol, plan, ns, resolver, ledger, counts) -> N
             if wp is None:
                 continue
             counts["observations_unmapped"] += len(wp.unmapped)
+            on_site: dict = {}
             for ev in ([wp.parent] if wp.parent else []) + wp.events:
-                if api.get_event(ev["id"]) is None:
+                existing = api.get_event(ev["id"])
+                on_site[ev["id"]] = existing
+                if existing is None:
                     api.create_event(ev)
                     counts["events_created"] += 1
                 else:
                     counts["events_existing"] += 1
             if wp.attachments and wp.events and w["uuid"] not in attached:
+                first = on_site.get(wp.events[0]["id"]) or {}
+                # the event's own file list guards a re-run without the ledger
+                have = {f.get("filename") for f in first.get("files") or []}
                 for a in wp.attachments:
                     path = bundle.path / a["path"]
+                    if path.name in have or a.get("filename") in have:
+                        counts["attachments_existing"] += 1
+                        continue
                     if not path.is_file():
                         counts["attachments_missing"] += 1
                         logger.warning("attachment missing from the bundle: %s", path)

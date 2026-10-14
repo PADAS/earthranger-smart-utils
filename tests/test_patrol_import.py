@@ -98,6 +98,9 @@ class FakeAPI:
 
     def attach_file(self, event_id, filepath, comment=""):
         self.files.append((event_id, filepath))
+        self.events[event_id].setdefault("files", []).append(
+            {"filename": Path(filepath).name}
+        )
 
     def patch_subject(self, sid, payload):
         self.calls["patch_subject"] += 1
@@ -256,3 +259,28 @@ def test_setup_failure_still_retires_reactivated_members(tmp_path):
     s = next(s for s in api.subjects if s["additional"]["smart_member_id"] == m)
     assert s["is_active"] is False
     assert ImportLedger(tmp_path / "ledger.json", "site|ca").reactivated() == []
+
+
+def test_attachment_not_posted_twice_without_the_ledger(tmp_path):
+    """The event's own file list, not just the ledger, guards attachments."""
+    import shutil
+
+    shutil.copytree(FIXTURE, tmp_path / "b")
+    b0 = load_bundle(tmp_path / "b")
+    w = next(
+        w
+        for p in b0.patrols
+        for leg in p["legs"]
+        for w in leg["waypoints"]
+        if w["attachments"]
+    )
+    a = w["attachments"][0]
+    (tmp_path / "b" / a["path"]).parent.mkdir(parents=True)
+    (tmp_path / "b" / a["path"]).write_bytes(b"jpg")
+    b = load_bundle(tmp_path / "b")
+    api = FakeAPI(b)
+    _run(api, b, tmp_path, skip_tracks=True)
+    assert len(api.files) == 1
+    (tmp_path / "ledger.json").unlink()
+    r = _run(api, b, tmp_path, skip_tracks=True)
+    assert len(api.files) == 1 and r.counts["attachments_existing"] == 1

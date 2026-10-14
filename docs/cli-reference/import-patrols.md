@@ -79,9 +79,34 @@ The ledger records, per site and conservation area:
 
 A re-run skips finished stages. A dry run neither writes to ER nor writes the ledger.
 
-Without the ledger, a re-run still writes no duplicates, because every patrol and event is looked up by id. It may post an attachment a second time.
+Without the ledger, a re-run still writes no duplicates. Every patrol and event is looked up by id, and an attachment is skipped when its event already holds a file of that name.
 
 A patrol found on the site without one of its segments fails. das cannot add a segment with a given id to an existing patrol, so delete that patrol in EarthRanger and run again.
+
+## Example
+
+On gundi-dev.staging, 2026-10-13, after `datamodel --bundle`, `patrol-datamodel` and a clean `patrol-preflight`, SMART's demo bundle was imported in two steps.
+
+The first run used `--patrol SMART_000001`. It wrote one patrol:
+- a segment with the team, the leader, three members, the universal fields and the `smart_` provenance;
+- 20 events linked to the segment, one with its photo attached;
+- 30 track points on the leader's source.
+
+ER marked the patrol done.
+
+A second run without `--patrol` added the other four patrols:
+
+```text
+Imported 5, skipped 0, failed 0 patrol(s).
+  already_imported: 1
+  events_created: 121
+  observations_unmapped: 0
+  track_points: 202
+```
+
+A third run reported `already_imported: 5` and wrote nothing. A run with an empty ledger found all 141 events and the photo already on the site, and wrote nothing either.
+
+gundi-dev has no `incident_collection` event type, so the 18 multi-observation waypoints imported ungrouped there.
 
 ## Undoing an import
 
