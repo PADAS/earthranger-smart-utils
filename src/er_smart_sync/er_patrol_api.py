@@ -62,7 +62,11 @@ class ERPatrolAPI:
         return bool(self.preview_features().get("patrol_schemas"))
 
     def get_patrol_type(self, value: str) -> dict | None:
-        return self._get_or_none(f"{PATROL_TYPES_PATH}/{value}")
+        # das hides inactive types unless asked; an inactive type must be found,
+        # not reported missing (that would invite a duplicate).
+        return self._get_or_none(
+            f"{PATROL_TYPES_PATH}/{value}", include_inactive="true"
+        )
 
     def get_segment_schema(self) -> dict | None:
         doc = self._get_or_none(SEGMENT_SCHEMA_PATH, include_schema="true")
@@ -70,6 +74,17 @@ class ERPatrolAPI:
 
     def get_patrol_config(self) -> dict | None:
         return self._get_or_none(PATROL_CONFIG_PATH)
+
+    def get_patrol_config_resolved(self) -> dict | None:
+        """Active, person-type subjects on the configured member roster (nested
+        groups expanded) and the active teams: what das accepts on a segment."""
+        return self._get_or_none(f"{PATROL_CONFIG_PATH}/resolved")
+
+    def get_me(self) -> dict:
+        try:
+            return self.er._get(path="user/me", max_retries=0) or {}
+        except ERClientPermissionDenied as e:
+            raise ERForbidden(f"GET user/me: {e}") from None
 
     def _read(self, fn, **kwargs):
         try:
@@ -113,6 +128,15 @@ class ERPatrolAPI:
             ),
             None,
         )
+
+    def list_event_types(self, version: str = "v2") -> list:
+        types = self._read(
+            self.er.get_event_types,
+            include_inactive=True,
+            include_schema=False,
+            version=version,
+        )
+        return list(types or [])
 
     # -- writes ------------------------------------------------------------
     def _write(self, fn, **kwargs):

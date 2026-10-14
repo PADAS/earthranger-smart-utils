@@ -566,3 +566,16 @@ def test_merge_keeps_parent_in_step_with_a_moved_field():
     assert merged["ui"]["fields"]["comment"]["parent"] == "section-2"
     assert merged["ui"]["fields"]["objective"]["parent"] == SEGMENT_SECTION
     assert merge_segment_schema(merged, ours) == merged
+
+
+def test_choice_value_rule():
+    from er_smart_sync.bundle import Labelled
+    from er_smart_sync.smart_to_er_patrol_schema import choice_value
+
+    item = Labelled(uuid="a-b", key="Anti Poaching", labels={}, label=None)
+    assert choice_value(item) == "anti_poaching"
+    assert (
+        choice_value(Labelled(uuid="aaaa-bbbb", key=None, labels={}, label="HQ"))
+        == "aaaabbbb"
+    )
+    assert choice_value(Labelled(uuid=None, key=None, labels={}, label="HQ")) is None
