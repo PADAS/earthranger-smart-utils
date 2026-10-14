@@ -386,14 +386,21 @@ manifest zone was inferred, the preflight warns.
 Checked against das before the corresponding step is implemented; each
 is a task in the implementation plan:
 
-1. Whether `POST activity/events/` honours a client-supplied `id`; shapes
-   the event dedupe path.
-2. `POST subjectsources` payload and whether `assigned_range` can be
-   back-dated.
-3. Incident collection endpoint and payload for attaching child events.
-4. Whether `PATCH patrols/{id}` with nested segments replaces or upserts
-   `members`.
-5. das observation dedupe on `(source, recorded_at)`.
+1. Settled 2026-10-14: `POST activity/events/` (and `activity/patrols/`)
+   accept a client `id`, but an existing id returns a 500 after about 14 s
+   of serial-number retries, not a 409. The importer GETs by id first.
+2. Settled 2026-10-14: `subjectsources` is read-only; assignments are
+   `POST subject/{id}/sources` with `assigned_range: {lower, upper}`,
+   back-dating allowed, get-or-create on the exact range.
+3. Settled 2026-10-14: a child joins a collection with
+   `"collection": {"id": parent}` in its own POST; the parent's event type
+   must have `is_collection`.
+4. Settled 2026-10-14: `PATCH activity/patrols/{id}` upserts nested
+   segments by id (deleting none) but rejects a new segment carrying an id;
+   `members` is replaced.
+5. Settled 2026-10-14: das has a unique constraint on
+   `(tenant, source, recorded_at)`; a list skips duplicates and answers 409
+   only when nothing was new.
 6. Settled 2026-10-14: das does not. `_validate_rosters` in
    `das/activity/serializers/patrols.py` accepts only active, person-type
    subjects in the configured member groups, whatever the dates. Original

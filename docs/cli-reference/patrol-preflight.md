@@ -45,6 +45,7 @@ the other checks still run.
 | `timezone` | warning / blocking | the bundle's zone was inferred; blocking when `--timezone` disagrees | confirm with `smart.timezone`, or re-export |
 | `language` | warning | labels missing in the chosen language | pick a better-covered language |
 | `bundle_warnings` | warning | warnings smart-able recorded when it wrote the bundle | read them in `manifest.json` |
+| `collection_type` | warning | waypoints with several observations and no active collection event type, so their events import ungrouped | activate `incident_collection` |
 | `check_failed` | blocking | a check could not run | fix the cause and run again |
 
 ## Example

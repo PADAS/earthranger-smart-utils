@@ -1096,6 +1096,98 @@ def patrol_preflight_cmd(
     ctx.exit(report.exit_code)
 
 
+@main.command("import-patrols")
+@click.option("--config", "config_file", type=click.Path(exists=True),
+              help="YAML config file (as for patrol-datamodel)")
+@click.option("--bundle", "bundle_dir", type=click.Path(file_okay=False),
+              help="smart-able migration bundle directory")
+@er_options
+@click.option("--smart-language", default=None, help="Language for labels")
+@click.option("--timezone", default=None,
+              help="Assert the bundle's timezone (IANA name)")
+@click.option("--event-type-prefix", default=None,
+              help="Prefix of the data model push to import against")
+@click.option("--event-type-version", type=click.Choice(["v1", "v2"]), default=None)
+@click.option("--since", type=click.DateTime(["%Y-%m-%d"]), default=None,
+              help="Only patrols starting on or after this date")
+@click.option("--until", type=click.DateTime(["%Y-%m-%d"]), default=None,
+              help="Only patrols starting on or before this date")
+@click.option("--patrol", "patrol_ids", multiple=True,
+              help="A SMART patrol id or uuid (repeatable)")
+@click.option("--limit", type=int, default=None, help="At most N patrols")
+@click.option("--skip-events", is_flag=True, help="Do not import waypoint events")
+@click.option("--skip-tracks", is_flag=True, help="Do not import track points")
+@click.option("--allow-blocking", is_flag=True,
+              help="Skip patrols with blocking preflight findings instead of stopping")
+@click.option("--ledger", "ledger_path", type=click.Path(dir_okay=False), default=None,
+              help="Import ledger (default: import-ledger.json beside the bundle)")
+@click.pass_context
+def import_patrols_cmd(ctx, config_file, bundle_dir, er_endpoint, er_token,
+                       er_username, er_password, er_id, smart_language, timezone,
+                       event_type_prefix, event_type_version, since, until,
+                       patrol_ids, limit, skip_events, skip_tracks, allow_blocking,
+                       ledger_path):
+    """Import a bundle's patrols, waypoint events and tracks into EarthRanger.
+
+    Runs the patrol-preflight checks first. Exit status: 0 done, 1 some
+    patrols failed, 2 blocking preflight findings.
+    """
+    from importlib.metadata import version as pkg_version
+    from pathlib import Path
+    from urllib.parse import urlparse
+
+    from . import patrol_import
+    from .import_ledger import ImportLedger
+    from .patrol_ids import namespace
+
+    bundle_path, er, language, tz = _resolve_bundle_options(
+        config_file, bundle_dir, er_endpoint, er_token, er_username, er_password,
+        er_id, smart_language, timezone,
+    )
+    try:
+        bundle = load_bundle(Path(bundle_path), language=language)
+    except BundleError as e:
+        raise click.ClickException(str(e)) from None
+    _check_bundle_timezone(bundle, tz)
+    er_client = _make_er_client(
+        endpoint=er.endpoint, token=er.token, username=er.login, password=er.password
+    )
+    dry = bool(ctx.obj and ctx.obj.get("dry_run"))
+    if dry:
+        er_client = DryRunERClient(er_client)
+        click.echo("Dry run mode: no writes will be sent to ER.", err=True)
+    ledger = ImportLedger(
+        Path(ledger_path) if ledger_path
+        else Path(bundle_path).resolve().parent / "import-ledger.json",
+        f"{urlparse(er.endpoint).netloc}|{bundle.ca_uuid}",
+        read_only=dry,
+    )
+    opts = patrol_import.ImportOptions(
+        since=since.date() if since else None,
+        until=until.date() if until else None,
+        patrols=tuple(patrol_ids),
+        limit=limit,
+        skip_events=skip_events,
+        skip_tracks=skip_tracks,
+        allow_blocking=allow_blocking,
+        event_type_prefix=event_type_prefix,
+        event_type_version=event_type_version or er.event_type_version,
+        timezone=tz,
+    )
+    result = patrol_import.run_import(
+        ERPatrolAPI(er_client), bundle, endpoint=er.endpoint, ledger=ledger, opts=opts,
+        ns=namespace(er.endpoint, bundle.ca_uuid, er.patrol_namespace),
+        importer_version=pkg_version("er-smart-sync"),
+    )
+    if result.stopped:
+        click.echo(render_text(result.report))
+        click.echo("Fix the blocking findings, or pass --allow-blocking to skip "
+                   "the affected patrols.")
+    else:
+        click.echo(patrol_import.format_result(result, bundle))
+    ctx.exit(result.exit_code)
+
+
 # ── copy-event-type subcommand (ER → ER) ────────────────────────
 
 
