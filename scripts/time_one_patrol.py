@@ -2,17 +2,23 @@
 
     uv run python scripts/time_one_patrol.py --config sync.yaml --patrol 050500_001453
 
-Imports the patrol through the real CLI into a throwaway ledger (so the
-main ledger is untouched; the main run later finds the patrol on the site
-and skips it), then prints the requests grouped by method, status and path.
+Imports the patrol through the real CLI into a throwaway ledger, deleted
+afterwards, then prints the requests grouped by method, status and path.
 Run it before and after a change on the same patrol: that is the benchmark.
+
+The main ledger never hears of this patrol, so a later main run does not
+skip it: it reads the patrol, patches it, finds its events on the site and
+re-sends its track (das keeps nothing twice, but the work is repeated).
+Pass --ledger with the main ledger's path to record the patrol there instead.
 """
 
 from __future__ import annotations
 
 import argparse
 import collections
+import os
 import re
+import shutil
 import statistics
 import sys
 import tempfile
@@ -53,25 +59,31 @@ def main(argv=None) -> int:
     requests.Session.request = _timed  # type: ignore[assignment]
     from er_smart_sync.cli import main as cli_main
 
-    ledger = args.ledger or tempfile.mktemp(  # ty: ignore[deprecated]
-        suffix=".json", prefix="time-one-patrol-"
-    )
+    tmpdir = None
+    ledger = args.ledger
+    if not ledger:
+        tmpdir = tempfile.mkdtemp(prefix="time-one-patrol-")
+        ledger = os.path.join(tmpdir, "ledger.json")
     t0 = time.perf_counter()
-    res = CliRunner().invoke(
-        cli_main,
-        [
-            "import-patrols",
-            "--config",
-            args.config,
-            "--patrol",
-            args.patrol,
-            "--ledger",
-            ledger,
-            "--workers",
-            str(args.workers),
-        ],
-        catch_exceptions=False,
-    )
+    try:
+        res = CliRunner().invoke(
+            cli_main,
+            [
+                "import-patrols",
+                "--config",
+                args.config,
+                "--patrol",
+                args.patrol,
+                "--ledger",
+                ledger,
+                "--workers",
+                str(args.workers),
+            ],
+            catch_exceptions=False,
+        )
+    finally:
+        if tmpdir:
+            shutil.rmtree(tmpdir, ignore_errors=True)
     wall = time.perf_counter() - t0
     print("\n".join(res.output.strip().splitlines()[-4:]))
     inside = sum(c[3] for c in CALLS)

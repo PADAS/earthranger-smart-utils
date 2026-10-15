@@ -10,7 +10,7 @@ which carry the full commit-level history.
 ### Changed
 
 **`import-patrols` makes far fewer requests per patrol** — events are created
-in lists of 50 (das writes a list atomically), the patrol read replaces one
+in lists of 20 (das writes a list atomically), the patrol read replaces one
 probe per event, and a leader's track source is looked up once per run — and
 gains `--workers N` to import N patrols at a time. Measured on staging in
 October 2026, throughput is limited by das's per-record server work, so

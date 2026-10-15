@@ -69,7 +69,7 @@ Exit status:
 ## Speed
 
 A patrol costs a handful of requests: the patrol, one list of its events
-(parents of multi-observation waypoints first, then the rest, 50 per
+(parents of multi-observation waypoints first, then the rest, 20 per
 request), its attachments, and its leader's track in batches of 1,000
 points. Re-run safety comes from deterministic ids and from reading the
 patrol (which lists the events already on it) before writing; a request

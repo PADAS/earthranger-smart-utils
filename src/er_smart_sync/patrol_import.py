@@ -169,7 +169,9 @@ def _create_event_safely(api, ev: dict, counts) -> dict:
         return existing
 
 
-EVENT_BATCH = 50
+# das spends ~0.5 s per event on a list POST; 20 keeps a list well under a
+# 30 s gateway timeout, past which das may commit after the client gave up.
+EVENT_BATCH = 20
 
 
 def _post_event_lists(api, events: list, counts, patrol_id=None) -> tuple[dict, list]:
@@ -450,7 +452,13 @@ def run_import(
 
             def worker(p):
                 if not hasattr(local, "api"):
-                    local.api = api_factory()
+                    try:
+                        local.api = api_factory()
+                    except Exception as e:
+                        logger.exception(
+                            "patrol %s: no EarthRanger client", p.get("id")
+                        )
+                        return p["uuid"], Counter(), f"{type(e).__name__}: {e}"
                 return _import_one(local.api, bundle, p, **per_patrol)
 
             pool = ThreadPoolExecutor(max_workers=workers)

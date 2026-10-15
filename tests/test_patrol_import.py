@@ -564,6 +564,24 @@ def test_workers_import_everything_once(tmp_path):
     assert r2.counts["already_imported"] == 5
 
 
+def test_a_worker_without_a_client_fails_one_patrol_not_the_run(tmp_path):
+    b = load_bundle(FIXTURE)
+    site = SharedSite(b)
+    calls = {"n": 0}
+
+    def flaky():  # call 1 builds the main-thread API, call 2 is the first worker
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RuntimeError("token endpoint answered 503")
+        return site()
+
+    r = _run_workers(flaky, b, tmp_path, workers=4)
+    assert len(r.failed) == 1 and len(r.imported) == 4
+    assert "RuntimeError" in next(iter(r.failed.values()))
+    r2 = _run_workers(site, b, tmp_path, workers=4)
+    assert r2.exit_code == 0 and not r2.failed and len(site.base.patrols) == 5
+
+
 def test_workers_share_one_source_per_leader(tmp_path):
     b = load_bundle(FIXTURE)
     site = SharedSite(b)
