@@ -1516,6 +1516,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#fixed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1573,7 +1584,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#fixed" class="md-nav__link">
+  <a href="#fixed_1" class="md-nav__link">
     <span class="md-ellipsis">
       
         Fixed
@@ -1601,7 +1612,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#fixed_1" class="md-nav__link">
+  <a href="#fixed_2" class="md-nav__link">
     <span class="md-ellipsis">
       
         Fixed
@@ -1668,7 +1679,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#fixed_2" class="md-nav__link">
+  <a href="#fixed_3" class="md-nav__link">
     <span class="md-ellipsis">
       
         Fixed
@@ -1718,7 +1729,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#fixed_3" class="md-nav__link">
+  <a href="#fixed_4" class="md-nav__link">
     <span class="md-ellipsis">
       
         Fixed
@@ -1746,7 +1757,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#fixed_4" class="md-nav__link">
+  <a href="#fixed_5" class="md-nav__link">
     <span class="md-ellipsis">
       
         Fixed
@@ -1851,6 +1862,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#fixed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1908,7 +1930,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#fixed" class="md-nav__link">
+  <a href="#fixed_1" class="md-nav__link">
     <span class="md-ellipsis">
       
         Fixed
@@ -1936,7 +1958,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#fixed_1" class="md-nav__link">
+  <a href="#fixed_2" class="md-nav__link">
     <span class="md-ellipsis">
       
         Fixed
@@ -2003,7 +2025,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#fixed_2" class="md-nav__link">
+  <a href="#fixed_3" class="md-nav__link">
     <span class="md-ellipsis">
       
         Fixed
@@ -2053,7 +2075,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#fixed_3" class="md-nav__link">
+  <a href="#fixed_4" class="md-nav__link">
     <span class="md-ellipsis">
       
         Fixed
@@ -2081,7 +2103,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#fixed_4" class="md-nav__link">
+  <a href="#fixed_5" class="md-nav__link">
     <span class="md-ellipsis">
       
         Fixed
@@ -2178,6 +2200,14 @@ October 2026, throughput is limited by das's per-record server work, so
 Re-run behaviour is unchanged; a rejected list or a duplicate id falls back to
 one-at-a-time posting for that patrol only, and a patrol with a rejected event
 is reported failed while its other events are still imported.</p>
+<h3 id="fixed">Fixed<a class="headerlink" href="#fixed" title="Permanent link">&para;</a></h3>
+<p><strong><code>import-patrols</code>: whole-day leg times no longer stretch segments.</strong> SMART
+stores 00:00 to 23:59:59 on a leg day when nobody entered times. The import
+took those as real and unioned them with the track, so every such segment
+ran the whole day. They now count as unset, and the track, then the
+waypoints, set the day's range. On SMART's demo bundle this affects 4 of 13
+leg days. Re-run with a fresh <code>--ledger</code> to correct patrols already
+imported: existing patrols are updated in place.</p>
 <h2 id="070-2026-10-13">0.7.0 — 2026-10-13<a class="headerlink" href="#070-2026-10-13" title="Permanent link">&para;</a></h2>
 <h3 id="added">Added<a class="headerlink" href="#added" title="Permanent link">&para;</a></h3>
 <p><strong><code>import-patrols</code>.</strong> Writes a smart-able bundle's patrol history into
@@ -2264,7 +2294,7 @@ A custom attribute key too long for ER's 40-character choice field is
 shortened with a hash suffix, a field an admin moved to another section
 keeps a matching <code>parent</code>, and a manifest that is not a JSON object is
 reported as an invalid bundle.</p>
-<h3 id="fixed">Fixed<a class="headerlink" href="#fixed" title="Permanent link">&para;</a></h3>
+<h3 id="fixed_1">Fixed<a class="headerlink" href="#fixed_1" title="Permanent link">&para;</a></h3>
 <p><strong><code>datamodel</code> re-runs no longer re-patch every v2 event type.</strong> The v2
 builder put a <code>choices</code> block in each choice field's UI schema. das's
 metaschema has no such key and drops it on save, so every re-run saw a
@@ -2273,7 +2303,7 @@ das accepts; the dropdown options still come from the <code>$ref</code> in the J
 schema. Verified on gundi-dev: a re-run reports 39 of 39 event types
 unchanged. Sites pushed before this need nothing: das never stored the key.</p>
 <h2 id="051-2026-10-12">0.5.1 — 2026-10-12<a class="headerlink" href="#051-2026-10-12" title="Permanent link">&para;</a></h2>
-<h3 id="fixed_1">Fixed<a class="headerlink" href="#fixed_1" title="Permanent link">&para;</a></h3>
+<h3 id="fixed_2">Fixed<a class="headerlink" href="#fixed_2" title="Permanent link">&para;</a></h3>
 <p><strong>A failed patrol publish no longer looks like an oversized message.</strong> The
 patrol sync caught every publish error, logged it as "message too large",
 and still advanced <code>patrol_last_poll_at</code>, so a publisher outage that
@@ -2298,7 +2328,7 @@ imported from <code>smartconnect.choices</code> (smartconnect-client ≥ 1.15.0)
 cdip-routing can apply the inverse lookup from one definition. Output is
 byte-for-byte unchanged.</p>
 <h2 id="040-2026-09-28">0.4.0 — 2026-09-28<a class="headerlink" href="#040-2026-09-28" title="Permanent link">&para;</a></h2>
-<h3 id="fixed_2">Fixed<a class="headerlink" href="#fixed_2" title="Permanent link">&para;</a></h3>
+<h3 id="fixed_3">Fixed<a class="headerlink" href="#fixed_3" title="Permanent link">&para;</a></h3>
 <p><strong>Leaf categories that re-declare an inherited attribute no longer produce
 rejected event types.</strong> SMART lets a leaf category override an attribute it
 inherits from a parent (commonly <code>isactive="false"</code> to disable it per
@@ -2347,7 +2377,7 @@ lists and leaves the legacy <code>et*_</code> Choice records in place (active bu
 unreferenced); historical events are unaffected because stored option
 values are identical under both naming schemes. See
 <a href="../concepts/choices/#how-field-names-are-derived">Concept: ER Choice records</a>.</p>
-<h3 id="fixed_3">Fixed<a class="headerlink" href="#fixed_3" title="Permanent link">&para;</a></h3>
+<h3 id="fixed_4">Fixed<a class="headerlink" href="#fixed_4" title="Permanent link">&para;</a></h3>
 <p><strong>Inactive SMART options no longer migrate as active (ERCS-8246).</strong> The
 v2 choices builder hardcoded <code>is_active=true</code> on the base-datamodel path,
 so options deactivated in SMART arrived active in EarthRanger (366 of 470
@@ -2356,7 +2386,7 @@ active flag; existing ER records are deactivated in place on the next
 sync. The v1 builder excludes inactive options from its inline enums,
 mirroring what its CM path already did.</p>
 <h2 id="032-2026-08-05">0.3.2 — 2026-08-05<a class="headerlink" href="#032-2026-08-05" title="Permanent link">&para;</a></h2>
-<h3 id="fixed_4">Fixed<a class="headerlink" href="#fixed_4" title="Permanent link">&para;</a></h3>
+<h3 id="fixed_5">Fixed<a class="headerlink" href="#fixed_5" title="Permanent link">&para;</a></h3>
 <p><strong><code>smart.use_language_code</code> is now honored by file-based syncs.</strong>
 <code>datamodel --from-file</code>, <code>choices</code>, and <code>inspect-datamodel</code> built their SMART
 XML parsers from the <code>--smart-language</code> flag, whose default was <code>en</code>, and never

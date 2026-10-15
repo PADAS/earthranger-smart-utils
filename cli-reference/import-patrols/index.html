@@ -1828,6 +1828,7 @@ it writes nothing new.</p>
   - the universal patrol fields <code>patrol-datamodel</code> set up.
 - <code>segment_details.smart_</code> records where the segment came from: the patrol and leg uuids and ids, the conservation area, the bundle's date, the importer version, and <code>time_source</code>.
 - <code>time_source</code> maps each leg day to where its times came from: <code>track</code>, <code>leg_day_times</code>, <code>waypoints</code>, <code>date_only</code> or <code>placeholder</code> (see smart-able's <code>quirks.html#patrol-times</code>).
+- A leg day whose recorded times are exactly 00:00 to 23:59:59 counts as having no times. SMART stores that when nobody entered times, so the track, then the waypoints, set that day's range instead.
 - ER marks a patrol whose segments all end in the past as done.</p>
 <p><strong>Events.</strong>
 - Each observation becomes an event of the type the data model sync created for its category, at the waypoint's time and place.
