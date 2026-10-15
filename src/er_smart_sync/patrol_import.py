@@ -172,7 +172,7 @@ def _create_event_safely(api, ev: dict, counts) -> dict:
 EVENT_BATCH = 50
 
 
-def _post_event_lists(api, events: list, counts) -> dict:
+def _post_event_lists(api, events: list, counts, patrol_id=None) -> dict:
     """Create `events` with as few requests as possible: lists of EVENT_BATCH.
     A list das rejects (one invalid item, or a duplicate id answered with a
     500) is redone one event at a time, so one bad observation costs only
@@ -185,7 +185,11 @@ def _post_event_lists(api, events: list, counts) -> dict:
                 created[ev["id"]] = ev
             counts["events_created"] += len(chunk)
         except ERClientException:
-            logger.info("event list rejected; posting %d events singly", len(chunk))
+            logger.info(
+                "patrol %s: event list rejected; posting %d events singly",
+                patrol_id,
+                len(chunk),
+            )
             for ev in chunk:
                 created[ev["id"]] = _create_event_safely(api, ev, counts)
     return created
@@ -221,8 +225,8 @@ def _import_events(
     )
     # parents first: a child names its collection by id, so the parent must
     # exist before the child's list is written
-    on_site = _post_event_lists(api, parents, counts)
-    on_site.update(_post_event_lists(api, children, counts))
+    on_site = _post_event_lists(api, parents, counts, patrol.get("id"))
+    on_site.update(_post_event_lists(api, children, counts, patrol.get("id")))
     for w, wp in waypoints:
         _attach(api, bundle, wp, w, on_site, attached, ledger, patrol, counts)
 
@@ -242,7 +246,11 @@ def _attach(api, bundle, wp, w, on_site, attached, ledger, patrol, counts) -> No
             continue
         if not path.is_file():
             counts["attachments_missing"] += 1
-            logger.warning("attachment missing from the bundle: %s", path)
+            logger.warning(
+                "patrol %s: attachment missing from the bundle: %s",
+                patrol.get("id"),
+                path,
+            )
             continue
         api.attach_file(first_id, str(path), a.get("filename", ""))
         counts["attachments_posted"] += 1
@@ -428,9 +436,15 @@ def run_import(
                     local.api = api_factory()
                 return _import_one(local.api, bundle, p, **per_patrol)
 
-            with ThreadPoolExecutor(max_workers=workers) as pool:
+            pool = ThreadPoolExecutor(max_workers=workers)
+            try:
                 for outcome in pool.map(worker, selected):
                     record(outcome)
+            except BaseException:
+                # drop queued patrols; only running ones finish, then retire
+                pool.shutdown(wait=True, cancel_futures=True)
+                raise
+            pool.shutdown(wait=True)
     finally:
         _retire(api, ledger)
     return result

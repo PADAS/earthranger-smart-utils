@@ -572,3 +572,65 @@ def test_workers_still_retire_reactivated_members_on_failure(tmp_path):
     for s in site.base.subjects:
         if s["additional"]["smart_member_id"] in retired:
             assert s["is_active"] is False
+
+
+def test_interrupt_drops_queued_patrols_and_still_retires(tmp_path):
+    b = load_bundle(FIXTURE)
+    retired = sorted(b.member_uuids())[:2]
+    site = SharedSite(b, inactive=retired)
+    victim = b.patrols[1]["id"]
+
+    def factory():
+        api = site()
+        real = api.create_patrol
+
+        def create_patrol(p):
+            if p["title"] == victim:
+                raise KeyboardInterrupt
+            return real(p)
+
+        api.create_patrol = create_patrol
+        return api
+
+    led = ImportLedger(tmp_path / "ledger.json", "site|ca")
+    api = site()
+    report = run_preflight(api, b, checks=[check_event_types])
+    with pytest.raises(KeyboardInterrupt):
+        run_import(
+            api,
+            b,
+            endpoint=ENDPOINT,
+            ledger=led,
+            opts=ImportOptions(timezone="Africa/Libreville", workers=3),
+            ns=namespace(ENDPOINT, b.ca_uuid),
+            importer_version="t",
+            report=report,
+            api_factory=factory,
+        )
+    assert len(site.base.patrols) < len(b.patrols)
+    for s in site.base.subjects:
+        if s["additional"]["smart_member_id"] in retired:
+            assert s["is_active"] is False
+
+
+def test_get_or_create_source_recovers_from_a_lost_create_race():
+    import threading
+
+    from er_smart_sync.patrol_import import _get_or_create_source
+
+    class Racy:
+        def __init__(self, reads):
+            self.reads = list(reads)
+
+        def get_source(self, mid):
+            return self.reads.pop(0)
+
+        def create_source(self, p):
+            raise ERClientException("x\n\t 400 from ER. Message: exists")
+
+    cache: dict = {}
+    api = Racy([None, {"id": "src-1"}])
+    got = _get_or_create_source(api, "smart:m", "m", cache, threading.Lock())
+    assert got == "src-1" and cache == {"smart:m": "src-1"}
+    with pytest.raises(ERClientException):
+        _get_or_create_source(Racy([None, None]), "smart:n", "n", {}, threading.Lock())
