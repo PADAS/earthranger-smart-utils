@@ -184,8 +184,7 @@ def _import_events(api, bundle, patrol, plan, ns, resolver, ledger, counts) -> N
                 ledger.add_id(patrol["uuid"], "attached", w["uuid"])
 
 
-def _import_tracks(api, patrol, plan, by_day, subjects, counts) -> None:
-    sources: dict = {}
+def _import_tracks(api, patrol, plan, by_day, subjects, counts, sources: dict) -> None:
     for leg in patrol["legs"]:
         for batch in build_track_batches(leg, plan.leg_times[leg["uuid"]], by_day):
             subject = subjects.get(batch.member_uuid)
@@ -260,6 +259,7 @@ def run_import(
     resolver.collection_type = api.collection_event_type()
     tz = ZoneInfo(bundle.manifest.timezone["name"])
     by_day = tracks_by_day(bundle.tracks)
+    sources: dict = {}
     todo = [p for p in selected if not {"patrol"} <= ledger.stages(p["uuid"])]
     try:
         # inside the try: whatever fails after this, the finally retires them
@@ -286,7 +286,9 @@ def run_import(
                     ledger.done(p["uuid"], "events")
                     ledger.drop_id(p["uuid"], "attached")
                 if "tracks" in want and "tracks" not in done:
-                    _import_tracks(api, p, plan, by_day, subjects, result.counts)
+                    _import_tracks(
+                        api, p, plan, by_day, subjects, result.counts, sources
+                    )
                     ledger.done(p["uuid"], "tracks")
                 result.imported.append(p["uuid"])
             except Exception as e:  # one patrol's failure must not stop the run

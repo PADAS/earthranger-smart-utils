@@ -112,6 +112,7 @@ class FakeAPI:
         pass  # get-or-create
 
     def get_source(self, mid):
+        self.calls["get_source"] += 1
         return self.sources.get(mid)
 
     def create_source(self, p):
@@ -166,6 +167,22 @@ def test_full_import_then_rerun_writes_nothing(tmp_path):
     writes = sum(api.calls.values())
     r2 = _run(api, b, tmp_path)
     assert r2.exit_code == 0 and sum(api.calls.values()) == writes
+
+
+def test_track_sources_are_looked_up_once_per_leader(tmp_path):
+    b = load_bundle(FIXTURE)
+    api = FakeAPI(b)
+    _run(api, b, tmp_path)
+    tracked = {t["leg_uuid"] for t in b.tracks}
+    leaders = {
+        next(m["employee_uuid"] for m in leg["members"] if m["leader"])
+        for p in b.patrols
+        for leg in p["legs"]
+        if leg["uuid"] in tracked
+    }
+    # one lookup per distinct leader for the whole run, not one per patrol
+    assert api.calls["get_source"] == len(leaders)
+    assert api.calls["create_source"] == len(leaders)
 
 
 def test_half_finished_events_are_completed_without_duplicates(tmp_path):
