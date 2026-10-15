@@ -241,6 +241,22 @@ def test_half_finished_events_are_completed_without_duplicates(tmp_path):
     assert api.calls["create_event"] == before + 1  # only the missing one
 
 
+def test_a_rerun_retires_members_a_previous_run_left_active(tmp_path):
+    b = load_bundle(FIXTURE)
+    m = sorted(b.member_uuids())[0]
+    api = FakeAPI(b, inactive={m})
+    _run(api, b, tmp_path)
+    s = next(s for s in api.subjects if s["additional"]["smart_member_id"] == m)
+    # the previous run's retirement failed: the member is still active and
+    # the ledger is the only record that it must be retired
+    s["is_active"] = True
+    ImportLedger(tmp_path / "ledger.json", "site|ca").set_reactivated([s["id"]])
+    r = _run(api, b, tmp_path)
+    assert r.counts["already_imported"] == 5
+    assert s["is_active"] is False
+    assert ImportLedger(tmp_path / "ledger.json", "site|ca").reactivated() == []
+
+
 def test_retired_members_are_reactivated_then_retired(tmp_path):
     b = load_bundle(FIXTURE)
     m = sorted(b.member_uuids())[0]
