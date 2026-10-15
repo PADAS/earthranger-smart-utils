@@ -219,10 +219,13 @@ so they ride along with the other patrol-API follow-ups.
 
 ## Verifying any change
 
-The one-patrol timing harness used here (`/tmp/time_one_patrol.py` during
-the run; worth moving into `tests/` or a `scripts/` folder) wraps
-`requests.Session.request`, imports a single patrol through the real CLI
-into a throwaway ledger (`--ledger /tmp/x.json`), and prints requests
-grouped by method and path with counts and medians. Before/after on the same
-patrol is the honest benchmark; the full-run rate (patrols per minute from
-the ledger's `stages`) is the acceptance test.
+`scripts/time_one_patrol.py` wraps `requests.Session.request`, imports a
+single patrol through the real CLI into a throwaway ledger, and prints the
+requests grouped by method, status and path with counts and medians.
+Before/after on the same patrol is the honest benchmark; the full-run rate
+(patrols per minute, from the ledger's `stages`) is the acceptance test.
+
+| Patrol `050500_001453` (10 observations, 81 points) | Requests | Wall | In HTTP |
+| --- | --- | --- | --- |
+| Before (0.7.0) | 45 | 32.7 s | 21.7 s |
+| After Tasks 1–3 | <fill from Task 6> | | |
