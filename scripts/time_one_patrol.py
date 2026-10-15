@@ -27,11 +27,19 @@ _orig = requests.Session.request
 
 def _timed(self, method, url, *a, **kw):
     start = time.perf_counter()
-    resp = _orig(self, method, url, *a, **kw)
     path = url.split("/api/v1.0/")[-1].split("?")[0]
     path = re.sub(r"[0-9a-f]{8}-[0-9a-f-]{27}", "<id>", path)
-    CALLS.append((method, path, resp.status_code, time.perf_counter() - start))
-    return resp
+    status: int | str = "unknown"
+    try:
+        resp = _orig(self, method, url, *a, **kw)
+        status = resp.status_code
+        return resp
+    except BaseException as exc:
+        # Record failed requests too (e.g. ConnectionError, Timeout), then re-raise.
+        status = type(exc).__name__
+        raise
+    finally:
+        CALLS.append((method, path, status, time.perf_counter() - start))
 
 
 def main(argv=None) -> int:
