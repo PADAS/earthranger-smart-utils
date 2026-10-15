@@ -164,12 +164,35 @@ def _create_event_safely(api, ev: dict, counts) -> dict:
         return existing
 
 
+EVENT_BATCH = 50
+
+
+def _post_event_lists(api, events: list, counts) -> dict:
+    """Create `events` with as few requests as possible: lists of EVENT_BATCH.
+    A list das rejects (one invalid item, or a duplicate id answered with a
+    500) is redone one event at a time, so one bad observation costs only
+    its own patrol a slower path, not the whole run."""
+    created: dict = {}
+    for i in range(0, len(events), EVENT_BATCH):
+        chunk = events[i : i + EVENT_BATCH]
+        try:
+            for ev in api.create_events(chunk):
+                created[ev["id"]] = ev
+            counts["events_created"] += len(chunk)
+        except ERClientException:
+            logger.info("event list rejected; posting %d events singly", len(chunk))
+            for ev in chunk:
+                created[ev["id"]] = _create_event_safely(api, ev, counts)
+    return created
+
+
 def _import_events(
     api, bundle, patrol, plan, ns, resolver, ledger, counts, known: set | None
 ) -> None:
     if known is None:  # patrol stage done in an earlier run: one read, not N
         known = api.event_ids_of(api.get_patrol(plan.patrol["id"]))
     attached = set(ledger.ids(patrol["uuid"]).get("attached", []))
+    parents, children, waypoints = [], [], []
     for leg in patrol["legs"]:
         seg_id = plan.segment_ids[leg["uuid"]]
         lt = plan.leg_times[leg["uuid"]]
@@ -181,14 +204,22 @@ def _import_events(
             if wp is None:
                 continue
             counts["observations_unmapped"] += len(wp.unmapped)
-            on_site: dict = {}
-            for ev in ([wp.parent] if wp.parent else []) + wp.events:
-                if ev["id"] in known:
-                    counts["events_existing"] += 1
-                    on_site[ev["id"]] = None  # read lazily, only for attachments
-                else:
-                    on_site[ev["id"]] = _create_event_safely(api, ev, counts)
-            _attach(api, bundle, wp, w, on_site, attached, ledger, patrol, counts)
+            waypoints.append((w, wp))
+            if wp.parent and wp.parent["id"] not in known:
+                parents.append(wp.parent)
+            children += [e for e in wp.events if e["id"] not in known]
+    counts["events_existing"] += sum(
+        1
+        for _, wp in waypoints
+        for ev in ([wp.parent] if wp.parent else []) + wp.events
+        if ev["id"] in known
+    )
+    # parents first: a child names its collection by id, so the parent must
+    # exist before the child's list is written
+    on_site = _post_event_lists(api, parents, counts)
+    on_site.update(_post_event_lists(api, children, counts))
+    for w, wp in waypoints:
+        _attach(api, bundle, wp, w, on_site, attached, ledger, patrol, counts)
 
 
 def _attach(api, bundle, wp, w, on_site, attached, ledger, patrol, counts) -> None:

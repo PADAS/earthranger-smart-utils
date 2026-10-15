@@ -387,3 +387,15 @@ def test_event_ids_of_reads_every_segment():
     }
     assert ERPatrolAPI.event_ids_of(p) == {"e1", "e2"}
     assert ERPatrolAPI.event_ids_of(None) == set()
+
+
+def test_create_events_posts_a_list_and_normalises_the_reply():
+    c = _client()
+    c._post.return_value = [{"id": "a"}, {"id": "b"}]
+    out = ERPatrolAPI(c).create_events([{"id": "a"}, {"id": "b"}])
+    assert out == [{"id": "a"}, {"id": "b"}]
+    c._post.assert_called_once_with(
+        path="activity/events", payload=[{"id": "a"}, {"id": "b"}]
+    )
+    c._post.return_value = {"id": "a"}  # das unwraps a one-item list
+    assert ERPatrolAPI(c).create_events([{"id": "a"}]) == [{"id": "a"}]

@@ -270,6 +270,15 @@ class ERPatrolAPI:
         # never send end_time on a POST: das reads self.instance there and 500s
         return self._write(self.er._post, path="activity/events", payload=payload)
 
+    def create_events(self, payload: list) -> list:
+        """One POST for several events. das writes the whole list in one
+        transaction and rejects all of them if any is invalid. It answers a
+        one-item list with a dict; return a list either way."""
+        out = self._write(self.er._post, path="activity/events", payload=payload)
+        if isinstance(out, dict):
+            return [out]
+        return list(out or [])
+
     def attach_file(self, event_id: str, filepath: str, comment: str = "") -> dict:
         return self._write(
             self.er.post_event_file,

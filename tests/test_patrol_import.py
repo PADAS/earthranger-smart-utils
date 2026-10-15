@@ -41,6 +41,7 @@ class FakeAPI:
         self.collection = collection
         self.event_types = event_types
         self.fail_patrol = None
+        self.reject_event = None
 
     # reads (the preflight in these tests runs check_event_types only)
     def list_subjects(self):
@@ -121,6 +122,18 @@ class FakeAPI:
         self.calls["create_event"] += 1
         self.events[e["id"]] = e
         return e
+
+    def create_events(self, batch):
+        self.calls["create_events"] += 1
+        if any(e["id"] in self.events for e in batch):
+            raise ERClientException("x\n\t 500 from ER. Message: duplicate key")
+        if self.reject_event and any(e["id"] == self.reject_event for e in batch):
+            raise ERClientException("x\n\t 400 from ER. Message: invalid")
+        for e in batch:  # atomic: validated above, written here
+            assert "end_time" not in e
+            self.calls["create_event"] += 1
+            self.events[e["id"]] = e
+        return list(batch)
 
     def attach_file(self, event_id, filepath, comment=""):
         self.files.append((event_id, filepath))
@@ -417,3 +430,53 @@ def test_orphaned_events_after_a_deleted_patrol_are_recovered(tmp_path):
     assert len(api.patrols) == 5 and api.calls["create_event"] == created
     # the duplicate-id 500 was turned into a probe, once per orphaned event
     assert api.calls["get_event"] > 0
+
+
+def _all_event_ids(b, uuids=None):
+    from er_smart_sync.patrol_ids import er_id
+
+    ns = namespace(ENDPOINT, b.ca_uuid)
+    return [
+        er_id(ns, "event", o["uuid"])
+        for p in b.patrols
+        if uuids is None or p["uuid"] in uuids
+        for leg in p["legs"]
+        for w in leg["waypoints"]
+        for g in w["observation_groups"]
+        for o in g["observations"]
+    ]
+
+
+def test_events_are_created_in_batches_not_one_by_one(tmp_path):
+    b = load_bundle(FIXTURE)
+    api = FakeAPI(b)
+    r = _run(api, b, tmp_path)
+    assert r.exit_code == 0 and api.calls["create_event"] == 141 + 18
+    # 5 patrols; each patrol's parents (if any) and children go in a few lists
+    assert 1 <= api.calls["create_events"] <= 15
+    assert api.calls["get_event"] == 0
+    # every child still points at a parent that exists
+    for e in api.events.values():
+        if e.get("collection"):
+            assert e["collection"]["id"] in api.events
+
+
+def test_a_rejected_batch_falls_back_to_single_posts(tmp_path):
+    b = load_bundle(FIXTURE)
+    api = FakeAPI(b)
+    api.reject_event = next(iter(_all_event_ids(b)))  # one invalid observation
+    orig = api.create_event
+
+    def single(e):
+        if e["id"] == api.reject_event:
+            raise ERClientException("x\n\t 400 from ER. Message: invalid")
+        return orig(e)
+
+    api.create_event = single
+    r = _run(api, b, tmp_path)
+    # the patrol with the bad observation fails; every other event of every
+    # other patrol is on the site; nothing is duplicated
+    assert len(r.failed) == 1
+    assert len(r.imported) == 4
+    assert set(_all_event_ids(b, set(r.imported))) <= set(api.events)
+    assert len(api.events) == api.calls["create_event"]
