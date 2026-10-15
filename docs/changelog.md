@@ -5,7 +5,7 @@ Notable changes by version. Every release is also published to
 [GitHub Releases](https://github.com/PADAS/earthranger-smart-utils/releases),
 which carry the full commit-level history.
 
-## Unreleased
+## 0.8.0 — 2026-10-15
 
 ### Changed
 
