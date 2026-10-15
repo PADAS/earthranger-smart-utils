@@ -19,6 +19,16 @@ Re-run behaviour is unchanged; a rejected list or a duplicate id falls back to
 one-at-a-time posting for that patrol only, and a patrol with a rejected event
 is reported failed while its other events are still imported.
 
+### Fixed
+
+**`import-patrols`: whole-day leg times no longer stretch segments.** SMART
+stores 00:00 to 23:59:59 on a leg day when nobody entered times. The import
+took those as real and unioned them with the track, so every such segment
+ran the whole day. They now count as unset, and the track, then the
+waypoints, set the day's range. On SMART's demo bundle this affects 4 of 13
+leg days. Re-run with a fresh `--ledger` to correct patrols already
+imported: existing patrols are updated in place.
+
 ## 0.7.0 — 2026-10-13
 
 ### Added

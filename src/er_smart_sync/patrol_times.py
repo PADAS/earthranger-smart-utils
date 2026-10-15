@@ -72,13 +72,25 @@ def _track_times(tracks: list) -> list:
     return sorted(out)
 
 
+WHOLE_DAY = (time(0, 0, 0), time(23, 59, 59))
+
+
+def _own_times(day: dict, trust: bool) -> tuple | None:
+    """The leg day's recorded start and end, or None when they are unset:
+    absent, on a placeholder leg, or SMART's 00:00-23:59:59 default (what
+    it stores when nobody entered times; trusting it would stretch every
+    segment with a track to the whole day)."""
+    if not (trust and day.get("start") and day.get("end")):
+        return None
+    start, end = parse_ts(day["start"]), parse_ts(day["end"])
+    if (start.time(), end.time()) == WHOLE_DAY:
+        return None
+    return start, end
+
+
 def _day(day: dict, tracks: list, wp_times: list, tz: ZoneInfo, trust: bool):
     timed = _track_times(tracks)
-    own = (
-        (parse_ts(day["start"]), parse_ts(day["end"]))
-        if trust and day.get("start") and day.get("end")
-        else None
-    )
+    own = _own_times(day, trust)
     if timed:
         source, lo, hi = "track", timed[0], timed[-1]
     elif own:

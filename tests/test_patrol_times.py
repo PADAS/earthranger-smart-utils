@@ -151,3 +151,47 @@ def test_day_with_a_partly_untimed_track_is_flagged_interpolated():
     }
     (d,) = leg_times(_leg([day]), tracks_by_day([track]), TZ).days
     assert d.track_times == "interpolated"
+
+
+def _whole(uuid, date):
+    return _day(
+        uuid, date, f"{date}T00:00:00+01:00", f"{date}T23:59:59+01:00", has_track=True
+    )
+
+
+def test_whole_day_leg_times_are_unset_so_the_track_decides():
+    """SMART stores 00:00-23:59:59 when nobody entered times; unioning that
+    with a track would stretch every segment to the whole day."""
+    track = {
+        "leg_day_uuid": "d1",
+        "parts": [
+            {
+                "coordinates": [[0, 0], [1, 1]],
+                "times": ["2020-01-01T09:00:00+01:00", "2020-01-01T15:00:00+01:00"],
+            }
+        ],
+    }
+    (d,) = leg_times(
+        _leg([_whole("d1", "2020-01-01")]), tracks_by_day([track]), TZ
+    ).days
+    assert d.source == "track"
+    assert (d.start.hour, d.end.hour) == (9, 15)
+
+
+def test_whole_day_leg_times_fall_through_to_waypoints_then_the_day():
+    days = [_whole("d1", "2020-01-01"), _whole("d2", "2020-01-02")]
+    wps = [
+        _wp("d1", "2020-01-01T10:00:00+01:00"),
+        _wp("d1", "2020-01-01T12:00:00+01:00"),
+    ]
+    d1, d2 = leg_times(_leg(days, wps), {}, TZ).days
+    assert (d1.source, d1.start.hour, d1.end.hour) == ("waypoints", 10, 12)
+    assert d2.source == "date_only"
+
+
+def test_real_leg_day_times_still_count():
+    day = _day(
+        "d1", "2020-01-01", "2020-01-01T00:00:00+01:00", "2020-01-01T18:00:00+01:00"
+    )
+    (d,) = leg_times(_leg([day]), {}, TZ).days
+    assert d.source == "leg_day_times" and d.end.hour == 18
