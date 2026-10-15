@@ -315,3 +315,29 @@ Until those land, plan on roughly 2 patrols a minute per site regardless
 of client settings, run imports in the site's cloud region from a
 foreground or `setsid` process, and use `--skip-tracks` first when the
 patrols and events need to be visible early.
+
+### Why threads, not asyncio
+
+The import spends almost all its time waiting on responses, which is the
+usual case for asyncio. It uses a thread pool instead, for three reasons:
+
+- **asyncio would not make it faster on today's das.** Four threads already
+  kept four requests in flight and gained at most 1.2×; das serialises the
+  work behind each request. asyncio's advantage is holding many more
+  requests open cheaply, and more open requests would only queue on the
+  server (and load a production site that is already the bottleneck).
+- **At this scale the two cost the same.** A useful ceiling is 4–16
+  concurrent patrols, bounded by what das absorbs. Threads at that count
+  are cheap, and the GIL is released while they wait on the network.
+- **The rewrite is large.** erclient's `AsyncERClient` lacks `get_subjects`
+  and `post_subject`, and everything above it would become `async`:
+  `ERPatrolAPI` (shared with `patrol-datamodel` and the CLI), the import
+  stages, preflight's reads, and the test fakes. Ledger writes and bundle
+  parsing would still need `asyncio.to_thread`. The threading cost is one
+  lock on the ledger, one on the source cache and a per-thread logging
+  filter, each covered by tests.
+
+Revisit once das parallelises (item 4 above). Try more workers first; move
+to asyncio if the goal becomes much higher fan-out, such as many patrols'
+tracks uploading at once, or overlapping work within one patrol, such as
+posting its track while its events are still being written.
