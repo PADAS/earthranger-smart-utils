@@ -5,6 +5,20 @@ Notable changes by version. Every release is also published to
 [GitHub Releases](https://github.com/PADAS/earthranger-smart-utils/releases),
 which carry the full commit-level history.
 
+## Unreleased
+
+### Changed
+
+**`import-patrols` makes far fewer requests per patrol** — events are created
+in lists of 20 (das writes a list atomically), the patrol read replaces one
+probe per event, and a leader's track source is looked up once per run — and
+gains `--workers N` to import N patrols at a time. Measured on staging in
+October 2026, throughput is limited by das's per-record server work, so
+`--workers 4` gained at most 1.2×; see the CLI reference's Speed section.
+Re-run behaviour is unchanged; a rejected list or a duplicate id falls back to
+one-at-a-time posting for that patrol only, and a patrol with a rejected event
+is reported failed while its other events are still imported.
+
 ## 0.7.0 — 2026-10-13
 
 ### Added

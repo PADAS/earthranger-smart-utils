@@ -375,3 +375,52 @@ def test_source_lookup_uses_the_list_endpoint():
     )
     c._get.return_value = {"results": []}
     assert ERPatrolAPI(c).get_source("smart:abc") is None
+
+
+def test_event_ids_of_reads_every_segment():
+    p = {
+        "patrol_segments": [
+            {"id": "s1", "events": [{"id": "e1"}, {"id": "e2"}]},
+            {"id": "s2", "events": []},
+            {"id": "s3"},
+        ]
+    }
+    assert ERPatrolAPI.event_ids_of(p) == {"e1", "e2"}
+    assert ERPatrolAPI.event_ids_of(None) == set()
+
+
+def test_create_events_posts_a_list_and_normalises_the_reply():
+    c = _client()
+    c._post.return_value = [{"id": "a"}, {"id": "b"}]
+    out = ERPatrolAPI(c).create_events([{"id": "a"}, {"id": "b"}])
+    assert out == [{"id": "a"}, {"id": "b"}]
+    c._post.assert_called_once_with(
+        path="activity/events", payload=[{"id": "a"}, {"id": "b"}]
+    )
+    c._post.return_value = {"id": "a"}  # das unwraps a one-item list
+    assert ERPatrolAPI(c).create_events([{"id": "a"}]) == [{"id": "a"}]
+
+
+def test_quiet_erclient_is_per_thread_and_leaves_the_level_alone():
+    import logging
+    import threading
+
+    from er_smart_sync.er_patrol_api import _quiet_erclient
+
+    log = logging.getLogger("ERClient")
+    level = log.level
+    record = logging.LogRecord("ERClient", logging.ERROR, __file__, 1, "404", (), None)
+
+    def passes():
+        return all(f.filter(record) for f in log.filters)
+
+    assert passes()
+    with _quiet_erclient():
+        assert not passes()
+        seen = []
+        t = threading.Thread(target=lambda: seen.append(passes()))
+        t.start()
+        t.join()
+        assert seen == [True]  # another thread's records still get through
+        assert log.level == level
+    assert passes() and log.level == level

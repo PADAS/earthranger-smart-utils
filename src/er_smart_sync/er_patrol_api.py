@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import threading
 
 import requests
 from erclient.er_errors import (
@@ -30,16 +31,30 @@ SOURCE_PROVIDER = "smart_patrol_import"
 COLLECTION_EVENT_TYPE = "incident_collection"
 
 
+_quiet = threading.local()
+
+
+class _QuietFilter(logging.Filter):
+    """Drop ERClient records emitted by a thread inside `_quiet_erclient`."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return not getattr(_quiet, "on", False)
+
+
+_QUIET_FILTER = _QuietFilter()
+logging.getLogger("ERClient").addFilter(_QUIET_FILTER)
+
+
 @contextlib.contextmanager
 def _quiet_erclient():
-    """erclient logs every 404 at ERROR; an existence check expects them."""
-    log = logging.getLogger("ERClient")
-    level = log.level
-    log.setLevel(logging.CRITICAL)
+    """erclient logs every 404 at ERROR; an existence check expects them.
+    Per-thread, so concurrent workers neither hide nor leak each other's logs."""
+    previous = getattr(_quiet, "on", False)
+    _quiet.on = True
     try:
         yield
     finally:
-        log.setLevel(level)
+        _quiet.on = previous
 
 
 class ERForbidden(Exception):
@@ -160,6 +175,18 @@ class ERPatrolAPI:
     def get_patrol(self, patrol_id: str) -> dict | None:
         return self._get_or_none(f"{PATROLS_PATH}/{patrol_id}")
 
+    @staticmethod
+    def event_ids_of(patrol: dict | None) -> set:
+        """Ids of the events on a patrol's segments, from the patrol GET."""
+        if not patrol:
+            return set()
+        return {
+            e["id"]
+            for s in patrol.get("patrol_segments") or []
+            for e in s.get("events") or []
+            if e.get("id")
+        }
+
     def get_event(self, event_id: str) -> dict | None:
         return self._get_or_none(f"activity/event/{event_id}")
 
@@ -257,6 +284,15 @@ class ERPatrolAPI:
     def create_event(self, payload: dict) -> dict:
         # never send end_time on a POST: das reads self.instance there and 500s
         return self._write(self.er._post, path="activity/events", payload=payload)
+
+    def create_events(self, payload: list) -> list:
+        """One POST for several events. das writes the whole list in one
+        transaction and rejects all of them if any is invalid. It answers a
+        one-item list with a dict; return a list either way."""
+        out = self._write(self.er._post, path="activity/events", payload=payload)
+        if isinstance(out, dict):
+            return [out]
+        return list(out or [])
 
     def attach_file(self, event_id: str, filepath: str, comment: str = "") -> dict:
         return self._write(

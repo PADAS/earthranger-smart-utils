@@ -29,3 +29,4 @@ src/er_smart_sync/_version.py
 state.json
 /tmp/
 site/
+.worktrees/

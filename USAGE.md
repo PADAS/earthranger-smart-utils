@@ -7,7 +7,7 @@
 - **`patrols`** — poll EarthRanger patrols (with track points, segment events, and attached files) and publish them for routing to SMART.
 - **`patrol-datamodel`** — from a smart-able migration bundle, create the patrol types, universal patrol fields, choices and ranger subjects a SMART conservation area needs in EarthRanger, plus an admin checklist.
 - **`patrol-preflight`** — read-only check that an EarthRanger site is ready to import a smart-able bundle's patrols; lists every gap with its fix.
-- **`import-patrols`** — writes a bundle's patrols, waypoint events and tracks into EarthRanger; re-runs write nothing new.
+- **`import-patrols`** — writes a bundle's patrols, waypoint events and tracks into EarthRanger; re-runs write nothing new. `--workers N` imports N patrols at a time.
 - **`copy-event-type`** — copy one event type (and, for v2, the choice lists its schema references) from one EarthRanger site to another.
 - **`validate-config`**, **`list-cas`**, **`inspect-datamodel`** — read-only diagnostic commands intended for support work.
 

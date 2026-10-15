@@ -7,6 +7,8 @@ from click.testing import CliRunner
 from er_smart_sync.cli import main
 from er_smart_sync.defaults import DryRunERClient
 
+FIXTURE = Path(__file__).parent / "fixtures" / "smart_demo_bundle"
+
 
 def test_cli_help():
     runner = CliRunner()
@@ -2476,6 +2478,7 @@ def test_datamodel_bundle_sets_observed_categories(tmp_path, monkeypatch):
     )
     assert result.exit_code == 2 and "v2" in result.output
 
+
 def test_patrol_preflight_exit_codes_and_json(tmp_path):
     from er_smart_sync.preflight import BLOCKING, Finding, PreflightReport
 
@@ -2547,13 +2550,63 @@ def test_import_patrols_wires_options_and_exit_code(tmp_path, monkeypatch):
     monkeypatch.setattr("er_smart_sync.patrol_import.run_import", fake_run)
     monkeypatch.setattr("er_smart_sync.cli._make_er_client", lambda **k: MagicMock())
     bundle = Path(__file__).parent / "fixtures" / "smart_demo_bundle"
-    result = CliRunner().invoke(main, [
-        "import-patrols", "--bundle", str(bundle), "--er-endpoint", "er.test",
-        "--er-token", "t", "--since", "2012-01-01", "--patrol", "SMART_000001",
-        "--skip-tracks", "--limit", "3", "--ledger", str(tmp_path / "l.json"),
-    ])
+    result = CliRunner().invoke(
+        main,
+        [
+            "import-patrols",
+            "--bundle",
+            str(bundle),
+            "--er-endpoint",
+            "er.test",
+            "--er-token",
+            "t",
+            "--since",
+            "2012-01-01",
+            "--patrol",
+            "SMART_000001",
+            "--skip-tracks",
+            "--limit",
+            "3",
+            "--ledger",
+            str(tmp_path / "l.json"),
+        ],
+    )
     assert result.exit_code == 1, result.output
     o = seen["opts"]
     assert o.since.isoformat() == "2012-01-01" and o.patrols == ("SMART_000001",)
     assert o.skip_tracks and o.limit == 3 and not seen["ledger"].read_only
     assert "FAILED" in result.output
+
+
+def test_import_patrols_workers_flag_and_dry_run_guard(tmp_path, monkeypatch):
+    from er_smart_sync import cli, patrol_import
+
+    seen = {}
+
+    def fake_run_import(api, bundle, **kw):
+        seen["workers"] = kw["opts"].workers
+        seen["factory"] = kw.get("api_factory")
+        return patrol_import.ImportResult()
+
+    monkeypatch.setattr(patrol_import, "run_import", fake_run_import)
+    monkeypatch.setattr(cli, "_make_er_client", lambda **k: MagicMock())
+    monkeypatch.setattr(cli, "_check_bundle_timezone", lambda b, tz: None)
+    args = [
+        "import-patrols",
+        "--bundle",
+        str(FIXTURE),
+        "--er-endpoint",
+        "site.pamdas.org",
+        "--er-token",
+        "t",
+        "--timezone",
+        "Africa/Libreville",
+        "--ledger",
+        str(tmp_path / "l.json"),
+    ]
+    res = CliRunner().invoke(main, args + ["--workers", "4"])
+    assert res.exit_code == 0, res.output
+    assert seen["workers"] == 4 and callable(seen["factory"])
+    res = CliRunner().invoke(main, ["--dry-run"] + args + ["--workers", "4"])
+    assert res.exit_code == 0, res.output
+    assert seen["workers"] == 1 and "one worker" in res.output

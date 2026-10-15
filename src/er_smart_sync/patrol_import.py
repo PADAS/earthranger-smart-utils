@@ -4,18 +4,25 @@ Preflight first (blocking findings stop the run, or with --allow-blocking
 skip the affected patrols). Retired members are reactivated for the run and
 retired again at the end. Each patrol is isolated: a failure is recorded with
 its reason and the run moves on. Per patrol, three stages (patrol, events,
-tracks) are recorded in the ledger so a re-run skips what is done; every
-write is preceded by a read by id, because das answers a duplicate id with a
-500 rather than a 409.
+tracks) are recorded in the ledger so a re-run skips what is done. The patrol
+is read before it is written; its events are not probed one by one: the
+patrol read already lists the events on its segments, and a duplicate id (das
+answers it with a 500, not a 409) is recovered by reading that one event.
 """
 
 from __future__ import annotations
 
 import logging
+import threading
 from collections import Counter
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from datetime import date
+from typing import Any
 from zoneinfo import ZoneInfo
+
+from erclient.er_errors import ERClientException
 
 from .bundle import Bundle
 from .er_patrol_api import SOURCE_PROVIDER
@@ -46,6 +53,7 @@ class ImportOptions:
     event_type_prefix: str | None = None
     event_type_version: str = "v2"
     timezone: str | None = None
+    workers: int = 1
 
 
 @dataclass
@@ -125,12 +133,14 @@ def _retire(api, ledger: ImportLedger) -> None:
     ledger.set_reactivated([])
 
 
-def _import_patrol_stage(api, plan, patrol: dict) -> None:
+def _import_patrol_stage(api, plan, patrol: dict) -> set:
+    """Create or refresh the patrol. Returns the ids of events already on
+    its segments, so the events stage need not probe them one by one."""
     body = plan.patrol
     existing = api.get_patrol(body["id"])
     if existing is None:
         api.create_patrol(body)
-        return
+        return set()
     have = {s.get("id") for s in existing.get("patrol_segments") or []}
     missing = [i for i in plan.segment_ids.values() if i not in have]
     if missing:
@@ -140,10 +150,69 @@ def _import_patrol_stage(api, plan, patrol: dict) -> None:
             f"patrol. Delete patrol {body['id']} in EarthRanger and run again."
         )
     api.patch_patrol(body["id"], {k: v for k, v in body.items() if k != "id"})
+    return api.event_ids_of(existing)
 
 
-def _import_events(api, bundle, patrol, plan, ns, resolver, ledger, counts) -> None:
+def _create_event_safely(api, ev: dict, counts) -> dict:
+    """POST one event. das answers a duplicate id with a 500; when that
+    happens the event is on the site (for example after a patrol was deleted
+    by hand but its events were not), so read it and carry on."""
+    try:
+        created = api.create_event(ev)
+        counts["events_created"] += 1
+        return created
+    except ERClientException:
+        existing = api.get_event(ev["id"])
+        if existing is None:
+            raise
+        counts["events_existing"] += 1
+        return existing
+
+
+# das spends ~0.5 s per event on a list POST; 20 keeps a list well under a
+# 30 s gateway timeout, past which das may commit after the client gave up.
+EVENT_BATCH = 20
+
+
+def _post_event_lists(api, events: list, counts, patrol_id=None) -> tuple[dict, list]:
+    """Create `events` with as few requests as possible: lists of EVENT_BATCH.
+    A list das rejects (one invalid item, or a duplicate id answered with a
+    500) is redone one event at a time, so one bad observation costs only
+    its own patrol a slower path, not the whole run. An event das still
+    rejects singly is logged and skipped so the rest of the patrol lands;
+    returns (created, failed_ids)."""
+    created: dict = {}
+    failed: list = []
+    for i in range(0, len(events), EVENT_BATCH):
+        chunk = events[i : i + EVENT_BATCH]
+        try:
+            for ev in api.create_events(chunk):
+                created[ev["id"]] = ev
+            counts["events_created"] += len(chunk)
+        except ERClientException:
+            logger.info(
+                "patrol %s: event list rejected; posting %d events singly",
+                patrol_id,
+                len(chunk),
+            )
+            for ev in chunk:
+                try:
+                    created[ev["id"]] = _create_event_safely(api, ev, counts)
+                except ERClientException as exc:
+                    logger.warning(
+                        "patrol %s: event %s rejected: %s", patrol_id, ev["id"], exc
+                    )
+                    failed.append(ev["id"])
+    return created, failed
+
+
+def _import_events(
+    api, bundle, patrol, plan, ns, resolver, ledger, counts, known: set | None
+) -> None:
+    if known is None:  # patrol stage done in an earlier run: one read, not N
+        known = api.event_ids_of(api.get_patrol(plan.patrol["id"]))
     attached = set(ledger.ids(patrol["uuid"]).get("attached", []))
+    parents, children, waypoints = [], [], []
     for leg in patrol["legs"]:
         seg_id = plan.segment_ids[leg["uuid"]]
         lt = plan.leg_times[leg["uuid"]]
@@ -155,37 +224,84 @@ def _import_events(api, bundle, patrol, plan, ns, resolver, ledger, counts) -> N
             if wp is None:
                 continue
             counts["observations_unmapped"] += len(wp.unmapped)
-            on_site: dict = {}
-            for ev in ([wp.parent] if wp.parent else []) + wp.events:
-                existing = api.get_event(ev["id"])
-                on_site[ev["id"]] = existing
-                if existing is None:
-                    api.create_event(ev)
-                    counts["events_created"] += 1
-                else:
-                    counts["events_existing"] += 1
-            if wp.attachments and wp.events and w["uuid"] not in attached:
-                first = on_site.get(wp.events[0]["id"]) or {}
-                # the event's own file list guards a re-run without the ledger
-                have = {f.get("filename") for f in first.get("files") or []}
-                for a in wp.attachments:
-                    path = bundle.path / a["path"]
-                    if path.name in have or a.get("filename") in have:
-                        counts["attachments_existing"] += 1
-                        continue
-                    if not path.is_file():
-                        counts["attachments_missing"] += 1
-                        logger.warning("attachment missing from the bundle: %s", path)
-                        continue
-                    api.attach_file(
-                        wp.events[0]["id"], str(path), a.get("filename", "")
-                    )
-                    counts["attachments_posted"] += 1
-                ledger.add_id(patrol["uuid"], "attached", w["uuid"])
+            waypoints.append((w, wp))
+            if wp.parent and wp.parent["id"] not in known:
+                parents.append(wp.parent)
+            children += [e for e in wp.events if e["id"] not in known]
+    counts["events_existing"] += sum(
+        1
+        for _, wp in waypoints
+        for ev in ([wp.parent] if wp.parent else []) + wp.events
+        if ev["id"] in known
+    )
+    # parents first: a child names its collection by id, so the parent must
+    # exist before the child's list is written
+    on_site, failed = _post_event_lists(api, parents, counts, patrol.get("id"))
+    more, more_failed = _post_event_lists(api, children, counts, patrol.get("id"))
+    on_site.update(more)
+    failed += more_failed
+    for w, wp in waypoints:
+        if wp.events and wp.events[0]["id"] in failed:
+            continue  # nothing to attach to; the patrol is reported failed below
+        _attach(api, bundle, wp, w, on_site, attached, ledger, patrol, counts)
+    if failed:
+        raise RuntimeError(
+            f"{len(failed)} event(s) rejected by EarthRanger: {', '.join(failed[:5])}"
+        )
 
 
-def _import_tracks(api, patrol, plan, by_day, subjects, counts) -> None:
-    sources: dict = {}
+def _attach(api, bundle, wp, w, on_site, attached, ledger, patrol, counts) -> None:
+    if not (wp.attachments and wp.events) or w["uuid"] in attached:
+        return
+    first_id = wp.events[0]["id"]
+    first = on_site.get(first_id)
+    if first is None:  # existing event: its file list guards a ledger-less re-run
+        first = api.get_event(first_id) or {}
+    have = {f.get("filename") for f in first.get("files") or []}
+    for a in wp.attachments:
+        path = bundle.path / a["path"]
+        if path.name in have or a.get("filename") in have:
+            counts["attachments_existing"] += 1
+            continue
+        if not path.is_file():
+            counts["attachments_missing"] += 1
+            logger.warning(
+                "patrol %s: attachment missing from the bundle: %s",
+                patrol.get("id"),
+                path,
+            )
+            continue
+        api.attach_file(first_id, str(path), a.get("filename", ""))
+        counts["attachments_posted"] += 1
+    ledger.add_id(patrol["uuid"], "attached", w["uuid"])
+
+
+def _get_or_create_source(api, mid: str, member_uuid: str, sources: dict, lock) -> str:
+    with lock:
+        if mid in sources:
+            return sources[mid]
+    src = api.get_source(mid)
+    if src is None:
+        try:
+            src = api.create_source(
+                {
+                    "provider": SOURCE_PROVIDER,
+                    "manufacturer_id": mid,
+                    "source_type": "tracking-device",
+                    "model_name": "SMART patrol track",
+                    "additional": {"smart_member_id": member_uuid},
+                }
+            )
+        except ERClientException:
+            src = api.get_source(mid)  # another worker created it first
+            if src is None:
+                raise
+    with lock:
+        sources.setdefault(mid, src["id"])
+        return sources[mid]
+
+
+def _import_tracks(api, patrol, plan, by_day, subjects, counts, sources, lock) -> None:
     for leg in patrol["legs"]:
         for batch in build_track_batches(leg, plan.leg_times[leg["uuid"]], by_day):
             subject = subjects.get(batch.member_uuid)
@@ -193,22 +309,59 @@ def _import_tracks(api, patrol, plan, by_day, subjects, counts) -> None:
                 counts["tracks_without_subject"] += 1
                 continue
             mid = f"smart:{batch.member_uuid}"
-            if mid not in sources:
-                src = api.get_source(mid) or api.create_source(
-                    {
-                        "provider": SOURCE_PROVIDER,
-                        "manufacturer_id": mid,
-                        "source_type": "tracking-device",
-                        "model_name": "SMART patrol track",
-                        "additional": {"smart_member_id": batch.member_uuid},
-                    }
-                )
-                sources[mid] = src["id"]
-            api.assign_source(subject["id"], sources[mid], batch.start, batch.end)
-            obs = [{**o, "source": sources[mid]} for o in batch.observations]
+            source_id = _get_or_create_source(
+                api, mid, batch.member_uuid, sources, lock
+            )
+            api.assign_source(subject["id"], source_id, batch.start, batch.end)
+            obs = [{**o, "source": source_id} for o in batch.observations]
             for i in range(0, len(obs), OBSERVATION_BATCH):
                 api.post_observations(obs[i : i + OBSERVATION_BATCH])
             counts["track_points"] += len(obs)
+
+
+def _import_one(
+    api,
+    bundle,
+    p,
+    *,
+    want,
+    ledger,
+    ns,
+    resolver,
+    subjects,
+    tz,
+    by_day,
+    importer_version,
+    sources,
+    sources_lock,
+) -> tuple:
+    """Import one patrol through its remaining stages. Returns
+    (patrol uuid, counts for this patrol, error text or None)."""
+    counts: Counter = Counter()
+    done = ledger.stages(p["uuid"])
+    if want <= done:
+        counts["already_imported"] += 1
+        return p["uuid"], counts, None
+    logger.info("patrol %s: starting", p.get("id"))
+    try:
+        plan = build_patrol(bundle, p, ns, resolver, tz, by_day, importer_version)
+        known: set | None = None
+        if "patrol" not in done:
+            known = _import_patrol_stage(api, plan, p)
+            ledger.done(p["uuid"], "patrol", patrol_id=plan.patrol["id"])
+        if "events" in want and "events" not in done:
+            _import_events(api, bundle, p, plan, ns, resolver, ledger, counts, known)
+            ledger.done(p["uuid"], "events")
+            ledger.drop_id(p["uuid"], "attached")
+        if "tracks" in want and "tracks" not in done:
+            _import_tracks(
+                api, p, plan, by_day, subjects, counts, sources, sources_lock
+            )
+            ledger.done(p["uuid"], "tracks")
+        return p["uuid"], counts, None
+    except Exception as e:  # one patrol's failure must not stop the run
+        logger.exception("patrol %s failed", p.get("id"))
+        return p["uuid"], counts, f"{type(e).__name__}: {e}"
 
 
 def run_import(
@@ -221,6 +374,7 @@ def run_import(
     ns,
     importer_version: str,
     report: PreflightReport | None = None,
+    api_factory: Callable[[], Any] | None = None,
 ) -> ImportResult:
     result = ImportResult()
     if report is None:
@@ -261,37 +415,61 @@ def run_import(
     tz = ZoneInfo(bundle.manifest.timezone["name"])
     by_day = tracks_by_day(bundle.tracks)
     todo = [p for p in selected if not {"patrol"} <= ledger.stages(p["uuid"])]
+    sources: dict = {}
+    sources_lock = threading.Lock()
+    per_patrol = dict(
+        want=want,
+        ledger=ledger,
+        ns=ns,
+        resolver=resolver,
+        subjects=subjects,
+        tz=tz,
+        by_day=by_day,
+        importer_version=importer_version,
+        sources=sources,
+        sources_lock=sources_lock,
+    )
+
+    def record(outcome):
+        uuid, counts, error = outcome
+        result.counts.update(counts)
+        if error:
+            result.failed[uuid] = error
+        else:
+            result.imported.append(uuid)
+
+    workers = max(1, opts.workers)
     try:
         # inside the try: whatever fails after this, the finally retires them
         _reactivate(api, ledger, subjects, todo)
         if not opts.skip_tracks:
             api.ensure_source_provider(SOURCE_PROVIDER, "SMART patrol import")
-        for p in selected:
-            done = ledger.stages(p["uuid"])
-            if want <= done:
-                result.counts["already_imported"] += 1
-                result.imported.append(p["uuid"])
-                continue
+        if workers == 1 or api_factory is None:
+            for p in selected:
+                record(_import_one(api, bundle, p, **per_patrol))
+        else:
+            local = threading.local()
+
+            def worker(p):
+                if not hasattr(local, "api"):
+                    try:
+                        local.api = api_factory()
+                    except Exception as e:
+                        logger.exception(
+                            "patrol %s: no EarthRanger client", p.get("id")
+                        )
+                        return p["uuid"], Counter(), f"{type(e).__name__}: {e}"
+                return _import_one(local.api, bundle, p, **per_patrol)
+
+            pool = ThreadPoolExecutor(max_workers=workers)
             try:
-                plan = build_patrol(
-                    bundle, p, ns, resolver, tz, by_day, importer_version
-                )
-                if "patrol" not in done:
-                    _import_patrol_stage(api, plan, p)
-                    ledger.done(p["uuid"], "patrol", patrol_id=plan.patrol["id"])
-                if "events" in want and "events" not in done:
-                    _import_events(
-                        api, bundle, p, plan, ns, resolver, ledger, result.counts
-                    )
-                    ledger.done(p["uuid"], "events")
-                    ledger.drop_id(p["uuid"], "attached")
-                if "tracks" in want and "tracks" not in done:
-                    _import_tracks(api, p, plan, by_day, subjects, result.counts)
-                    ledger.done(p["uuid"], "tracks")
-                result.imported.append(p["uuid"])
-            except Exception as e:  # one patrol's failure must not stop the run
-                logger.exception("patrol %s failed", p.get("id"))
-                result.failed[p["uuid"]] = f"{type(e).__name__}: {e}"
+                for outcome in pool.map(worker, selected):
+                    record(outcome)
+            except BaseException:
+                # drop queued patrols; only running ones finish, then retire
+                pool.shutdown(wait=True, cancel_futures=True)
+                raise
+            pool.shutdown(wait=True)
     finally:
         _retire(api, ledger)
     return result

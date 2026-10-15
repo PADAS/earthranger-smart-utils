@@ -2,9 +2,13 @@ from collections import Counter
 from pathlib import Path
 
 import pytest
-from erclient.er_errors import ERClientNotFound  # noqa: F401  (documents the 404 path)
+from erclient.er_errors import (
+    ERClientException,
+    ERClientNotFound,  # noqa: F401  (documents the 404 path)
+)
 
 from er_smart_sync.bundle import load_bundle
+from er_smart_sync.er_patrol_api import ERPatrolAPI
 from er_smart_sync.import_ledger import ImportLedger
 from er_smart_sync.patrol_ids import namespace
 from er_smart_sync.patrol_import import ImportOptions, run_import, select_patrols
@@ -34,9 +38,11 @@ class FakeAPI:
         self.patrols, self.events, self.sources = {}, {}, {}
         self.observations, self.files, self.calls = [], [], Counter()
         self.patches = []
+        self.patches_subjects = []
         self.collection = collection
         self.event_types = event_types
         self.fail_patrol = None
+        self.reject_event = None
 
     # reads (the preflight in these tests runs check_event_types only)
     def list_subjects(self):
@@ -72,8 +78,27 @@ class FakeAPI:
     def collection_event_type(self):
         return self.collection
 
+    @staticmethod
+    def event_ids_of(patrol):
+        return ERPatrolAPI.event_ids_of(patrol)
+
     def get_patrol(self, i):
-        return self.patrols.get(i)
+        self.calls["get_patrol"] += 1
+        p = self.patrols.get(i)
+        if p is None:
+            return None
+        segs = [
+            {
+                **s,
+                "events": [
+                    {"id": e["id"]}
+                    for e in self.events.values()
+                    if s["id"] in e.get("patrol_segments", [])
+                ],
+            }
+            for s in p.get("patrol_segments", [])
+        ]
+        return {**p, "patrol_segments": segs}
 
     def create_patrol(self, p):
         if self.fail_patrol and p["title"] == self.fail_patrol:
@@ -88,13 +113,28 @@ class FakeAPI:
         return p
 
     def get_event(self, i):
+        self.calls["get_event"] += 1
         return self.events.get(i)
 
     def create_event(self, e):
-        assert e["id"] not in self.events and "end_time" not in e
+        assert "end_time" not in e
+        if e["id"] in self.events:  # das answers a duplicate id with a 500
+            raise ERClientException("x\n\t 500 from ER. Message: duplicate key")
         self.calls["create_event"] += 1
         self.events[e["id"]] = e
         return e
+
+    def create_events(self, batch):
+        self.calls["create_events"] += 1
+        if any(e["id"] in self.events for e in batch):
+            raise ERClientException("x\n\t 500 from ER. Message: duplicate key")
+        if self.reject_event and any(e["id"] == self.reject_event for e in batch):
+            raise ERClientException("x\n\t 400 from ER. Message: invalid")
+        for e in batch:  # atomic: validated above, written here
+            assert "end_time" not in e
+            self.calls["create_event"] += 1
+            self.events[e["id"]] = e
+        return list(batch)
 
     def attach_file(self, event_id, filepath, comment=""):
         self.files.append((event_id, filepath))
@@ -104,6 +144,7 @@ class FakeAPI:
 
     def patch_subject(self, sid, payload):
         self.calls["patch_subject"] += 1
+        self.patches_subjects.append((sid, payload))
         for s in self.subjects:
             if s["id"] == sid:
                 s.update(payload)
@@ -112,6 +153,7 @@ class FakeAPI:
         pass  # get-or-create
 
     def get_source(self, mid):
+        self.calls["get_source"] += 1
         return self.sources.get(mid)
 
     def create_source(self, p):
@@ -168,6 +210,22 @@ def test_full_import_then_rerun_writes_nothing(tmp_path):
     assert r2.exit_code == 0 and sum(api.calls.values()) == writes
 
 
+def test_track_sources_are_looked_up_once_per_leader(tmp_path):
+    b = load_bundle(FIXTURE)
+    api = FakeAPI(b)
+    _run(api, b, tmp_path)
+    tracked = {t["leg_uuid"] for t in b.tracks}
+    leaders = {
+        next(m["employee_uuid"] for m in leg["members"] if m["leader"])
+        for p in b.patrols
+        for leg in p["legs"]
+        if leg["uuid"] in tracked
+    }
+    # one lookup per distinct leader for the whole run, not one per patrol
+    assert api.calls["get_source"] == len(leaders)
+    assert api.calls["create_source"] == len(leaders)
+
+
 def test_half_finished_events_are_completed_without_duplicates(tmp_path):
     b = load_bundle(FIXTURE)
     api = FakeAPI(b)
@@ -181,6 +239,22 @@ def test_half_finished_events_are_completed_without_duplicates(tmp_path):
     before = api.calls["create_event"]
     _run(api, b, tmp_path, skip_tracks=True)
     assert api.calls["create_event"] == before + 1  # only the missing one
+
+
+def test_a_rerun_retires_members_a_previous_run_left_active(tmp_path):
+    b = load_bundle(FIXTURE)
+    m = sorted(b.member_uuids())[0]
+    api = FakeAPI(b, inactive={m})
+    _run(api, b, tmp_path)
+    s = next(s for s in api.subjects if s["additional"]["smart_member_id"] == m)
+    # the previous run's retirement failed: the member is still active and
+    # the ledger is the only record that it must be retired
+    s["is_active"] = True
+    ImportLedger(tmp_path / "ledger.json", "site|ca").set_reactivated([s["id"]])
+    r = _run(api, b, tmp_path)
+    assert r.counts["already_imported"] == 5
+    assert s["is_active"] is False
+    assert ImportLedger(tmp_path / "ledger.json", "site|ca").reactivated() == []
 
 
 def test_retired_members_are_reactivated_then_retired(tmp_path):
@@ -335,3 +409,305 @@ def test_attached_ids_are_dropped_once_events_are_done(tmp_path):
     _run(FakeAPI(b), b, tmp_path, skip_tracks=True)
     led = ImportLedger(tmp_path / "ledger.json", "site|ca")
     assert all("attached" not in led.ids(p["uuid"]) for p in b.patrols)
+
+
+def test_fresh_import_never_probes_events(tmp_path):
+    b = load_bundle(FIXTURE)
+    api = FakeAPI(b)
+    r = _run(api, b, tmp_path)
+    assert r.exit_code == 0 and not r.failed
+    assert api.calls["create_event"] == 141 + 18
+    assert api.calls["get_event"] == 0
+
+
+def test_rerun_without_ledger_uses_the_patrol_event_list(tmp_path):
+    b = load_bundle(FIXTURE)
+    api = FakeAPI(b)
+    _run(api, b, tmp_path)
+    created = api.calls["create_event"]
+    (tmp_path / "ledger.json").unlink()
+    r = _run(api, b, tmp_path)
+    assert r.exit_code == 0 and api.calls["create_event"] == created
+    assert r.counts["events_existing"] == 141 + 18
+    # the patrol GET carried the event ids; the only event reads are the lazy
+    # file-list reads in _attach, one per waypoint with photos
+    assert api.calls["get_event"] == 1
+
+
+def test_orphaned_events_after_a_deleted_patrol_are_recovered(tmp_path):
+    b = load_bundle(FIXTURE)
+    api = FakeAPI(b)
+    _run(api, b, tmp_path)
+    created = api.calls["create_event"]
+    # an admin deletes one patrol in ER; its events stay, with their ids
+    victim = next(iter(api.patrols))
+    del api.patrols[victim]
+    (tmp_path / "ledger.json").unlink()
+    r = _run(api, b, tmp_path)
+    assert r.exit_code == 0 and not r.failed
+    assert len(api.patrols) == 5 and api.calls["create_event"] == created
+    # the duplicate-id 500 was turned into a probe, once per orphaned event
+    assert api.calls["get_event"] > 0
+    # the orphans were recovered as existing, not re-created
+    assert r.counts["events_existing"] > 0
+
+
+def _all_event_ids(b, uuids=None):
+    from er_smart_sync.patrol_ids import er_id
+
+    ns = namespace(ENDPOINT, b.ca_uuid)
+    return [
+        er_id(ns, "event", o["uuid"])
+        for p in b.patrols
+        if uuids is None or p["uuid"] in uuids
+        for leg in p["legs"]
+        for w in leg["waypoints"]
+        for g in w["observation_groups"]
+        for o in g["observations"]
+    ]
+
+
+def test_events_are_created_in_batches_not_one_by_one(tmp_path):
+    b = load_bundle(FIXTURE)
+    api = FakeAPI(b)
+    r = _run(api, b, tmp_path)
+    assert r.exit_code == 0 and api.calls["create_event"] == 141 + 18
+    # 5 patrols; each patrol's parents (if any) and children go in a few lists
+    assert 1 <= api.calls["create_events"] <= 15
+    assert api.calls["get_event"] == 0
+    # every child still points at a parent that exists
+    for e in api.events.values():
+        if e.get("collection"):
+            assert e["collection"]["id"] in api.events
+
+
+def test_a_rejected_batch_falls_back_to_single_posts(tmp_path):
+    b = load_bundle(FIXTURE)
+    api = FakeAPI(b)
+    api.reject_event = next(iter(_all_event_ids(b)))  # one invalid observation
+    orig = api.create_event
+
+    def single(e):
+        if e["id"] == api.reject_event:
+            raise ERClientException("x\n\t 400 from ER. Message: invalid")
+        return orig(e)
+
+    api.create_event = single
+    r = _run(api, b, tmp_path)
+    # the patrol with the bad observation fails; every other event of every
+    # other patrol is on the site; nothing is duplicated
+    assert len(r.failed) == 1
+    assert len(r.imported) == 4
+    assert set(_all_event_ids(b, set(r.imported))) <= set(api.events)
+    assert len(api.events) == api.calls["create_event"]
+    # the bulk path was tried, then the failing patrol's other events landed
+    assert api.calls["create_events"] > 0
+    (bad_uuid,) = r.failed
+    expected = set(_all_event_ids(b, {bad_uuid})) - {api.reject_event}
+    assert expected and expected <= set(api.events)
+    assert api.reject_event not in api.events
+    assert "rejected" in r.failed[bad_uuid]
+
+
+def _assert_ledger_consistent(led, api, b):
+    from er_smart_sync.import_ledger import STAGES
+    from er_smart_sync.patrol_ids import er_id
+
+    ns = namespace(ENDPOINT, b.ca_uuid)
+    for uuid, rec in led._site["patrols"].items():
+        stages = rec["stages"]
+        assert stages == list(STAGES[: len(stages)])
+        if "patrol" in stages:
+            assert er_id(ns, "patrol", uuid) in api.patrols
+        if "events" in stages:
+            assert set(_all_event_ids(b, {uuid})) <= set(api.events)
+
+
+class SharedSite:
+    """Several FakeAPI views over one set of dicts, as N workers would see
+    one EarthRanger site."""
+
+    def __init__(self, b, **kw):
+        self.base = FakeAPI(b, **kw)
+
+    def __call__(self):
+        api = FakeAPI(self.base.b)
+        for name in (
+            "subjects",
+            "patrols",
+            "events",
+            "sources",
+            "observations",
+            "files",
+            "calls",
+            "patches",
+            "patches_subjects",
+        ):
+            setattr(api, name, getattr(self.base, name))
+        api.collection, api.event_types = self.base.collection, self.base.event_types
+        api.fail_patrol = self.base.fail_patrol
+        for name in ("create_source", "create_event", "create_events"):
+            if name in self.base.__dict__:  # a test monkeypatched the base instance
+                setattr(api, name, self.base.__dict__[name])
+        return api
+
+
+def _run_workers(site, b, tmp_path, workers, **kw):
+    led = ImportLedger(tmp_path / "ledger.json", "site|ca")
+    api = site()
+    report = run_preflight(api, b, checks=[check_event_types])
+    return run_import(
+        api,
+        b,
+        endpoint=ENDPOINT,
+        ledger=led,
+        opts=ImportOptions(timezone="Africa/Libreville", workers=workers, **kw),
+        ns=namespace(ENDPOINT, b.ca_uuid),
+        importer_version="t",
+        report=report,
+        api_factory=site,
+    )
+
+
+def test_workers_import_everything_once(tmp_path):
+    b = load_bundle(FIXTURE)
+    site = SharedSite(b)
+    r = _run_workers(site, b, tmp_path, workers=4)
+    assert r.exit_code == 0 and len(r.imported) == 5 and not r.failed
+    assert len(site.base.patrols) == 5
+    assert len(site.base.events) == 141 + 18
+    r2 = _run_workers(site, b, tmp_path, workers=4)
+    assert r2.counts["already_imported"] == 5
+
+
+def test_a_worker_without_a_client_fails_one_patrol_not_the_run(tmp_path):
+    b = load_bundle(FIXTURE)
+    site = SharedSite(b)
+    calls = {"n": 0}
+
+    def flaky():  # call 1 builds the main-thread API, call 2 is the first worker
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RuntimeError("token endpoint answered 503")
+        return site()
+
+    r = _run_workers(flaky, b, tmp_path, workers=4)
+    assert len(r.failed) == 1 and len(r.imported) == 4
+    assert "RuntimeError" in next(iter(r.failed.values()))
+    r2 = _run_workers(site, b, tmp_path, workers=4)
+    assert r2.exit_code == 0 and not r2.failed and len(site.base.patrols) == 5
+
+
+def test_workers_share_one_source_per_leader(tmp_path):
+    b = load_bundle(FIXTURE)
+    site = SharedSite(b)
+    real = site.base.create_source
+
+    def once(p):  # das: a second create for the same manufacturer id fails
+        if p["manufacturer_id"] in site.base.sources:
+            raise ERClientException("x\n\t 400 from ER. Message: exists")
+        return real(p)
+
+    site.base.create_source = once
+    r = _run_workers(site, b, tmp_path, workers=4)
+    assert not r.failed
+    tracked = {t["leg_uuid"] for t in b.tracks}
+    leaders = {
+        next(m["employee_uuid"] for m in leg["members"] if m["leader"])
+        for p in b.patrols
+        for leg in p["legs"]
+        if leg["uuid"] in tracked
+    }
+    assert len(site.base.sources) == len(leaders)
+
+
+def test_workers_still_retire_reactivated_members_on_failure(tmp_path):
+    b = load_bundle(FIXTURE)
+    retired = sorted(b.member_uuids())[:2]
+    site = SharedSite(b, inactive=retired)
+    site.base.fail_patrol = b.patrols[2]["id"]
+    r = _run_workers(site, b, tmp_path, workers=3)
+    assert len(r.failed) == 1
+    for s in site.base.subjects:
+        if s["additional"]["smart_member_id"] in retired:
+            assert s["is_active"] is False
+    led = ImportLedger(tmp_path / "ledger.json", "site|ca")
+    _assert_ledger_consistent(led, site.base, b)
+    (bad_uuid,) = r.failed
+    assert not {"events", "tracks"} & led.stages(bad_uuid)
+
+
+def test_interrupt_propagates_and_still_retires(tmp_path):
+    b = load_bundle(FIXTURE)
+    retired = sorted(b.member_uuids())[:2]
+    site = SharedSite(b, inactive=retired)
+    victim = b.patrols[1]["id"]
+
+    def factory():
+        api = site()
+        real = api.create_patrol
+
+        def create_patrol(p):
+            if p["title"] == victim:
+                raise KeyboardInterrupt
+            return real(p)
+
+        api.create_patrol = create_patrol
+        return api
+
+    led = ImportLedger(tmp_path / "ledger.json", "site|ca")
+    api = site()
+    report = run_preflight(api, b, checks=[check_event_types])
+    with pytest.raises(KeyboardInterrupt):
+        run_import(
+            api,
+            b,
+            endpoint=ENDPOINT,
+            ledger=led,
+            opts=ImportOptions(timezone="Africa/Libreville", workers=3),
+            ns=namespace(ENDPOINT, b.ca_uuid),
+            importer_version="t",
+            report=report,
+            api_factory=factory,
+        )
+    # members were reactivated before the interrupt, and retired after it
+    reactivated = {
+        sid
+        for sid, payload in site.base.patches_subjects
+        if payload == {"is_active": True}
+    }
+    retired_ids = {
+        s["id"]
+        for s in site.base.subjects
+        if s["additional"]["smart_member_id"] in retired
+    }
+    assert reactivated == retired_ids
+    for s in site.base.subjects:
+        if s["additional"]["smart_member_id"] in retired:
+            assert s["is_active"] is False
+    _assert_ledger_consistent(
+        ImportLedger(tmp_path / "ledger.json", "site|ca"), site.base, b
+    )
+
+
+def test_get_or_create_source_recovers_from_a_lost_create_race():
+    import threading
+
+    from er_smart_sync.patrol_import import _get_or_create_source
+
+    class Racy:
+        def __init__(self, reads):
+            self.reads = list(reads)
+
+        def get_source(self, mid):
+            return self.reads.pop(0)
+
+        def create_source(self, p):
+            raise ERClientException("x\n\t 400 from ER. Message: exists")
+
+    cache: dict = {}
+    api = Racy([None, {"id": "src-1"}])
+    got = _get_or_create_source(api, "smart:m", "m", cache, threading.Lock())
+    assert got == "src-1" and cache == {"smart:m": "src-1"}
+    with pytest.raises(ERClientException):
+        _get_or_create_source(Racy([None, None]), "smart:n", "n", {}, threading.Lock())
