@@ -2,9 +2,13 @@ from collections import Counter
 from pathlib import Path
 
 import pytest
-from erclient.er_errors import ERClientNotFound  # noqa: F401  (documents the 404 path)
+from erclient.er_errors import (
+    ERClientException,
+    ERClientNotFound,  # noqa: F401  (documents the 404 path)
+)
 
 from er_smart_sync.bundle import load_bundle
+from er_smart_sync.er_patrol_api import ERPatrolAPI
 from er_smart_sync.import_ledger import ImportLedger
 from er_smart_sync.patrol_ids import namespace
 from er_smart_sync.patrol_import import ImportOptions, run_import, select_patrols
@@ -72,8 +76,27 @@ class FakeAPI:
     def collection_event_type(self):
         return self.collection
 
+    @staticmethod
+    def event_ids_of(patrol):
+        return ERPatrolAPI.event_ids_of(patrol)
+
     def get_patrol(self, i):
-        return self.patrols.get(i)
+        self.calls["get_patrol"] += 1
+        p = self.patrols.get(i)
+        if p is None:
+            return None
+        segs = [
+            {
+                **s,
+                "events": [
+                    {"id": e["id"]}
+                    for e in self.events.values()
+                    if s["id"] in e.get("patrol_segments", [])
+                ],
+            }
+            for s in p.get("patrol_segments", [])
+        ]
+        return {**p, "patrol_segments": segs}
 
     def create_patrol(self, p):
         if self.fail_patrol and p["title"] == self.fail_patrol:
@@ -88,10 +111,13 @@ class FakeAPI:
         return p
 
     def get_event(self, i):
+        self.calls["get_event"] += 1
         return self.events.get(i)
 
     def create_event(self, e):
-        assert e["id"] not in self.events and "end_time" not in e
+        assert "end_time" not in e
+        if e["id"] in self.events:  # das answers a duplicate id with a 500
+            raise ERClientException("x\n\t 500 from ER. Message: duplicate key")
         self.calls["create_event"] += 1
         self.events[e["id"]] = e
         return e
@@ -352,3 +378,42 @@ def test_attached_ids_are_dropped_once_events_are_done(tmp_path):
     _run(FakeAPI(b), b, tmp_path, skip_tracks=True)
     led = ImportLedger(tmp_path / "ledger.json", "site|ca")
     assert all("attached" not in led.ids(p["uuid"]) for p in b.patrols)
+
+
+def test_fresh_import_never_probes_events(tmp_path):
+    b = load_bundle(FIXTURE)
+    api = FakeAPI(b)
+    r = _run(api, b, tmp_path)
+    assert r.exit_code == 0 and not r.failed
+    assert api.calls["create_event"] == 141 + 18
+    assert api.calls["get_event"] == 0
+
+
+def test_rerun_without_ledger_uses_the_patrol_event_list(tmp_path):
+    b = load_bundle(FIXTURE)
+    api = FakeAPI(b)
+    _run(api, b, tmp_path)
+    created = api.calls["create_event"]
+    (tmp_path / "ledger.json").unlink()
+    r = _run(api, b, tmp_path)
+    assert r.exit_code == 0 and api.calls["create_event"] == created
+    assert r.counts["events_existing"] == 141 + 18
+    # the patrol GET carried the event ids; the only event reads are the lazy
+    # file-list reads in _attach, one per waypoint with photos
+    assert api.calls["get_event"] == 1
+
+
+def test_orphaned_events_after_a_deleted_patrol_are_recovered(tmp_path):
+    b = load_bundle(FIXTURE)
+    api = FakeAPI(b)
+    _run(api, b, tmp_path)
+    created = api.calls["create_event"]
+    # an admin deletes one patrol in ER; its events stay, with their ids
+    victim = next(iter(api.patrols))
+    del api.patrols[victim]
+    (tmp_path / "ledger.json").unlink()
+    r = _run(api, b, tmp_path)
+    assert r.exit_code == 0 and not r.failed
+    assert len(api.patrols) == 5 and api.calls["create_event"] == created
+    # the duplicate-id 500 was turned into a probe, once per orphaned event
+    assert api.calls["get_event"] > 0

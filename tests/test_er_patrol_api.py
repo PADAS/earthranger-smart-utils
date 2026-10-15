@@ -375,3 +375,15 @@ def test_source_lookup_uses_the_list_endpoint():
     )
     c._get.return_value = {"results": []}
     assert ERPatrolAPI(c).get_source("smart:abc") is None
+
+
+def test_event_ids_of_reads_every_segment():
+    p = {
+        "patrol_segments": [
+            {"id": "s1", "events": [{"id": "e1"}, {"id": "e2"}]},
+            {"id": "s2", "events": []},
+            {"id": "s3"},
+        ]
+    }
+    assert ERPatrolAPI.event_ids_of(p) == {"e1", "e2"}
+    assert ERPatrolAPI.event_ids_of(None) == set()

@@ -4,9 +4,10 @@ Preflight first (blocking findings stop the run, or with --allow-blocking
 skip the affected patrols). Retired members are reactivated for the run and
 retired again at the end. Each patrol is isolated: a failure is recorded with
 its reason and the run moves on. Per patrol, three stages (patrol, events,
-tracks) are recorded in the ledger so a re-run skips what is done; every
-write is preceded by a read by id, because das answers a duplicate id with a
-500 rather than a 409.
+tracks) are recorded in the ledger so a re-run skips what is done. The patrol
+is read before it is written; its events are not probed one by one: the
+patrol read already lists the events on its segments, and a duplicate id (das
+answers it with a 500, not a 409) is recovered by reading that one event.
 """
 
 from __future__ import annotations
@@ -16,6 +17,8 @@ from collections import Counter
 from dataclasses import dataclass, field, replace
 from datetime import date
 from zoneinfo import ZoneInfo
+
+from erclient.er_errors import ERClientException
 
 from .bundle import Bundle
 from .er_patrol_api import SOURCE_PROVIDER
@@ -125,12 +128,14 @@ def _retire(api, ledger: ImportLedger) -> None:
     ledger.set_reactivated([])
 
 
-def _import_patrol_stage(api, plan, patrol: dict) -> None:
+def _import_patrol_stage(api, plan, patrol: dict) -> set:
+    """Create or refresh the patrol. Returns the ids of events already on
+    its segments, so the events stage need not probe them one by one."""
     body = plan.patrol
     existing = api.get_patrol(body["id"])
     if existing is None:
         api.create_patrol(body)
-        return
+        return set()
     have = {s.get("id") for s in existing.get("patrol_segments") or []}
     missing = [i for i in plan.segment_ids.values() if i not in have]
     if missing:
@@ -140,9 +145,30 @@ def _import_patrol_stage(api, plan, patrol: dict) -> None:
             f"patrol. Delete patrol {body['id']} in EarthRanger and run again."
         )
     api.patch_patrol(body["id"], {k: v for k, v in body.items() if k != "id"})
+    return api.event_ids_of(existing)
 
 
-def _import_events(api, bundle, patrol, plan, ns, resolver, ledger, counts) -> None:
+def _create_event_safely(api, ev: dict, counts) -> dict:
+    """POST one event. das answers a duplicate id with a 500; when that
+    happens the event is on the site (for example after a patrol was deleted
+    by hand but its events were not), so read it and carry on."""
+    try:
+        created = api.create_event(ev)
+        counts["events_created"] += 1
+        return created
+    except ERClientException:
+        existing = api.get_event(ev["id"])
+        if existing is None:
+            raise
+        counts["events_existing"] += 1
+        return existing
+
+
+def _import_events(
+    api, bundle, patrol, plan, ns, resolver, ledger, counts, known: set | None
+) -> None:
+    if known is None:  # patrol stage done in an earlier run: one read, not N
+        known = api.event_ids_of(api.get_patrol(plan.patrol["id"]))
     attached = set(ledger.ids(patrol["uuid"]).get("attached", []))
     for leg in patrol["legs"]:
         seg_id = plan.segment_ids[leg["uuid"]]
@@ -157,31 +183,34 @@ def _import_events(api, bundle, patrol, plan, ns, resolver, ledger, counts) -> N
             counts["observations_unmapped"] += len(wp.unmapped)
             on_site: dict = {}
             for ev in ([wp.parent] if wp.parent else []) + wp.events:
-                existing = api.get_event(ev["id"])
-                on_site[ev["id"]] = existing
-                if existing is None:
-                    api.create_event(ev)
-                    counts["events_created"] += 1
-                else:
+                if ev["id"] in known:
                     counts["events_existing"] += 1
-            if wp.attachments and wp.events and w["uuid"] not in attached:
-                first = on_site.get(wp.events[0]["id"]) or {}
-                # the event's own file list guards a re-run without the ledger
-                have = {f.get("filename") for f in first.get("files") or []}
-                for a in wp.attachments:
-                    path = bundle.path / a["path"]
-                    if path.name in have or a.get("filename") in have:
-                        counts["attachments_existing"] += 1
-                        continue
-                    if not path.is_file():
-                        counts["attachments_missing"] += 1
-                        logger.warning("attachment missing from the bundle: %s", path)
-                        continue
-                    api.attach_file(
-                        wp.events[0]["id"], str(path), a.get("filename", "")
-                    )
-                    counts["attachments_posted"] += 1
-                ledger.add_id(patrol["uuid"], "attached", w["uuid"])
+                    on_site[ev["id"]] = None  # read lazily, only for attachments
+                else:
+                    on_site[ev["id"]] = _create_event_safely(api, ev, counts)
+            _attach(api, bundle, wp, w, on_site, attached, ledger, patrol, counts)
+
+
+def _attach(api, bundle, wp, w, on_site, attached, ledger, patrol, counts) -> None:
+    if not (wp.attachments and wp.events) or w["uuid"] in attached:
+        return
+    first_id = wp.events[0]["id"]
+    first = on_site.get(first_id)
+    if first is None:  # existing event: its file list guards a ledger-less re-run
+        first = api.get_event(first_id) or {}
+    have = {f.get("filename") for f in first.get("files") or []}
+    for a in wp.attachments:
+        path = bundle.path / a["path"]
+        if path.name in have or a.get("filename") in have:
+            counts["attachments_existing"] += 1
+            continue
+        if not path.is_file():
+            counts["attachments_missing"] += 1
+            logger.warning("attachment missing from the bundle: %s", path)
+            continue
+        api.attach_file(first_id, str(path), a.get("filename", ""))
+        counts["attachments_posted"] += 1
+    ledger.add_id(patrol["uuid"], "attached", w["uuid"])
 
 
 def _import_tracks(api, patrol, plan, by_day, subjects, counts, sources: dict) -> None:
@@ -276,12 +305,13 @@ def run_import(
                 plan = build_patrol(
                     bundle, p, ns, resolver, tz, by_day, importer_version
                 )
+                known: set | None = None
                 if "patrol" not in done:
-                    _import_patrol_stage(api, plan, p)
+                    known = _import_patrol_stage(api, plan, p)
                     ledger.done(p["uuid"], "patrol", patrol_id=plan.patrol["id"])
                 if "events" in want and "events" not in done:
                     _import_events(
-                        api, bundle, p, plan, ns, resolver, ledger, result.counts
+                        api, bundle, p, plan, ns, resolver, ledger, result.counts, known
                     )
                     ledger.done(p["uuid"], "events")
                     ledger.drop_id(p["uuid"], "attached")

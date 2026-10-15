@@ -160,6 +160,18 @@ class ERPatrolAPI:
     def get_patrol(self, patrol_id: str) -> dict | None:
         return self._get_or_none(f"{PATROLS_PATH}/{patrol_id}")
 
+    @staticmethod
+    def event_ids_of(patrol: dict | None) -> set:
+        """Ids of the events on a patrol's segments, from the patrol GET."""
+        if not patrol:
+            return set()
+        return {
+            e["id"]
+            for s in patrol.get("patrol_segments") or []
+            for e in s.get("events") or []
+            if e.get("id")
+        }
+
     def get_event(self, event_id: str) -> dict | None:
         return self._get_or_none(f"activity/event/{event_id}")
 
