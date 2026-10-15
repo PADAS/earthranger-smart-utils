@@ -74,10 +74,21 @@ request), its attachments, and its leader's track in batches of 1,000
 points. Re-run safety comes from deterministic ids and from reading the
 patrol (which lists the events already on it) before writing; a request
 das rejects is redone one event at a time for that patrol only.
-`--workers 4` runs four patrols at once. On Albay (1,527 patrols) the
-sequential rate was ~2.6 patrols a minute; see
-`docs/superpowers/specs/2026-10-14-import-patrols-performance.md` for the
-measurements behind these changes.
+
+What limits the rate today is the server, not the client: das does per-record
+work on every event and every track point it receives (alert-rule
+evaluation, realtime publishing, subject-status maintenance), and it
+serialises much of it. Measured on a staging site in October 2026, a patrol
+with ten observations and a 286-point track took about 43 seconds, 25 of
+them in the one request that posted the track, and `--workers 4` ran at
+most 1.2× faster than one worker. Expect roughly two patrols a minute per
+site, more with short tracks and fewer observations; `--workers` is there
+for sites where das runs more API capacity. Run long imports from the
+site's cloud region, in the foreground or under `setsid` (a `nohup … &`
+job from a script ignores Ctrl-C), and use `--skip-tracks` first when the
+patrols and events should become visible early. The measurements and the
+das-side follow-ups are in
+`docs/superpowers/specs/2026-10-14-import-patrols-performance.md`.
 
 ## Identity and re-runs
 

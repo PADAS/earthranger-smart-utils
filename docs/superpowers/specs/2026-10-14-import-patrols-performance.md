@@ -225,7 +225,93 @@ requests grouped by method, status and path with counts and medians.
 Before/after on the same patrol is the honest benchmark; the full-run rate
 (patrols per minute, from the ledger's `stages`) is the acceptance test.
 
-| Patrol `050500_001453` (10 observations, 81 points) | Requests | Wall | In HTTP |
-| --- | --- | --- | --- |
-| Before (0.7.0) | 45 | 32.7 s | 21.7 s |
-| After Tasks 1–3 | <fill from Task 6> | | |
+| One patrol, 10 observations | Requests | Wall | In HTTP | Of which |
+| --- | --- | --- | --- | --- |
+| Before (0.7.0, 2026-10-14, Albay `050500_001453`, 81 points) | 45 | 32.7 s | 21.7 s | 10 × `POST events` 7.9 s; 10 × `GET event` 2.3 s; 1 × `POST observations` (81 pts) 2.9 s |
+| After Tasks 1–4 (2026-10-15, Guinobatan `050504_000679`, 286 points) | 26 | 43.2 s | 43.1 s | 1 × `POST events` (10 in one list) 5.6 s; 0 probes; 1 × `POST observations` (286 pts) 24.5 s |
+
+The two rows are different patrols on different days, so compare the
+per-item costs, not the totals: the client-side work shrank as designed
+(45 → 26 requests, no probes, one request for all events), but das's
+server-side cost per item did not — about 0.5 s per event whether posted
+singly or in a list, and 36–86 ms per track point depending on the day
+(phinney answered `GET user/me` in 286 ms on the 14th and 360–800 ms on
+the 15th while an import was running).
+
+## Results of the live benchmark (Task 6, phinney, Guinobatan `050504`, 2026-10-15)
+
+| Run | Patrols | Rate |
+| --- | --- | --- |
+| Albay full run, 0.7.0, 2026-10-14 | 1,527 | ~2.0 patrols/min average over 12.5 h (1.4–3.9 by stretch) |
+| Window A, new code, `--workers 1` (2022-02..06) | 11 of 59 before interrupt | ~0.56 patrols/min |
+| Window B, new code, `--workers 4` (2024-02..09) | 22 of 59 before interrupt | ~0.6–0.7 patrols/min, 0 × 5xx/429 |
+
+Guinobatan's patrols carry more points per patrol than Albay's (447 and
+360 in the two windows against Albay's 187 average) and the site was two
+to three times slower on the 15th, which is why the absolute rates are
+below the Albay run. The comparison that matters is A against B on the
+same day: **four workers gave at most 1.2× the sequential rate, with no
+429s or 5xx.** das is serialising the heavy writes; the bottleneck is on
+the server, not between client and server.
+
+Three other things the live run confirmed:
+
+- Ctrl-C with workers: a foreground run exited ~12 s after SIGINT and
+  retired the 24 reactivated members (ledger `reactivated` back to 0). A
+  run started with `nohup … &` from a non-interactive shell ignores SIGINT
+  entirely — the shell sets SIGINT to ignored for background children and
+  Python then installs no handler — so stop such a run with SIGTERM, and
+  prefer a foreground or `setsid` launch for long imports.
+- Re-runs: two finished patrols re-ran as `already_imported`, writing
+  nothing; a patrol interrupted after its events stage resumed with only
+  its tracks stage.
+- No new failure modes: the bulk event path never fell back to single
+  posts on either window.
+
+### Where the server time goes (from the das source, `release-2.148.1`)
+
+- `das/observations/signals.py:71-95` — for every saved observation whose
+  `recorded_at` is older than seven days, that is every historical point an
+  import writes, the `post_save` handler runs a `SubjectSource` lookup and
+  enqueues one `maintain_subjectstatus_for_subject` Celery task
+  `on_commit`. A 286-point track means 286 tasks; the Albay import queued
+  roughly 270,000. The list endpoint also inserts row by row
+  (`ListSerializer.create`), and a single duplicate in a batch drops the
+  whole batch to the one-row-per-transaction fallback
+  (`das/observations/views/observations.py:199-235`).
+- `das/activity/signals.py:52-70` — every created event publishes a
+  realtime message and enqueues an `evaluate_alert_rules` task; the Albay
+  import queued about 14,000 alert-rule evaluations on historical data.
+
+Those Celery floods also load the API's own database while the import
+runs, which is consistent with the site slowing down during imports and
+with concurrency buying nothing.
+
+### Revised recommendation
+
+The client-side work (Tasks 1–4) is done and worth keeping: fewer
+requests, no probes, a `--workers` flag that will pay off on a das that
+parallelises, and the safety properties intact. The next order of
+magnitude is server-side and needs das tickets:
+
+1. **An import mode for historical data** — a request header or a
+   `provenance`/`source` flag that das honours by skipping per-record
+   side effects that make no sense for events and points years old:
+   `evaluate_alert_rules`, realtime publish, and per-point
+   `maintain_subjectstatus_for_subject`. One subject-status refresh per
+   subject at the end of the batch is enough.
+2. **Deduplicate `maintain_subjectstatus_for_subject` per subject per
+   transaction** for the historical branch of `observation_post_save`, the
+   way `observation_segment_post_save` already buffers its work. This
+   helps every bulk observation producer, not only this tool.
+3. **Bulk insert for observation lists** (`bulk_create` with the unique
+   constraint handled per row) so a list request costs one round trip to
+   the database.
+4. Then re-measure with `--workers 4`; if das still serialises, the API
+   replica or database connection configuration on staging is the next
+   place to look.
+
+Until those land, plan on roughly 2 patrols a minute per site regardless
+of client settings, run imports in the site's cloud region from a
+foreground or `setsid` process, and use `--skip-tracks` first when the
+patrols and events need to be visible early.
