@@ -480,3 +480,95 @@ def test_a_rejected_batch_falls_back_to_single_posts(tmp_path):
     assert len(r.imported) == 4
     assert set(_all_event_ids(b, set(r.imported))) <= set(api.events)
     assert len(api.events) == api.calls["create_event"]
+
+
+class SharedSite:
+    """Several FakeAPI views over one set of dicts, as N workers would see
+    one EarthRanger site."""
+
+    def __init__(self, b, **kw):
+        self.base = FakeAPI(b, **kw)
+
+    def __call__(self):
+        api = FakeAPI(self.base.b)
+        for name in (
+            "subjects",
+            "patrols",
+            "events",
+            "sources",
+            "observations",
+            "files",
+            "calls",
+            "patches",
+        ):
+            setattr(api, name, getattr(self.base, name))
+        api.collection, api.event_types = self.base.collection, self.base.event_types
+        api.fail_patrol = self.base.fail_patrol
+        for name in ("create_source", "create_event", "create_events"):
+            if name in self.base.__dict__:  # a test monkeypatched the base instance
+                setattr(api, name, self.base.__dict__[name])
+        return api
+
+
+def _run_workers(site, b, tmp_path, workers, **kw):
+    led = ImportLedger(tmp_path / "ledger.json", "site|ca")
+    api = site()
+    report = run_preflight(api, b, checks=[check_event_types])
+    return run_import(
+        api,
+        b,
+        endpoint=ENDPOINT,
+        ledger=led,
+        opts=ImportOptions(timezone="Africa/Libreville", workers=workers, **kw),
+        ns=namespace(ENDPOINT, b.ca_uuid),
+        importer_version="t",
+        report=report,
+        api_factory=site,
+    )
+
+
+def test_workers_import_everything_once(tmp_path):
+    b = load_bundle(FIXTURE)
+    site = SharedSite(b)
+    r = _run_workers(site, b, tmp_path, workers=4)
+    assert r.exit_code == 0 and len(r.imported) == 5 and not r.failed
+    assert len(site.base.patrols) == 5
+    assert site.base.calls["create_event"] == 141 + 18
+    assert len(site.base.events) == 141 + 18
+    r2 = _run_workers(site, b, tmp_path, workers=4)
+    assert r2.counts["already_imported"] == 5
+
+
+def test_workers_share_one_source_per_leader(tmp_path):
+    b = load_bundle(FIXTURE)
+    site = SharedSite(b)
+    real = site.base.create_source
+
+    def once(p):  # das: a second create for the same manufacturer id fails
+        if p["manufacturer_id"] in site.base.sources:
+            raise ERClientException("x\n\t 400 from ER. Message: exists")
+        return real(p)
+
+    site.base.create_source = once
+    r = _run_workers(site, b, tmp_path, workers=4)
+    assert not r.failed
+    tracked = {t["leg_uuid"] for t in b.tracks}
+    leaders = {
+        next(m["employee_uuid"] for m in leg["members"] if m["leader"])
+        for p in b.patrols
+        for leg in p["legs"]
+        if leg["uuid"] in tracked
+    }
+    assert len(site.base.sources) == len(leaders)
+
+
+def test_workers_still_retire_reactivated_members_on_failure(tmp_path):
+    b = load_bundle(FIXTURE)
+    retired = sorted(b.member_uuids())[:2]
+    site = SharedSite(b, inactive=retired)
+    site.base.fail_patrol = b.patrols[2]["id"]
+    r = _run_workers(site, b, tmp_path, workers=3)
+    assert len(r.failed) == 1
+    for s in site.base.subjects:
+        if s["additional"]["smart_member_id"] in retired:
+            assert s["is_active"] is False

@@ -31,6 +31,7 @@ er-smart-sync --dry-run import-patrols --config sync.yaml        # what it would
 | `--skip-tracks` | do not import track points |
 | `--allow-blocking` | skip the patrols that blocking preflight findings affect, instead of stopping |
 | `--ledger FILE` | the import ledger (default: `import-ledger.json` beside the bundle) |
+| `--workers N` | Import N patrols at a time, each on its own connection. Default 1. Start with 4; watch for 429 or 5xx in the log and lower it if they appear. Dry runs always use one worker. |
 
 Exit status:
 - **0:** every selected patrol was imported.
@@ -64,6 +65,19 @@ Exit status:
 - Every track vertex becomes an observation at its recorded time. A track SMART stored without times has its vertices spread evenly across the day, and the segment records `track_times: interpolated`.
 
 **Retired staff.** das accepts only active rangers on a segment. The import reactivates retired members for the run and retires them again when it ends. If a run is interrupted, the next run finishes the retirement, because the ledger records who was reactivated.
+
+## Speed
+
+A patrol costs a handful of requests: the patrol, one list of its events
+(parents of multi-observation waypoints first, then the rest, 50 per
+request), its attachments, and its leader's track in batches of 1,000
+points. Re-run safety comes from deterministic ids and from reading the
+patrol (which lists the events already on it) before writing; a request
+das rejects is redone one event at a time for that patrol only.
+`--workers 4` runs four patrols at once. On Albay (1,527 patrols) the
+sequential rate was ~2.6 patrols a minute; see
+`docs/superpowers/specs/2026-10-14-import-patrols-performance.md` for the
+measurements behind these changes.
 
 ## Identity and re-runs
 

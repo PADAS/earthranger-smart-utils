@@ -1121,12 +1121,15 @@ def patrol_preflight_cmd(
               help="Skip patrols with blocking preflight findings instead of stopping")
 @click.option("--ledger", "ledger_path", type=click.Path(dir_okay=False), default=None,
               help="Import ledger (default: import-ledger.json beside the bundle)")
+@click.option("--workers", type=click.IntRange(1, 32), default=1, show_default=True,
+              help="Import this many patrols at a time (one ER connection each). "
+                   "Dry runs always use one.")
 @click.pass_context
 def import_patrols_cmd(ctx, config_file, bundle_dir, er_endpoint, er_token,
                        er_username, er_password, er_id, smart_language, timezone,
                        event_type_prefix, event_type_version, since, until,
                        patrol_ids, limit, skip_events, skip_tracks, allow_blocking,
-                       ledger_path):
+                       ledger_path, workers):
     """Import a bundle's patrols, waypoint events and tracks into EarthRanger.
 
     Runs the patrol-preflight checks first. Exit status: 0 done, 1 some
@@ -1156,6 +1159,17 @@ def import_patrols_cmd(ctx, config_file, bundle_dir, er_endpoint, er_token,
     if dry:
         er_client = DryRunERClient(er_client)
         click.echo("Dry run mode: no writes will be sent to ER.", err=True)
+    if dry and workers > 1:
+        click.echo("Dry run: using one worker so the planned writes read in order.",
+                   err=True)
+        workers = 1
+
+    def api_factory():
+        return ERPatrolAPI(_make_er_client(
+            endpoint=er.endpoint, token=er.token, username=er.login,
+            password=er.password,
+        ))
+
     ledger = ImportLedger(
         Path(ledger_path) if ledger_path
         else Path(bundle_path).resolve().parent / "import-ledger.json",
@@ -1173,11 +1187,14 @@ def import_patrols_cmd(ctx, config_file, bundle_dir, er_endpoint, er_token,
         event_type_prefix=event_type_prefix,
         event_type_version=event_type_version or er.event_type_version,
         timezone=tz,
+        workers=workers,
     )
+    extra = {"api_factory": api_factory} if workers > 1 else {}
     result = patrol_import.run_import(
         ERPatrolAPI(er_client), bundle, endpoint=er.endpoint, ledger=ledger, opts=opts,
         ns=namespace(er.endpoint, bundle.ca_uuid, er.patrol_namespace),
         importer_version=pkg_version("er-smart-sync"),
+        **extra,
     )
     if result.stopped:
         click.echo(render_text(result.report))

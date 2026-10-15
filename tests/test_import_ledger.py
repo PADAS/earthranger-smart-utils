@@ -33,3 +33,24 @@ def test_existing_file_other_sites_survive(tmp_path):
     p.write_text(json.dumps({"keep": {"patrols": {}, "reactivated": []}}))
     ImportLedger(p, "s").done("p1", "patrol")
     assert "keep" in json.loads(p.read_text())
+
+
+def test_ledger_survives_concurrent_writers(tmp_path):
+    import threading
+
+    led = ImportLedger(tmp_path / "l.json", "site|ca")
+
+    def work(i):
+        for s in ("patrol", "events", "tracks"):
+            led.done(f"p{i}", s, patrol_id=f"id{i}")
+            led.add_id(f"p{i}", "attached", f"w{i}")
+
+    threads = [threading.Thread(target=work, args=(i,)) for i in range(16)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    again = ImportLedger(tmp_path / "l.json", "site|ca")
+    for i in range(16):
+        assert again.stages(f"p{i}") == {"patrol", "events", "tracks"}
+        assert again.ids(f"p{i}") == {"patrol_id": f"id{i}", "attached": [f"w{i}"]}

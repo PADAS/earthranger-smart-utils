@@ -13,9 +13,13 @@ answers it with a 500, not a 409) is recovered by reading that one event.
 from __future__ import annotations
 
 import logging
+import threading
 from collections import Counter
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from datetime import date
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from erclient.er_errors import ERClientException
@@ -49,6 +53,7 @@ class ImportOptions:
     event_type_prefix: str | None = None
     event_type_version: str = "v2"
     timezone: str | None = None
+    workers: int = 1
 
 
 @dataclass
@@ -244,7 +249,32 @@ def _attach(api, bundle, wp, w, on_site, attached, ledger, patrol, counts) -> No
     ledger.add_id(patrol["uuid"], "attached", w["uuid"])
 
 
-def _import_tracks(api, patrol, plan, by_day, subjects, counts, sources: dict) -> None:
+def _get_or_create_source(api, mid: str, member_uuid: str, sources: dict, lock) -> str:
+    with lock:
+        if mid in sources:
+            return sources[mid]
+    src = api.get_source(mid)
+    if src is None:
+        try:
+            src = api.create_source(
+                {
+                    "provider": SOURCE_PROVIDER,
+                    "manufacturer_id": mid,
+                    "source_type": "tracking-device",
+                    "model_name": "SMART patrol track",
+                    "additional": {"smart_member_id": member_uuid},
+                }
+            )
+        except ERClientException:
+            src = api.get_source(mid)  # another worker created it first
+            if src is None:
+                raise
+    with lock:
+        sources.setdefault(mid, src["id"])
+        return sources[mid]
+
+
+def _import_tracks(api, patrol, plan, by_day, subjects, counts, sources, lock) -> None:
     for leg in patrol["legs"]:
         for batch in build_track_batches(leg, plan.leg_times[leg["uuid"]], by_day):
             subject = subjects.get(batch.member_uuid)
@@ -252,22 +282,59 @@ def _import_tracks(api, patrol, plan, by_day, subjects, counts, sources: dict) -
                 counts["tracks_without_subject"] += 1
                 continue
             mid = f"smart:{batch.member_uuid}"
-            if mid not in sources:
-                src = api.get_source(mid) or api.create_source(
-                    {
-                        "provider": SOURCE_PROVIDER,
-                        "manufacturer_id": mid,
-                        "source_type": "tracking-device",
-                        "model_name": "SMART patrol track",
-                        "additional": {"smart_member_id": batch.member_uuid},
-                    }
-                )
-                sources[mid] = src["id"]
-            api.assign_source(subject["id"], sources[mid], batch.start, batch.end)
-            obs = [{**o, "source": sources[mid]} for o in batch.observations]
+            source_id = _get_or_create_source(
+                api, mid, batch.member_uuid, sources, lock
+            )
+            api.assign_source(subject["id"], source_id, batch.start, batch.end)
+            obs = [{**o, "source": source_id} for o in batch.observations]
             for i in range(0, len(obs), OBSERVATION_BATCH):
                 api.post_observations(obs[i : i + OBSERVATION_BATCH])
             counts["track_points"] += len(obs)
+
+
+def _import_one(
+    api,
+    bundle,
+    p,
+    *,
+    want,
+    ledger,
+    ns,
+    resolver,
+    subjects,
+    tz,
+    by_day,
+    importer_version,
+    sources,
+    sources_lock,
+) -> tuple:
+    """Import one patrol through its remaining stages. Returns
+    (patrol uuid, counts for this patrol, error text or None)."""
+    counts: Counter = Counter()
+    done = ledger.stages(p["uuid"])
+    if want <= done:
+        counts["already_imported"] += 1
+        return p["uuid"], counts, None
+    logger.info("patrol %s: starting", p.get("id"))
+    try:
+        plan = build_patrol(bundle, p, ns, resolver, tz, by_day, importer_version)
+        known: set | None = None
+        if "patrol" not in done:
+            known = _import_patrol_stage(api, plan, p)
+            ledger.done(p["uuid"], "patrol", patrol_id=plan.patrol["id"])
+        if "events" in want and "events" not in done:
+            _import_events(api, bundle, p, plan, ns, resolver, ledger, counts, known)
+            ledger.done(p["uuid"], "events")
+            ledger.drop_id(p["uuid"], "attached")
+        if "tracks" in want and "tracks" not in done:
+            _import_tracks(
+                api, p, plan, by_day, subjects, counts, sources, sources_lock
+            )
+            ledger.done(p["uuid"], "tracks")
+        return p["uuid"], counts, None
+    except Exception as e:  # one patrol's failure must not stop the run
+        logger.exception("patrol %s failed", p.get("id"))
+        return p["uuid"], counts, f"{type(e).__name__}: {e}"
 
 
 def run_import(
@@ -280,6 +347,7 @@ def run_import(
     ns,
     importer_version: str,
     report: PreflightReport | None = None,
+    api_factory: Callable[[], Any] | None = None,
 ) -> ImportResult:
     result = ImportResult()
     if report is None:
@@ -319,42 +387,50 @@ def run_import(
     resolver.collection_type = api.collection_event_type()
     tz = ZoneInfo(bundle.manifest.timezone["name"])
     by_day = tracks_by_day(bundle.tracks)
-    sources: dict = {}
     todo = [p for p in selected if not {"patrol"} <= ledger.stages(p["uuid"])]
+    sources: dict = {}
+    sources_lock = threading.Lock()
+    per_patrol = dict(
+        want=want,
+        ledger=ledger,
+        ns=ns,
+        resolver=resolver,
+        subjects=subjects,
+        tz=tz,
+        by_day=by_day,
+        importer_version=importer_version,
+        sources=sources,
+        sources_lock=sources_lock,
+    )
+
+    def record(outcome):
+        uuid, counts, error = outcome
+        result.counts.update(counts)
+        if error:
+            result.failed[uuid] = error
+        else:
+            result.imported.append(uuid)
+
+    workers = max(1, opts.workers)
     try:
         # inside the try: whatever fails after this, the finally retires them
         _reactivate(api, ledger, subjects, todo)
         if not opts.skip_tracks:
             api.ensure_source_provider(SOURCE_PROVIDER, "SMART patrol import")
-        for p in selected:
-            done = ledger.stages(p["uuid"])
-            if want <= done:
-                result.counts["already_imported"] += 1
-                result.imported.append(p["uuid"])
-                continue
-            try:
-                plan = build_patrol(
-                    bundle, p, ns, resolver, tz, by_day, importer_version
-                )
-                known: set | None = None
-                if "patrol" not in done:
-                    known = _import_patrol_stage(api, plan, p)
-                    ledger.done(p["uuid"], "patrol", patrol_id=plan.patrol["id"])
-                if "events" in want and "events" not in done:
-                    _import_events(
-                        api, bundle, p, plan, ns, resolver, ledger, result.counts, known
-                    )
-                    ledger.done(p["uuid"], "events")
-                    ledger.drop_id(p["uuid"], "attached")
-                if "tracks" in want and "tracks" not in done:
-                    _import_tracks(
-                        api, p, plan, by_day, subjects, result.counts, sources
-                    )
-                    ledger.done(p["uuid"], "tracks")
-                result.imported.append(p["uuid"])
-            except Exception as e:  # one patrol's failure must not stop the run
-                logger.exception("patrol %s failed", p.get("id"))
-                result.failed[p["uuid"]] = f"{type(e).__name__}: {e}"
+        if workers == 1 or api_factory is None:
+            for p in selected:
+                record(_import_one(api, bundle, p, **per_patrol))
+        else:
+            local = threading.local()
+
+            def worker(p):
+                if not hasattr(local, "api"):
+                    local.api = api_factory()
+                return _import_one(local.api, bundle, p, **per_patrol)
+
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                for outcome in pool.map(worker, selected):
+                    record(outcome)
     finally:
         _retire(api, ledger)
     return result
