@@ -31,7 +31,7 @@ er-smart-sync --dry-run import-patrols --config sync.yaml        # what it would
 | `--skip-tracks` | do not import track points |
 | `--allow-blocking` | skip the patrols that blocking preflight findings affect, instead of stopping |
 | `--ledger FILE` | the import ledger (default: `import-ledger.json` beside the bundle) |
-| `--workers N` | Import N patrols at a time, each on its own connection. Default 1. Start with 4; watch for 429 or 5xx in the log and lower it if they appear. Dry runs always use one worker. |
+| `--workers N` | Import N patrols at a time, each on its own connection. Default 1. 4 is safe; on current das it gains little (see Speed). Watch for 429 or 5xx in the log and lower it if they appear. Dry runs always use one worker. |
 
 Exit status:
 - **0:** every selected patrol was imported.
@@ -90,11 +90,13 @@ patrols and events should become visible early. The measurements and the
 das-side follow-ups are in
 `docs/superpowers/specs/2026-10-14-import-patrols-performance.md`.
 
+A second Ctrl-C during shutdown skips the wait for running patrols and retires members immediately; those patrols may then fail on das's active-member check — re-run to finish them.
+
 ## Identity and re-runs
 
 Every ER id is derived from the SMART uuid: a uuid5 in a namespace made of the ER host and the conservation area. A re-run, or a second operator, addresses the same rows. `earthranger.patrol_namespace` in `sync.yaml` overrides the namespace; set it only for a site seeded under another.
 
-Before every write, the import reads the row by its id and skips it when it exists. das answers a duplicate id with a slow 500, not a 409, so this check is required. das also discards a track point it already has.
+The patrol is read before it is written, and that read lists the events already on its segments, so existing events are skipped. Events are created in lists, without a read per event. das answers a duplicate id with a 500, not a 409; the import recovers from it by reading that one event. Attachments are guarded by the ledger and, without it, by the event's own file list. das also discards a track point it already has.
 
 The ledger records, per site and conservation area:
 - the stages each patrol finished (patrol, events, tracks);

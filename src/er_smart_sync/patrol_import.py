@@ -172,12 +172,15 @@ def _create_event_safely(api, ev: dict, counts) -> dict:
 EVENT_BATCH = 50
 
 
-def _post_event_lists(api, events: list, counts, patrol_id=None) -> dict:
+def _post_event_lists(api, events: list, counts, patrol_id=None) -> tuple[dict, list]:
     """Create `events` with as few requests as possible: lists of EVENT_BATCH.
     A list das rejects (one invalid item, or a duplicate id answered with a
     500) is redone one event at a time, so one bad observation costs only
-    its own patrol a slower path, not the whole run."""
+    its own patrol a slower path, not the whole run. An event das still
+    rejects singly is logged and skipped so the rest of the patrol lands;
+    returns (created, failed_ids)."""
     created: dict = {}
+    failed: list = []
     for i in range(0, len(events), EVENT_BATCH):
         chunk = events[i : i + EVENT_BATCH]
         try:
@@ -191,8 +194,14 @@ def _post_event_lists(api, events: list, counts, patrol_id=None) -> dict:
                 len(chunk),
             )
             for ev in chunk:
-                created[ev["id"]] = _create_event_safely(api, ev, counts)
-    return created
+                try:
+                    created[ev["id"]] = _create_event_safely(api, ev, counts)
+                except ERClientException as exc:
+                    logger.warning(
+                        "patrol %s: event %s rejected: %s", patrol_id, ev["id"], exc
+                    )
+                    failed.append(ev["id"])
+    return created, failed
 
 
 def _import_events(
@@ -225,10 +234,18 @@ def _import_events(
     )
     # parents first: a child names its collection by id, so the parent must
     # exist before the child's list is written
-    on_site = _post_event_lists(api, parents, counts, patrol.get("id"))
-    on_site.update(_post_event_lists(api, children, counts, patrol.get("id")))
+    on_site, failed = _post_event_lists(api, parents, counts, patrol.get("id"))
+    more, more_failed = _post_event_lists(api, children, counts, patrol.get("id"))
+    on_site.update(more)
+    failed += more_failed
     for w, wp in waypoints:
+        if wp.events and wp.events[0]["id"] in failed:
+            continue  # nothing to attach to; the patrol is reported failed below
         _attach(api, bundle, wp, w, on_site, attached, ledger, patrol, counts)
+    if failed:
+        raise RuntimeError(
+            f"{len(failed)} event(s) rejected by EarthRanger: {', '.join(failed[:5])}"
+        )
 
 
 def _attach(api, bundle, wp, w, on_site, attached, ledger, patrol, counts) -> None:

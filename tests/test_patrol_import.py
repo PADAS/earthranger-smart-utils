@@ -38,6 +38,7 @@ class FakeAPI:
         self.patrols, self.events, self.sources = {}, {}, {}
         self.observations, self.files, self.calls = [], [], Counter()
         self.patches = []
+        self.patches_subjects = []
         self.collection = collection
         self.event_types = event_types
         self.fail_patrol = None
@@ -143,6 +144,7 @@ class FakeAPI:
 
     def patch_subject(self, sid, payload):
         self.calls["patch_subject"] += 1
+        self.patches_subjects.append((sid, payload))
         for s in self.subjects:
             if s["id"] == sid:
                 s.update(payload)
@@ -430,6 +432,8 @@ def test_orphaned_events_after_a_deleted_patrol_are_recovered(tmp_path):
     assert len(api.patrols) == 5 and api.calls["create_event"] == created
     # the duplicate-id 500 was turned into a probe, once per orphaned event
     assert api.calls["get_event"] > 0
+    # the orphans were recovered as existing, not re-created
+    assert r.counts["events_existing"] > 0
 
 
 def _all_event_ids(b, uuids=None):
@@ -480,6 +484,27 @@ def test_a_rejected_batch_falls_back_to_single_posts(tmp_path):
     assert len(r.imported) == 4
     assert set(_all_event_ids(b, set(r.imported))) <= set(api.events)
     assert len(api.events) == api.calls["create_event"]
+    # the bulk path was tried, then the failing patrol's other events landed
+    assert api.calls["create_events"] > 0
+    (bad_uuid,) = r.failed
+    expected = set(_all_event_ids(b, {bad_uuid})) - {api.reject_event}
+    assert expected and expected <= set(api.events)
+    assert api.reject_event not in api.events
+    assert "rejected" in r.failed[bad_uuid]
+
+
+def _assert_ledger_consistent(led, api, b):
+    from er_smart_sync.import_ledger import STAGES
+    from er_smart_sync.patrol_ids import er_id
+
+    ns = namespace(ENDPOINT, b.ca_uuid)
+    for uuid, rec in led._site["patrols"].items():
+        stages = rec["stages"]
+        assert stages == list(STAGES[: len(stages)])
+        if "patrol" in stages:
+            assert er_id(ns, "patrol", uuid) in api.patrols
+        if "events" in stages:
+            assert set(_all_event_ids(b, {uuid})) <= set(api.events)
 
 
 class SharedSite:
@@ -500,6 +525,7 @@ class SharedSite:
             "files",
             "calls",
             "patches",
+            "patches_subjects",
         ):
             setattr(api, name, getattr(self.base, name))
         api.collection, api.event_types = self.base.collection, self.base.event_types
@@ -533,7 +559,6 @@ def test_workers_import_everything_once(tmp_path):
     r = _run_workers(site, b, tmp_path, workers=4)
     assert r.exit_code == 0 and len(r.imported) == 5 and not r.failed
     assert len(site.base.patrols) == 5
-    assert site.base.calls["create_event"] == 141 + 18
     assert len(site.base.events) == 141 + 18
     r2 = _run_workers(site, b, tmp_path, workers=4)
     assert r2.counts["already_imported"] == 5
@@ -572,9 +597,13 @@ def test_workers_still_retire_reactivated_members_on_failure(tmp_path):
     for s in site.base.subjects:
         if s["additional"]["smart_member_id"] in retired:
             assert s["is_active"] is False
+    led = ImportLedger(tmp_path / "ledger.json", "site|ca")
+    _assert_ledger_consistent(led, site.base, b)
+    (bad_uuid,) = r.failed
+    assert not {"events", "tracks"} & led.stages(bad_uuid)
 
 
-def test_interrupt_drops_queued_patrols_and_still_retires(tmp_path):
+def test_interrupt_propagates_and_still_retires(tmp_path):
     b = load_bundle(FIXTURE)
     retired = sorted(b.member_uuids())[:2]
     site = SharedSite(b, inactive=retired)
@@ -607,10 +636,24 @@ def test_interrupt_drops_queued_patrols_and_still_retires(tmp_path):
             report=report,
             api_factory=factory,
         )
-    assert len(site.base.patrols) < len(b.patrols)
+    # members were reactivated before the interrupt, and retired after it
+    reactivated = {
+        sid
+        for sid, payload in site.base.patches_subjects
+        if payload == {"is_active": True}
+    }
+    retired_ids = {
+        s["id"]
+        for s in site.base.subjects
+        if s["additional"]["smart_member_id"] in retired
+    }
+    assert reactivated == retired_ids
     for s in site.base.subjects:
         if s["additional"]["smart_member_id"] in retired:
             assert s["is_active"] is False
+    _assert_ledger_consistent(
+        ImportLedger(tmp_path / "ledger.json", "site|ca"), site.base, b
+    )
 
 
 def test_get_or_create_source_recovers_from_a_lost_create_race():

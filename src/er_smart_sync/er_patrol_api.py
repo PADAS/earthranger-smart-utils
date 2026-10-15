@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import threading
 
 import requests
 from erclient.er_errors import (
@@ -30,16 +31,30 @@ SOURCE_PROVIDER = "smart_patrol_import"
 COLLECTION_EVENT_TYPE = "incident_collection"
 
 
+_quiet = threading.local()
+
+
+class _QuietFilter(logging.Filter):
+    """Drop ERClient records emitted by a thread inside `_quiet_erclient`."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return not getattr(_quiet, "on", False)
+
+
+_QUIET_FILTER = _QuietFilter()
+logging.getLogger("ERClient").addFilter(_QUIET_FILTER)
+
+
 @contextlib.contextmanager
 def _quiet_erclient():
-    """erclient logs every 404 at ERROR; an existence check expects them."""
-    log = logging.getLogger("ERClient")
-    level = log.level
-    log.setLevel(logging.CRITICAL)
+    """erclient logs every 404 at ERROR; an existence check expects them.
+    Per-thread, so concurrent workers neither hide nor leak each other's logs."""
+    previous = getattr(_quiet, "on", False)
+    _quiet.on = True
     try:
         yield
     finally:
-        log.setLevel(level)
+        _quiet.on = previous
 
 
 class ERForbidden(Exception):
