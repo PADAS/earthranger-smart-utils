@@ -27,6 +27,9 @@ src/er_smart_sync/_version.py
 # Local secrets / state
 .env
 state.json
+# er-smart-sync configs hold EarthRanger tokens and passwords
+/sync*.yaml
+/sync*.yml
 /tmp/
 site/
 .worktrees/
