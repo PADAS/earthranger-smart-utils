@@ -1865,6 +1865,7 @@ das-side follow-ups are in
 <p>A second Ctrl-C during shutdown skips the wait for running patrols and retires members immediately; those patrols may then fail on das's active-member check — re-run to finish them.</p>
 <h2 id="identity-and-re-runs">Identity and re-runs<a class="headerlink" href="#identity-and-re-runs" title="Permanent link">&para;</a></h2>
 <p>Every ER id is derived from the SMART uuid: a uuid5 in a namespace made of the ER host and the conservation area. A re-run, or a second operator, addresses the same rows. <code>earthranger.patrol_namespace</code> in <code>sync.yaml</code> overrides the namespace; set it only for a site seeded under another.</p>
+<p>Library callers can pass <code>progress=</code> (called per patrol with running totals) and <code>stop=</code> (a <code>threading.Event</code>; once set, no further patrol starts and <code>ImportResult.stopped_early</code> is true).</p>
 <p>The patrol is read before it is written, and that read lists the events already on its segments, so existing events are skipped. Events are created in lists, without a read per event. das answers a duplicate id with a 500, not a 409; the import recovers from it by reading that one event. Attachments are guarded by the ledger and, without it, by the event's own file list. das also discards a track point it already has.</p>
 <p>The ledger records, per site and conservation area:
 - the stages each patrol finished (patrol, events, tracks);
