@@ -5,6 +5,12 @@ Notable changes by version. Every release is also published to
 [GitHub Releases](https://github.com/PADAS/earthranger-smart-utils/releases),
 which carry the full commit-level history.
 
+## Unreleased
+
+### Added
+
+**`run_import` accepts `progress=` and `stop=`** for library callers: a per-patrol progress callback and a `threading.Event` that ends the run before the next patrol starts (`ImportResult.stopped_early`). The CLI is unchanged.
+
 ## 0.8.0 — 2026-10-15
 
 ### Changed

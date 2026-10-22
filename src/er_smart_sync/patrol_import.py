@@ -63,6 +63,7 @@ class ImportResult:
     failed: dict = field(default_factory=dict)
     report: PreflightReport | None = None
     stopped: bool = False
+    stopped_early: bool = False  # a stop event ended the run before every patrol was tried
     counts: Counter = field(default_factory=Counter)
 
     @property
@@ -375,6 +376,8 @@ def run_import(
     importer_version: str,
     report: PreflightReport | None = None,
     api_factory: Callable[[], Any] | None = None,
+    progress: Callable[[dict], None] | None = None,
+    stop: threading.Event | None = None,
 ) -> ImportResult:
     result = ImportResult()
     if report is None:
@@ -430,13 +433,20 @@ def run_import(
         sources_lock=sources_lock,
     )
 
+    tally = {"total": len(selected), "done": 0, "failed": 0, "already_imported": 0}
+
     def record(outcome):
         uuid, counts, error = outcome
         result.counts.update(counts)
         if error:
             result.failed[uuid] = error
+            tally["failed"] += 1
         else:
             result.imported.append(uuid)
+        tally["done"] += 1
+        tally["already_imported"] += counts.get("already_imported", 0)
+        if progress:
+            progress(dict(tally))
 
     workers = max(1, opts.workers)
     try:
@@ -446,11 +456,16 @@ def run_import(
             api.ensure_source_provider(SOURCE_PROVIDER, "SMART patrol import")
         if workers == 1 or api_factory is None:
             for p in selected:
+                if stop is not None and stop.is_set():
+                    result.stopped_early = True
+                    break
                 record(_import_one(api, bundle, p, **per_patrol))
         else:
             local = threading.local()
 
             def worker(p):
+                if stop is not None and stop.is_set():
+                    return None
                 if not hasattr(local, "api"):
                     try:
                         local.api = api_factory()
@@ -464,6 +479,9 @@ def run_import(
             pool = ThreadPoolExecutor(max_workers=workers)
             try:
                 for outcome in pool.map(worker, selected):
+                    if outcome is None:
+                        result.stopped_early = True
+                        continue
                     record(outcome)
             except BaseException:
                 # drop queued patrols; only running ones finish, then retire

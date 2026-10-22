@@ -97,6 +97,8 @@ A second Ctrl-C during shutdown skips the wait for running patrols and retires m
 
 Every ER id is derived from the SMART uuid: a uuid5 in a namespace made of the ER host and the conservation area. A re-run, or a second operator, addresses the same rows. `earthranger.patrol_namespace` in `sync.yaml` overrides the namespace; set it only for a site seeded under another.
 
+Library callers can pass `progress=` (called per patrol with running totals) and `stop=` (a `threading.Event`; once set, no further patrol starts and `ImportResult.stopped_early` is true).
+
 The patrol is read before it is written, and that read lists the events already on its segments, so existing events are skipped. Events are created in lists, without a read per event. das answers a duplicate id with a 500, not a 409; the import recovers from it by reading that one event. Attachments are guarded by the ledger and, without it, by the event's own file list. das also discards a track point it already has.
 
 The ledger records, per site and conservation area:
