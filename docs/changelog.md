@@ -15,6 +15,8 @@ which carry the full commit-level history.
 
 **`er_smart_sync.datamodel_push.push_datamodel_files()`** pushes a SMART data model from a file as a function, so library callers can run the `datamodel --from-file` push without the CLI.
 
+**Subject change records in the run record carry the subject's name** (`"name"` beside `"id"`), so a dry run, whose ids are all `dry-run`, can still say which subjects it would create or change.
+
 ## 0.8.0 — 2026-10-15
 
 ### Changed

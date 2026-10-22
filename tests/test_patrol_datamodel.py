@@ -188,6 +188,9 @@ def test_fresh_site_creates_everything(no_choice_writes, tmp_path):
     assert s.logins_skipped == ["smart smart"] and s.subjects_deactivated == 0
     created = [c[1] for c in api.calls if c[0] == "create_subject"]
     assert created[0]["subject_subtype"] == "ranger"
+    # the run record names each subject; a dry run's ids are all "dry-run"
+    subject_changes = [c for c in s.changes if c["kind"] == "subject"]
+    assert [c["name"] for c in subject_changes] == [p["name"] for p in created]
     assert created[0]["additional"]["smart_member_id"] == b.reference.employees[0].uuid
     assert (
         created[0]["additional"]["smart_ca_uuid"] == b.ca_uuid
@@ -637,6 +640,7 @@ def test_run_record_lists_every_write_with_what_it_replaced(no_choice_writes, tm
         "kind": "subject",
         "action": "updated",
         "id": "old",
+        "name": next(c[2]["name"] for c in api.calls if c[0] == "patch_subject"),
         "before": {"name": "Old Name"},
     } in by_kind["subject"]
     # only the members this run added, never ones already in the group

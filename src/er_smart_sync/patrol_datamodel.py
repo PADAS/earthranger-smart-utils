@@ -374,7 +374,12 @@ def _sync_subjects(
                 created = api.create_subject(payload)
                 stats.subjects_created += 1
                 stats.changes.append(
-                    {"kind": "subject", "action": "created", "id": created.get("id")}
+                    {
+                        "kind": "subject",
+                        "action": "created",
+                        "id": created.get("id"),
+                        "name": plan.name,
+                    }
                 )
                 ids[plan.smart_member_id] = created.get("id")
                 continue
@@ -399,6 +404,7 @@ def _sync_subjects(
                         "kind": "subject",
                         "action": "updated",
                         "id": match["id"],
+                        "name": plan.name,
                         "before": {
                             k: match.get(k)
                             if k != "additional"
@@ -445,6 +451,7 @@ def _deactivate_unplanned_subjects(
                     "kind": "subject",
                     "action": "updated",
                     "id": s["id"],
+                    "name": s.get("name"),
                     "before": {"is_active": True},
                 }
             )
