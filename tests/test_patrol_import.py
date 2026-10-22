@@ -175,7 +175,7 @@ class FakeAPI:
         return bool(new)
 
 
-def _run(api, b, tmp_path, **kw):
+def _run(api, b, tmp_path, progress=None, stop=None, **kw):
     led = ImportLedger(tmp_path / "ledger.json", "site|ca")
     report = run_preflight(api, b, checks=[check_event_types])
     return run_import(
@@ -187,6 +187,8 @@ def _run(api, b, tmp_path, **kw):
         ns=namespace(ENDPOINT, b.ca_uuid),
         importer_version="t",
         report=report,
+        progress=progress,
+        stop=stop,
     )
 
 
@@ -711,3 +713,24 @@ def test_get_or_create_source_recovers_from_a_lost_create_race():
     assert got == "src-1" and cache == {"smart:m": "src-1"}
     with pytest.raises(ERClientException):
         _get_or_create_source(Racy([None, None]), "smart:n", "n", {}, threading.Lock())
+
+
+def test_progress_is_reported_per_patrol(tmp_path):
+    b = load_bundle(FIXTURE)
+    api = FakeAPI(b)
+    seen = []
+    r = _run(api, b, tmp_path, progress=seen.append)
+    assert len(seen) == len(r.imported) + len(r.failed) == 5
+    assert seen[-1]["done"] == len(seen) and seen[-1]["total"] == len(seen)
+    assert set(seen[-1]) == {"total", "done", "failed", "already_imported"}
+
+
+def test_a_set_stop_event_starts_no_more_patrols(tmp_path):
+    import threading
+
+    b = load_bundle(FIXTURE)
+    api = FakeAPI(b)
+    stop = threading.Event()
+    r = _run(api, b, tmp_path, progress=lambda p: stop.set(), stop=stop)
+    assert r.stopped_early is True
+    assert len(r.imported) + len(r.failed) == 1

@@ -5,6 +5,18 @@ Notable changes by version. Every release is also published to
 [GitHub Releases](https://github.com/PADAS/earthranger-smart-utils/releases),
 which carry the full commit-level history.
 
+## 0.9.0 — 2026-10-21
+
+### Added
+
+**`run_import` accepts `progress=` and `stop=`** for library callers: a per-patrol progress callback and a `threading.Event` that ends the run before the next patrol starts (`ImportResult.stopped_early`). The CLI is unchanged.
+
+**`ChecklistItem.to_dict()` and `PatrolDatamodelResult.checklist_dicts()`** for library callers: the patrol-datamodel admin checklist as plain dicts, ready to serialize as JSON.
+
+**`er_smart_sync.datamodel_push.push_datamodel_files()`** pushes a SMART data model from a file as a function, so library callers can run the `datamodel --from-file` push without the CLI. Arguments that do not go together raise `PushArgumentError` (a `ValueError`) before anything is written.
+
+**Subject change records in the run record carry the subject's name** (`"name"` beside `"id"`), so a dry run, whose ids are all `dry-run`, can still say which subjects it would create or change.
+
 ## 0.8.0 — 2026-10-15
 
 ### Changed
