@@ -75,12 +75,19 @@ class ChecklistItem:
     title: str
     steps: list
 
+    def to_dict(self) -> dict:
+        return {"code": self.code, "title": self.title, "steps": list(self.steps)}
+
 
 @dataclass
 class PatrolDatamodelResult:
     stats: PatrolDatamodelStats
     checklist: list
     subject_ids: dict
+
+    def checklist_dicts(self) -> list:
+        """The checklist as data, for callers that render it themselves."""
+        return [c.to_dict() for c in self.checklist]
 
 
 RERUN = "Re-run `er-smart-sync patrol-datamodel`."

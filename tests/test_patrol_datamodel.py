@@ -664,3 +664,13 @@ def test_backups_in_the_same_instant_never_overwrite(tmp_path):
         ]
         b = unique_path(tmp_path, "segment-schema-before", ".json")
     assert b != a and b.name.endswith("-2.json")
+
+
+def test_checklist_items_render_as_dicts():
+    from er_smart_sync.patrol_datamodel import ChecklistItem, PatrolDatamodelResult, PatrolDatamodelStats
+
+    item = ChecklistItem("team", "Create the patrol team Alpha", ["Django admin > Teams.", "Re-run."])
+    assert item.to_dict() == {"code": "team", "title": "Create the patrol team Alpha",
+                              "steps": ["Django admin > Teams.", "Re-run."]}
+    result = PatrolDatamodelResult(stats=PatrolDatamodelStats(), checklist=[item], subject_ids={})
+    assert result.checklist_dicts() == [item.to_dict()]
