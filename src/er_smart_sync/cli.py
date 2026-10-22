@@ -490,7 +490,8 @@ def datamodel(
         )
     # Validate the UUID up front so a bad value fails fast, before we touch
     # any XML files.
-    resolved_cm_uuid = _resolve_cm_uuid(cm_uuid) if cm_file else None
+    if cm_file:
+        _resolve_cm_uuid(cm_uuid)
 
     if datamodel_file:
         # File-based sync: load XML, push directly to ER
@@ -499,48 +500,27 @@ def datamodel(
                 "--ca-identifier is required when --from-file is used"
             )
 
-        from smartconnect import ConfigurableDataModel, SmartClient
-
-        sclient = SmartClient(
-            api="https://tempuri.org/",
-            username="",
-            password="",
-            use_language_code=config.smart.use_language_code,
-        )
-        dm = sclient.load_datamodel(filename=datamodel_file)
-
-        cm = None
-        if cm_file:
-            cm = ConfigurableDataModel(
-                use_language_code=config.smart.use_language_code,
-                cm_uuid=resolved_cm_uuid,
-            )
-            with open(cm_file) as f:
-                cm.load(f.read())
-
         sync = _make_synchronizer(config, ctx=ctx)
-        sync.sync_mode = mode
-        sync.skip_choices = skip_choices
-        sync.observed_categories = observed_categories
+        from .datamodel_push import push_datamodel_files
 
-        # Without a CM: just push the base data model (single call).
-        # With a CM + --include-base-datamodel: push the base DM as its own
-        # ER category, then the CM as a second separate category.
-        # With a CM but without the flag: push only the CM (default — keeps
-        # behavior of the CM as a curated overlay).
-        if cm and include_base_datamodel:
-            sync.push_smart_ca_datamodel_to_earthranger(
-                dm=dm,
-                smart_ca_uuid=_FILE_BASED_CA_UUID,
+        try:
+            sync.datamodel_stats = push_datamodel_files(
+                None,
+                synchronizer=sync,
+                endpoint=config.earthranger.endpoint,
+                datamodel_file=datamodel_file,
                 ca_identifier=ca_identifier,
-                cm=None,
+                cm_file=cm_file,
+                cm_uuid=cm_uuid,
+                include_base_datamodel=include_base_datamodel,
+                language=config.smart.use_language_code,
+                bundle_dir=bundle_dir,
+                event_type_version=config.earthranger.event_type_version,
+                mode=mode,
+                skip_choices=skip_choices,
             )
-        sync.push_smart_ca_datamodel_to_earthranger(
-            dm=dm,
-            smart_ca_uuid=_FILE_BASED_CA_UUID,
-            ca_identifier=ca_identifier,
-            cm=cm,
-        )
+        except ValueError as e:
+            raise click.UsageError(str(e)) from None
     else:
         # API-based sync: fetch from SMART Connect
         if not smart_api:
