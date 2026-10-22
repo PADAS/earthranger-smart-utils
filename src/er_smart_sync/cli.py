@@ -501,7 +501,7 @@ def datamodel(
             )
 
         sync = _make_synchronizer(config, ctx=ctx)
-        from .datamodel_push import push_datamodel_files
+        from .datamodel_push import PushArgumentError, push_datamodel_files
 
         try:
             sync.datamodel_stats = push_datamodel_files(
@@ -519,7 +519,7 @@ def datamodel(
                 mode=mode,
                 skip_choices=skip_choices,
             )
-        except ValueError as e:
+        except PushArgumentError as e:  # only the argument checks; a failure mid-push keeps its traceback
             raise click.UsageError(str(e)) from None
     else:
         # API-based sync: fetch from SMART Connect

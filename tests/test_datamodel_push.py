@@ -76,9 +76,16 @@ def test_push_from_file_makes_the_same_writes_as_the_cli(tmp_path):
     assert stats["event_types_created"] == sum(1 for n, _, _ in client.calls if n == "post_event_type")
 
 
-def test_cm_without_datamodel_is_refused():
-    from er_smart_sync.datamodel_push import push_datamodel_files
+@pytest.mark.parametrize("kwargs, message", [
+    ({"cm_uuid": "00000000-0000-0000-0000-000000000001", "cm_file": None}, "cm_uuid needs cm_file"),
+    ({"include_base_datamodel": True, "cm_file": None}, "include_base_datamodel needs cm_file"),
+    ({"cm_uuid": "not-a-uuid", "cm_file": "cm.xml"}, "is not a UUID"),
+    ({"bundle_dir": "bundle", "event_type_version": "v1"}, "bundle_dir needs v2"),
+])
+def test_arguments_that_do_not_go_together_are_refused_before_any_write(kwargs, message):
+    from er_smart_sync.datamodel_push import PushArgumentError, push_datamodel_files
 
-    with pytest.raises(ValueError):
-        push_datamodel_files(DryRunERClient(_Reads()), endpoint="https://x.pamdas.org",
-                             datamodel_file="dm.xml", ca_identifier="x", cm_uuid="not-a-uuid", cm_file=None)
+    client = DryRunERClient(_Reads())
+    with pytest.raises(PushArgumentError, match=message):
+        push_datamodel_files(client, endpoint="https://x.pamdas.org", datamodel_file="dm.xml", ca_identifier="x", **kwargs)
+    assert client.calls == []

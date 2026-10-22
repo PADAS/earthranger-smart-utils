@@ -14,6 +14,12 @@ FILE_BASED_CA_UUID = "smart-ca-import"
 DEFAULT_FILE_CM_UUID = "00000000-0000-0000-0000-000000000000"
 
 
+class PushArgumentError(ValueError):
+    """The arguments to `push_datamodel_files` do not go together. Raised
+    before anything is written, so a caller can show it as a usage error
+    and know nothing on the site changed."""
+
+
 def push_datamodel_files(
     er_client,
     *,
@@ -38,22 +44,22 @@ def push_datamodel_files(
     which case `er_client` and the config-derived arguments are not used to
     build one."""
     if cm_uuid and not cm_file:
-        raise ValueError("cm_uuid needs cm_file")
+        raise PushArgumentError("cm_uuid needs cm_file")
     if include_base_datamodel and not cm_file:
-        raise ValueError("include_base_datamodel needs cm_file")
+        raise PushArgumentError("include_base_datamodel needs cm_file")
     if cm_file:
         try:
             _uuid.UUID(cm_uuid or DEFAULT_FILE_CM_UUID)
         except ValueError:
-            raise ValueError(f"cm_uuid {cm_uuid!r} is not a UUID") from None
+            raise PushArgumentError(f"cm_uuid {cm_uuid!r} is not a UUID") from None
     observed: set = set()
     if bundle_dir:
         if event_type_version != "v2":
-            raise ValueError("bundle_dir needs v2 event types")
+            raise PushArgumentError("bundle_dir needs v2 event types")
         try:
             observed = load_bundle(bundle_dir).observed_category_hkeys()
         except BundleError as e:
-            raise ValueError(f"bundle: {e}") from None
+            raise PushArgumentError(f"bundle: {e}") from None
 
     from smartconnect import ConfigurableDataModel, SmartClient
 

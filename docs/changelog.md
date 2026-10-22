@@ -13,7 +13,7 @@ which carry the full commit-level history.
 
 **`ChecklistItem.to_dict()` and `PatrolDatamodelResult.checklist_dicts()`** for library callers: the patrol-datamodel admin checklist as plain dicts, ready to serialize as JSON.
 
-**`er_smart_sync.datamodel_push.push_datamodel_files()`** pushes a SMART data model from a file as a function, so library callers can run the `datamodel --from-file` push without the CLI.
+**`er_smart_sync.datamodel_push.push_datamodel_files()`** pushes a SMART data model from a file as a function, so library callers can run the `datamodel --from-file` push without the CLI. Arguments that do not go together raise `PushArgumentError` (a `ValueError`) before anything is written.
 
 **Subject change records in the run record carry the subject's name** (`"name"` beside `"id"`), so a dry run, whose ids are all `dry-run`, can still say which subjects it would create or change.
 

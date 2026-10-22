@@ -476,6 +476,24 @@ def test_cm_uuid_rejects_invalid_uuid():
     assert "uuid" in result.output.lower()
 
 
+def test_a_failure_during_the_push_is_not_reported_as_a_usage_error(monkeypatch):
+    # pydantic 1.x ValidationError and requests' JSONDecodeError subclass
+    # ValueError; only the argument checks become usage errors.
+    def broken(*args, **kwargs):
+        raise ValueError("ER answered with a non-JSON body")
+
+    monkeypatch.setattr("er_smart_sync.datamodel_push.push_datamodel_files", broken)
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        ["datamodel", "--er-endpoint", "https://er.example.com/api/v1.0", "--er-token", "x",
+         "--from-file", "/dev/null", "--ca-identifier", "lawin"],
+    )
+    assert result.exit_code == 1
+    assert isinstance(result.exception, ValueError)
+    assert "Usage:" not in result.output
+
+
 def test_include_base_datamodel_pushes_both_dm_and_cm(tmp_path):
     # With --include-base-datamodel, both the base data model and the CM
     # should each be pushed as their own ER event category. That means two
