@@ -272,6 +272,14 @@ def _attach(api, bundle, wp, w, on_site, attached, ledger, patrol, counts) -> No
                 path,
             )
             continue
+        if path.stat().st_size == 0:  # SMART kept a zero-length photo; ER rejects an empty upload
+            counts["attachments_empty"] += 1
+            logger.warning(
+                "patrol %s: attachment is empty in the bundle: %s",
+                patrol.get("id"),
+                path,
+            )
+            continue
         api.attach_file(first_id, str(path), a.get("filename", ""))
         counts["attachments_posted"] += 1
     ledger.add_id(patrol["uuid"], "attached", w["uuid"])

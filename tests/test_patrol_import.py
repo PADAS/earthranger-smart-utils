@@ -1,4 +1,5 @@
 from collections import Counter
+import shutil
 from pathlib import Path
 
 import pytest
@@ -298,6 +299,20 @@ def test_missing_attachment_file_is_counted_not_fatal(tmp_path):
     b = load_bundle(FIXTURE)  # the fixture ships no attachment files
     r = _run(FakeAPI(b), b, tmp_path, skip_tracks=True)
     assert r.exit_code == 0 and r.counts["attachments_missing"] == 1
+
+
+def test_empty_attachment_file_is_counted_not_fatal(tmp_path):
+    bundle_dir = tmp_path / "bundle"
+    shutil.copytree(FIXTURE, bundle_dir)
+    b = load_bundle(bundle_dir)
+    (a,) = [a for p in b.patrols for leg in p["legs"] for w in leg["waypoints"] for a in w["attachments"]]
+    empty = bundle_dir / a["path"]
+    empty.parent.mkdir(parents=True)
+    empty.write_bytes(b"")  # SMART kept a zero-length photo; ER rejects an empty upload
+    api = FakeAPI(b)
+    r = _run(api, b, tmp_path, skip_tracks=True)
+    assert r.exit_code == 0 and not r.failed
+    assert r.counts["attachments_empty"] == 1 and api.files == []
 
 
 def test_blocking_preflight_stops_unless_allowed(tmp_path):
