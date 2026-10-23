@@ -9,7 +9,7 @@ which carry the full commit-level history.
 
 ### Changed
 
-**`import-patrols` runs in two phases**: every patrol with its events and photos first, then every patrol's tracks. A large batch of track points slowed the event writes after it, so the event phase now runs at a steady rate. A patrol whose events fail still gets its tracks and is reported failed. The `progress=` callback gains `phase` and is called once at each phase start; `done` and `failed` count within the phase.
+**`import-patrols` runs in two phases**: every patrol with its events and photos first, then every patrol's tracks. A large batch of track points slowed the event writes after it, so the event phase now runs at a steady rate. A patrol whose events fail still gets its tracks and is reported failed. The `progress=` callback gains `phase` and `phase_skipped` and is called once at each phase start; `done`, `failed` and `phase_skipped` count within the phase.
 
 **Track points are posted before the source is assigned to the leader**, which spares das a subject-source lookup and a queued status task per point; the assignment then triggers one recompute for its range.
 

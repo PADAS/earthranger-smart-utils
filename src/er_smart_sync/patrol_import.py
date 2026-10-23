@@ -472,7 +472,11 @@ def run_import(
             "done": 0,
             "failed": 0,
             "already_imported": already,
+            # patrols this phase finds done in the ledger: they take no time,
+            # so a rate must not count them (a continuation re-walks them)
+            "phase_skipped": 0,
         }
+        skips = {p["uuid"] for p in selected if phase_want <= ledger.stages(p["uuid"])}
 
         def record(outcome):
             uuid, counts, error = outcome
@@ -480,6 +484,7 @@ def run_import(
             if error:
                 reasons.setdefault(uuid, []).append(error)
             tally["done"] += 1
+            tally["phase_skipped"] += 1 if uuid in skips else 0
             tally["failed"] += (
                 1 if error or (phase == "tracks" and uuid in reasons) else 0
             )

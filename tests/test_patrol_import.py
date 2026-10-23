@@ -777,7 +777,29 @@ def test_progress_is_reported_per_phase(tmp_path):
     assert [p["phase"] for p in seen] == ["events"] * 6 + ["tracks"] * 6
     assert seen[0]["done"] == 0 and seen[6]["done"] == 0
     assert seen[5]["done"] == seen[-1]["done"] == 5 and seen[-1]["total"] == 5
-    assert set(seen[-1]) == {"phase", "total", "done", "failed", "already_imported"}
+    assert set(seen[-1]) == {
+        "phase",
+        "total",
+        "done",
+        "failed",
+        "already_imported",
+        "phase_skipped",
+    }
+
+
+def test_a_phase_reports_the_patrols_it_skipped_from_the_ledger(tmp_path):
+    # a continuation stopped in the events phase: those patrols are not fully
+    # done, but the events phase skips them in seconds; the page must not
+    # count them as work done at the phase's rate
+    b = load_bundle(FIXTURE)
+    api = FakeAPI(b)
+    _run(api, b, tmp_path, skip_tracks=True)
+    seen = []
+    _run(api, b, tmp_path, progress=seen.append)
+    events = [p for p in seen if p["phase"] == "events"]
+    tracks = [p for p in seen if p["phase"] == "tracks"]
+    assert events[-1]["phase_skipped"] == 5 and events[-1]["already_imported"] == 0
+    assert tracks[-1]["phase_skipped"] == 0
 
 
 def test_tracks_start_after_every_patrols_events(tmp_path):
