@@ -44,6 +44,8 @@ class FakeAPI:
         self.event_types = event_types
         self.fail_patrol = None
         self.reject_event = None
+        self.log = []  # the write calls, in order
+        self.fail_assign_once = False
 
     # reads (the preflight in these tests runs check_event_types only)
     def list_subjects(self):
@@ -127,6 +129,7 @@ class FakeAPI:
 
     def create_events(self, batch):
         self.calls["create_events"] += 1
+        self.log.append("create_events")
         if any(e["id"] in self.events for e in batch):
             raise ERClientException("x\n\t 500 from ER. Message: duplicate key")
         if self.reject_event and any(e["id"] == self.reject_event for e in batch):
@@ -163,9 +166,14 @@ class FakeAPI:
         return self.sources[p["manufacturer_id"]]
 
     def assign_source(self, *a):
+        if self.fail_assign_once:
+            self.fail_assign_once = False
+            raise ERClientException("assign failed")
         self.calls["assign"] += 1
+        self.log.append("assign")
 
     def post_observations(self, batch):
+        self.log.append("post_observations")
         new = [
             o
             for o in batch
@@ -313,6 +321,29 @@ def test_empty_attachment_file_is_counted_not_fatal(tmp_path):
     r = _run(api, b, tmp_path, skip_tracks=True)
     assert r.exit_code == 0 and not r.failed
     assert r.counts["attachments_empty"] == 1 and api.files == []
+
+
+def test_track_points_are_posted_before_the_source_is_assigned(tmp_path):
+    b = load_bundle(FIXTURE)
+    api = FakeAPI(b)
+    _run(api, b, tmp_path, skip_events=True)
+    seq = [c for c in api.log if c in ("post_observations", "assign")]
+    assert seq[0] == "post_observations" and seq[-1] == "assign"
+    assert all(seq[i - 1] == "post_observations" for i, c in enumerate(seq) if c == "assign")
+
+
+def test_a_failed_assignment_reruns_the_points_then_assigns(tmp_path):
+    b = load_bundle(FIXTURE)
+    api = FakeAPI(b)
+    api.fail_assign_once = True
+    r = _run(api, b, tmp_path, skip_events=True)
+    (failed,) = r.failed
+    r2 = _run(api, b, tmp_path, skip_events=True)
+    assert not r2.failed
+    keys = [(o["source"], o["recorded_at"]) for o in api.observations]
+    assert len(keys) == len(set(keys))
+    assert "tracks" in ImportLedger(tmp_path / "ledger.json", "site|ca").stages(failed)
+    assert api.log[-1] == "assign"
 
 
 def test_blocking_preflight_stops_unless_allowed(tmp_path):

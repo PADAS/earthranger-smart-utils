@@ -321,10 +321,12 @@ def _import_tracks(api, patrol, plan, by_day, subjects, counts, sources, lock) -
             source_id = _get_or_create_source(
                 api, mid, batch.member_uuid, sources, lock
             )
-            api.assign_source(subject["id"], source_id, batch.start, batch.end)
             obs = [{**o, "source": source_id} for o in batch.observations]
             for i in range(0, len(obs), OBSERVATION_BATCH):
                 api.post_observations(obs[i : i + OBSERVATION_BATCH])
+            # after the points: das then skips its per-point subject-source
+            # lookup and status task, and recomputes once for the whole range
+            api.assign_source(subject["id"], source_id, batch.start, batch.end)
             counts["track_points"] += len(obs)
 
 
