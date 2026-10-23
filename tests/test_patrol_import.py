@@ -1,5 +1,5 @@
-from collections import Counter
 import shutil
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -313,7 +313,13 @@ def test_empty_attachment_file_is_counted_not_fatal(tmp_path):
     bundle_dir = tmp_path / "bundle"
     shutil.copytree(FIXTURE, bundle_dir)
     b = load_bundle(bundle_dir)
-    (a,) = [a for p in b.patrols for leg in p["legs"] for w in leg["waypoints"] for a in w["attachments"]]
+    (a,) = [
+        a
+        for p in b.patrols
+        for leg in p["legs"]
+        for w in leg["waypoints"]
+        for a in w["attachments"]
+    ]
     empty = bundle_dir / a["path"]
     empty.parent.mkdir(parents=True)
     empty.write_bytes(b"")  # SMART kept a zero-length photo; ER rejects an empty upload
@@ -329,7 +335,9 @@ def test_track_points_are_posted_before_the_source_is_assigned(tmp_path):
     _run(api, b, tmp_path, skip_events=True)
     seq = [c for c in api.log if c in ("post_observations", "assign")]
     assert seq[0] == "post_observations" and seq[-1] == "assign"
-    assert all(seq[i - 1] == "post_observations" for i, c in enumerate(seq) if c == "assign")
+    assert all(
+        seq[i - 1] == "post_observations" for i, c in enumerate(seq) if c == "assign"
+    )
 
 
 def test_a_failed_assignment_reruns_the_points_then_assigns(tmp_path):
@@ -761,14 +769,84 @@ def test_get_or_create_source_recovers_from_a_lost_create_race():
         _get_or_create_source(Racy([None, None]), "smart:n", "n", {}, threading.Lock())
 
 
-def test_progress_is_reported_per_patrol(tmp_path):
+def test_progress_is_reported_per_phase(tmp_path):
     b = load_bundle(FIXTURE)
     api = FakeAPI(b)
     seen = []
+    _run(api, b, tmp_path, progress=seen.append)
+    assert [p["phase"] for p in seen] == ["events"] * 6 + ["tracks"] * 6
+    assert seen[0]["done"] == 0 and seen[6]["done"] == 0
+    assert seen[5]["done"] == seen[-1]["done"] == 5 and seen[-1]["total"] == 5
+    assert set(seen[-1]) == {"phase", "total", "done", "failed", "already_imported"}
+
+
+def test_tracks_start_after_every_patrols_events(tmp_path):
+    b = load_bundle(FIXTURE)
+    api = FakeAPI(b)
+    _run(api, b, tmp_path)
+    last_events = max(i for i, c in enumerate(api.log) if c == "create_events")
+    assert last_events < api.log.index("post_observations")
+
+
+def test_a_patrol_whose_events_fail_still_gets_its_tracks(tmp_path):
+    b = load_bundle(FIXTURE)
+    api = FakeAPI(b)
+    tracked = {t["patrol_uuid"] for t in b.tracks}
+    p = next(
+        p for p in b.patrols if p["uuid"] in tracked and _all_event_ids(b, {p["uuid"]})
+    )
+    api.reject_event = _all_event_ids(b, {p["uuid"]})[0]
+    orig = api.create_event
+
+    def single(e):
+        if e["id"] == api.reject_event:
+            raise ERClientException("x\n\t 400 from ER. Message: invalid")
+        return orig(e)
+
+    api.create_event = single
+    r = _run(api, b, tmp_path)
+    assert p["uuid"] in r.failed and p["uuid"] not in r.imported
+    stages = ImportLedger(tmp_path / "ledger.json", "site|ca").stages(p["uuid"])
+    assert "tracks" in stages and "events" not in stages
+    assert len(r.imported) == 4
+
+
+def test_a_patrol_not_created_closes_the_tracks_phase_as_failed(tmp_path):
+    b = load_bundle(FIXTURE)
+    api = FakeAPI(b)
+    api.fail_patrol = "SMART_000003"
+    seen = []
     r = _run(api, b, tmp_path, progress=seen.append)
-    assert len(seen) == len(r.imported) + len(r.failed) == 5
-    assert seen[-1]["done"] == len(seen) and seen[-1]["total"] == len(seen)
-    assert set(seen[-1]) == {"total", "done", "failed", "already_imported"}
+    (reason,) = r.failed.values()
+    assert "boom" in reason and "; " not in reason
+    assert (
+        seen[-1]["phase"] == "tracks"
+        and seen[-1]["done"] == 5
+        and seen[-1]["failed"] == 1
+    )
+
+
+def test_a_stop_in_the_events_phase_skips_the_tracks_phase(tmp_path):
+    import threading
+
+    b = load_bundle(FIXTURE)
+    api = FakeAPI(b)
+    stop = threading.Event()
+    r = _run(
+        api, b, tmp_path, progress=lambda p: p["done"] >= 2 and stop.set(), stop=stop
+    )
+    assert r.stopped_early and "post_observations" not in api.log
+
+
+def test_a_rerun_with_events_done_goes_straight_to_tracks(tmp_path):
+    b = load_bundle(FIXTURE)
+    api = FakeAPI(b)
+    _run(api, b, tmp_path, skip_tracks=True)
+    api.log.clear()
+    api.calls.clear()
+    r = _run(api, b, tmp_path)
+    assert "create_events" not in api.log and "post_observations" in api.log
+    assert len(r.imported) == 5 and r.counts["already_imported"] == 0
 
 
 def test_a_set_stop_event_starts_no_more_patrols(tmp_path):
@@ -777,6 +855,10 @@ def test_a_set_stop_event_starts_no_more_patrols(tmp_path):
     b = load_bundle(FIXTURE)
     api = FakeAPI(b)
     stop = threading.Event()
-    r = _run(api, b, tmp_path, progress=lambda p: stop.set(), stop=stop)
+    r = _run(
+        api, b, tmp_path, progress=lambda p: p["done"] >= 1 and stop.set(), stop=stop
+    )
     assert r.stopped_early is True
-    assert len(r.imported) + len(r.failed) == 1
+    assert (
+        len(r.imported) + len(r.failed) == 0
+    )  # the one patrol started has its events, not yet its tracks
