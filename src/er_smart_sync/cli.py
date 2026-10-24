@@ -81,9 +81,15 @@ def _set_network_timeout(seconds: float | None) -> None:
     """Bound every TCP read/connect so a stalled ER request can't hang the run.
 
     ERClient (sync) doesn't expose a constructor-level network timeout; it
-    uses ``requests.{get,post,patch}`` directly without a ``timeout=`` kwarg.
-    Setting ``socket.setdefaulttimeout`` enforces a **process-wide** ceiling on
-    every blocking socket operation, after which ``requests`` raises and our
+    sends with ``requests`` and no ``timeout=``. requests turns a missing
+    timeout into an explicit unlimited one, which overrides
+    ``socket.setdefaulttimeout``: a server that accepts a request and never
+    answers would hang the run forever (one import on staging hung for 17
+    hours). So ``requests.adapters.HTTPAdapter.send`` is wrapped to give a
+    request without a timeout this one, process-wide; that covers ERClient's
+    session and its module-level ``requests.post`` for files, and callers that
+    pass their own timeout keep it. The socket default stays as a floor for
+    anything that bypasses requests. On a timeout ``requests`` raises and our
     ``_retry`` wrapper kicks in.
 
     Notes:
@@ -97,7 +103,20 @@ def _set_network_timeout(seconds: float | None) -> None:
         return
     import socket
 
+    import requests.adapters
+
     socket.setdefaulttimeout(seconds)
+    adapter = requests.adapters.HTTPAdapter
+    # a second call replaces the wrapper, never stacks one
+    send = getattr(adapter.send, "_unbounded", adapter.send)
+
+    def bounded(self, request, *args, timeout=None, **kwargs):
+        if timeout is None:
+            timeout = seconds
+        return send(self, request, *args, timeout=timeout, **kwargs)
+
+    bounded._unbounded = send
+    adapter.send = bounded
 
 
 def _setup_logging(verbose: bool) -> None:

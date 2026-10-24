@@ -15,6 +15,8 @@ which carry the full commit-level history.
 
 ### Fixed
 
+**`--network-timeout` now bounds a request whose response never comes.** requests sends a missing timeout as an explicit unlimited one, which overrode the process-wide socket timeout the option set, so a site that accepted a request and never answered could hang an import indefinitely (one ran 17 hours on staging). Requests without their own timeout now get the configured one.
+
 **An empty photo no longer fails its patrol.** SMART can keep a zero-length attachment, which EarthRanger rejects; it is now counted as `attachments_empty`, logged and skipped, like a photo missing from the bundle.
 
 ## 0.9.0 — 2026-10-21
