@@ -63,7 +63,9 @@ class ImportResult:
     failed: dict = field(default_factory=dict)
     report: PreflightReport | None = None
     stopped: bool = False
-    stopped_early: bool = False  # a stop event ended the run before every patrol was tried
+    stopped_early: bool = (
+        False  # a stop event ended the run before every patrol was tried
+    )
     counts: Counter = field(default_factory=Counter)
 
     @property
@@ -272,6 +274,16 @@ def _attach(api, bundle, wp, w, on_site, attached, ledger, patrol, counts) -> No
                 path,
             )
             continue
+        if (
+            path.stat().st_size == 0
+        ):  # SMART kept a zero-length photo; ER rejects an empty upload
+            counts["attachments_empty"] += 1
+            logger.warning(
+                "patrol %s: attachment is empty in the bundle: %s",
+                patrol.get("id"),
+                path,
+            )
+            continue
         api.attach_file(first_id, str(path), a.get("filename", ""))
         counts["attachments_posted"] += 1
     ledger.add_id(patrol["uuid"], "attached", w["uuid"])
@@ -313,10 +325,12 @@ def _import_tracks(api, patrol, plan, by_day, subjects, counts, sources, lock) -
             source_id = _get_or_create_source(
                 api, mid, batch.member_uuid, sources, lock
             )
-            api.assign_source(subject["id"], source_id, batch.start, batch.end)
             obs = [{**o, "source": source_id} for o in batch.observations]
             for i in range(0, len(obs), OBSERVATION_BATCH):
                 api.post_observations(obs[i : i + OBSERVATION_BATCH])
+            # after the points: das then skips its per-point subject-source
+            # lookup and status task, and recomputes once for the whole range
+            api.assign_source(subject["id"], source_id, batch.start, batch.end)
             counts["track_points"] += len(obs)
 
 
@@ -341,7 +355,6 @@ def _import_one(
     counts: Counter = Counter()
     done = ledger.stages(p["uuid"])
     if want <= done:
-        counts["already_imported"] += 1
         return p["uuid"], counts, None
     logger.info("patrol %s: starting", p.get("id"))
     try:
@@ -433,63 +446,103 @@ def run_import(
         sources_lock=sources_lock,
     )
 
-    tally = {"total": len(selected), "done": 0, "failed": 0, "already_imported": 0}
+    already = sum(1 for p in selected if want <= ledger.stages(p["uuid"]))
+    result.counts["already_imported"] = already
+    reasons: dict = {}
+    workers = max(1, opts.workers)
+    local = threading.local()
 
-    def record(outcome):
-        uuid, counts, error = outcome
-        result.counts.update(counts)
-        if error:
-            result.failed[uuid] = error
-            tally["failed"] += 1
-        else:
-            result.imported.append(uuid)
-        tally["done"] += 1
-        tally["already_imported"] += counts.get("already_imported", 0)
+    def worker(p, phase_want):
+        if stop is not None and stop.is_set():
+            return None
+        if not hasattr(local, "api"):
+            try:
+                local.api = api_factory()
+            except Exception as e:
+                logger.exception("patrol %s: no EarthRanger client", p.get("id"))
+                return p["uuid"], Counter(), f"{type(e).__name__}: {e}"
+        return _import_one(local.api, bundle, p, **{**per_patrol, "want": phase_want})
+
+    def run_phase(phase: str, phase_want: set) -> bool:
+        """Walk every selected patrol for this phase's stages. False when a
+        stop ended it before every patrol was tried."""
+        tally = {
+            "phase": phase,
+            "total": len(selected),
+            "done": 0,
+            "failed": 0,
+            "already_imported": already,
+            # patrols this phase finds done in the ledger: they take no time,
+            # so a rate must not count them (a continuation re-walks them)
+            "phase_skipped": 0,
+        }
+        skips = {p["uuid"] for p in selected if phase_want <= ledger.stages(p["uuid"])}
+
+        def record(outcome):
+            uuid, counts, error = outcome
+            result.counts.update(counts)
+            if error:
+                reasons.setdefault(uuid, []).append(error)
+            tally["done"] += 1
+            tally["phase_skipped"] += 1 if uuid in skips else 0
+            tally["failed"] += (
+                1 if error or (phase == "tracks" and uuid in reasons) else 0
+            )
+            if progress:
+                progress(dict(tally))
+
         if progress:
             progress(dict(tally))
+        walk = []
+        for p in selected:
+            if phase == "tracks" and "patrol" not in ledger.stages(p["uuid"]):
+                record(
+                    (p["uuid"], Counter(), None)
+                )  # never created: closes as failed with its first reason
+            else:
+                walk.append(p)
+        if workers == 1 or api_factory is None:
+            for p in walk:
+                if stop is not None and stop.is_set():
+                    return False
+                record(
+                    _import_one(api, bundle, p, **{**per_patrol, "want": phase_want})
+                )
+            return True
+        complete = True
+        pool = ThreadPoolExecutor(max_workers=workers)
+        try:
+            for outcome in pool.map(lambda p: worker(p, phase_want), walk):
+                if outcome is None:
+                    complete = False
+                    continue
+                record(outcome)
+        except BaseException:
+            # drop queued patrols; only running ones finish, then retire
+            pool.shutdown(wait=True, cancel_futures=True)
+            raise
+        pool.shutdown(wait=True)
+        return complete
 
-    workers = max(1, opts.workers)
     try:
         # inside the try: whatever fails after this, the finally retires them
         _reactivate(api, ledger, subjects, todo)
         if not opts.skip_tracks:
             api.ensure_source_provider(SOURCE_PROVIDER, "SMART patrol import")
-        if workers == 1 or api_factory is None:
-            for p in selected:
-                if stop is not None and stop.is_set():
-                    result.stopped_early = True
-                    break
-                record(_import_one(api, bundle, p, **per_patrol))
-        else:
-            local = threading.local()
-
-            def worker(p):
-                if stop is not None and stop.is_set():
-                    return None
-                if not hasattr(local, "api"):
-                    try:
-                        local.api = api_factory()
-                    except Exception as e:
-                        logger.exception(
-                            "patrol %s: no EarthRanger client", p.get("id")
-                        )
-                        return p["uuid"], Counter(), f"{type(e).__name__}: {e}"
-                return _import_one(local.api, bundle, p, **per_patrol)
-
-            pool = ThreadPoolExecutor(max_workers=workers)
-            try:
-                for outcome in pool.map(worker, selected):
-                    if outcome is None:
-                        result.stopped_early = True
-                        continue
-                    record(outcome)
-            except BaseException:
-                # drop queued patrols; only running ones finish, then retire
-                pool.shutdown(wait=True, cancel_futures=True)
-                raise
-            pool.shutdown(wait=True)
+        # every patrol's events before any track: a large batch of points
+        # slows the event writes that follow it (docs: load-performance)
+        finished = run_phase("events", want - {"tracks"})
+        if finished and "tracks" in want:
+            finished = run_phase("tracks", {"tracks"})
+        result.stopped_early = not finished
     finally:
         _retire(api, ledger)
+    result.failed = {u: "; ".join(r) for u, r in reasons.items()}
+    result.imported = [
+        p["uuid"]
+        for p in selected
+        if p["uuid"] not in reasons and want <= ledger.stages(p["uuid"])
+    ]
     return result
 
 

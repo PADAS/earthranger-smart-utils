@@ -5,6 +5,20 @@ Notable changes by version. Every release is also published to
 [GitHub Releases](https://github.com/PADAS/earthranger-smart-utils/releases),
 which carry the full commit-level history.
 
+## 0.10.0 — unreleased
+
+### Changed
+
+**`import-patrols` runs in two phases**: every patrol with its events and photos first, then every patrol's tracks. A large batch of track points slowed the event writes after it, so the event phase now runs at a steady rate. A patrol whose events fail still gets its tracks and is reported failed. The `progress=` callback gains `phase` and `phase_skipped` and is called once at each phase start; `done`, `failed` and `phase_skipped` count within the phase.
+
+**Track points are posted before the source is assigned to the leader**, which spares das a subject-source lookup and a queued status task per point; the assignment then triggers one recompute for its range.
+
+### Fixed
+
+**`--network-timeout` now bounds a request whose response never comes.** requests sends a missing timeout as an explicit unlimited one, which overrode the process-wide socket timeout the option set, so a site that accepted a request and never answered could hang an import indefinitely (one ran 17 hours on staging). Requests without their own timeout now get the configured one.
+
+**An empty photo no longer fails its patrol.** SMART can keep a zero-length attachment, which EarthRanger rejects; it is now counted as `attachments_empty`, logged and skipped, like a photo missing from the bundle.
+
 ## 0.9.0 — 2026-10-21
 
 ### Added

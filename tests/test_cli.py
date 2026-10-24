@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 from click.testing import CliRunner
 
 from er_smart_sync.cli import main
@@ -486,8 +487,17 @@ def test_a_failure_during_the_push_is_not_reported_as_a_usage_error(monkeypatch)
     runner = CliRunner()
     result = runner.invoke(
         main,
-        ["datamodel", "--er-endpoint", "https://er.example.com/api/v1.0", "--er-token", "x",
-         "--from-file", "/dev/null", "--ca-identifier", "lawin"],
+        [
+            "datamodel",
+            "--er-endpoint",
+            "https://er.example.com/api/v1.0",
+            "--er-token",
+            "x",
+            "--from-file",
+            "/dev/null",
+            "--ca-identifier",
+            "lawin",
+        ],
     )
     assert result.exit_code == 1
     assert isinstance(result.exception, ValueError)
@@ -2628,3 +2638,86 @@ def test_import_patrols_workers_flag_and_dry_run_guard(tmp_path, monkeypatch):
     res = CliRunner().invoke(main, ["--dry-run"] + args + ["--workers", "4"])
     assert res.exit_code == 0, res.output
     assert seen["workers"] == 1 and "one worker" in res.output
+
+
+@pytest.fixture
+def stalled_server():
+    """A server that accepts connections and never answers."""
+    import socket
+    import threading
+
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(8)
+    held = []
+
+    def accept():
+        try:
+            while True:
+                held.append(srv.accept())
+        except OSError:  # closed at teardown
+            pass
+
+    threading.Thread(target=accept, daemon=True).start()
+    yield f"http://127.0.0.1:{srv.getsockname()[1]}"
+    for conn, _ in held:
+        conn.close()
+    srv.close()
+
+
+@pytest.fixture
+def restore_transport(monkeypatch):
+    import socket
+
+    import requests
+
+    # restored at teardown: the setter changes process-wide state
+    monkeypatch.setattr(
+        requests.adapters.HTTPAdapter, "send", requests.adapters.HTTPAdapter.send
+    )
+    old = socket.getdefaulttimeout()
+    yield
+    socket.setdefaulttimeout(old)
+
+
+# erclient posts JSON on a session and files with requests.post. requests sends
+# a missing timeout as an explicit unlimited one, which overrides the socket
+# default, so the setter must bound requests itself.
+@pytest.mark.parametrize("how", ["session", "module"])
+def test_network_timeout_bounds_a_stalled_response(
+    stalled_server, restore_transport, how
+):
+    import time
+
+    import requests
+
+    from er_smart_sync.cli import _set_network_timeout
+
+    _set_network_timeout(0.5)
+    post = requests.Session().post if how == "session" else requests.post
+    t0 = time.monotonic()
+    with pytest.raises(requests.exceptions.Timeout):
+        post(stalled_server + "/api/v1.0/activity/events", data="[]")
+    assert time.monotonic() - t0 < 5
+
+
+def test_network_timeout_keeps_a_callers_own_timeout(monkeypatch, restore_transport):
+    import requests
+
+    from er_smart_sync.cli import _set_network_timeout
+
+    seen = []
+    monkeypatch.setattr(
+        requests.adapters.HTTPAdapter,
+        "send",
+        lambda self, request, **kw: seen.append(kw.get("timeout")),
+    )
+    _set_network_timeout(30)
+    adapter = requests.adapters.HTTPAdapter()
+    adapter.send(None, timeout=None)
+    adapter.send(None, timeout=7)
+    adapter.send(None)
+    _set_network_timeout(30)  # a second call replaces the wrapper, never stacks one
+    adapter.send(None, timeout=None)
+    _set_network_timeout(None)  # disabled: requests is left as it is
+    assert seen == [30, 7, 30, 30]

@@ -81,9 +81,15 @@ def _set_network_timeout(seconds: float | None) -> None:
     """Bound every TCP read/connect so a stalled ER request can't hang the run.
 
     ERClient (sync) doesn't expose a constructor-level network timeout; it
-    uses ``requests.{get,post,patch}`` directly without a ``timeout=`` kwarg.
-    Setting ``socket.setdefaulttimeout`` enforces a **process-wide** ceiling on
-    every blocking socket operation, after which ``requests`` raises and our
+    sends with ``requests`` and no ``timeout=``. requests turns a missing
+    timeout into an explicit unlimited one, which overrides
+    ``socket.setdefaulttimeout``: a server that accepts a request and never
+    answers would hang the run forever (one import on staging hung for 17
+    hours). So ``requests.adapters.HTTPAdapter.send`` is wrapped to give a
+    request without a timeout this one, process-wide; that covers ERClient's
+    session and its module-level ``requests.post`` for files, and callers that
+    pass their own timeout keep it. The socket default stays as a floor for
+    anything that bypasses requests. On a timeout ``requests`` raises and our
     ``_retry`` wrapper kicks in.
 
     Notes:
@@ -97,7 +103,20 @@ def _set_network_timeout(seconds: float | None) -> None:
         return
     import socket
 
+    import requests.adapters
+
     socket.setdefaulttimeout(seconds)
+    adapter = requests.adapters.HTTPAdapter
+    # a second call replaces the wrapper, never stacks one
+    send = getattr(adapter.send, "_unbounded", adapter.send)
+
+    def bounded(self, request, *args, timeout=None, **kwargs):
+        if timeout is None:
+            timeout = seconds
+        return send(self, request, *args, timeout=timeout, **kwargs)
+
+    bounded._unbounded = send
+    adapter.send = bounded
 
 
 def _setup_logging(verbose: bool) -> None:
@@ -519,7 +538,9 @@ def datamodel(
                 mode=mode,
                 skip_choices=skip_choices,
             )
-        except PushArgumentError as e:  # only the argument checks; a failure mid-push keeps its traceback
+        except (
+            PushArgumentError
+        ) as e:  # only the argument checks; a failure mid-push keeps its traceback
             raise click.UsageError(str(e)) from None
     else:
         # API-based sync: fetch from SMART Connect
@@ -1077,39 +1098,94 @@ def patrol_preflight_cmd(
 
 
 @main.command("import-patrols")
-@click.option("--config", "config_file", type=click.Path(exists=True),
-              help="YAML config file (as for patrol-datamodel)")
-@click.option("--bundle", "bundle_dir", type=click.Path(file_okay=False),
-              help="smart-able migration bundle directory")
+@click.option(
+    "--config",
+    "config_file",
+    type=click.Path(exists=True),
+    help="YAML config file (as for patrol-datamodel)",
+)
+@click.option(
+    "--bundle",
+    "bundle_dir",
+    type=click.Path(file_okay=False),
+    help="smart-able migration bundle directory",
+)
 @er_options
 @click.option("--smart-language", default=None, help="Language for labels")
-@click.option("--timezone", default=None,
-              help="Assert the bundle's timezone (IANA name)")
-@click.option("--event-type-prefix", default=None,
-              help="Prefix of the data model push to import against")
+@click.option(
+    "--timezone", default=None, help="Assert the bundle's timezone (IANA name)"
+)
+@click.option(
+    "--event-type-prefix",
+    default=None,
+    help="Prefix of the data model push to import against",
+)
 @click.option("--event-type-version", type=click.Choice(["v1", "v2"]), default=None)
-@click.option("--since", type=click.DateTime(["%Y-%m-%d"]), default=None,
-              help="Only patrols starting on or after this date")
-@click.option("--until", type=click.DateTime(["%Y-%m-%d"]), default=None,
-              help="Only patrols starting on or before this date")
-@click.option("--patrol", "patrol_ids", multiple=True,
-              help="A SMART patrol id or uuid (repeatable)")
+@click.option(
+    "--since",
+    type=click.DateTime(["%Y-%m-%d"]),
+    default=None,
+    help="Only patrols starting on or after this date",
+)
+@click.option(
+    "--until",
+    type=click.DateTime(["%Y-%m-%d"]),
+    default=None,
+    help="Only patrols starting on or before this date",
+)
+@click.option(
+    "--patrol",
+    "patrol_ids",
+    multiple=True,
+    help="A SMART patrol id or uuid (repeatable)",
+)
 @click.option("--limit", type=int, default=None, help="At most N patrols")
 @click.option("--skip-events", is_flag=True, help="Do not import waypoint events")
 @click.option("--skip-tracks", is_flag=True, help="Do not import track points")
-@click.option("--allow-blocking", is_flag=True,
-              help="Skip patrols with blocking preflight findings instead of stopping")
-@click.option("--ledger", "ledger_path", type=click.Path(dir_okay=False), default=None,
-              help="Import ledger (default: import-ledger.json beside the bundle)")
-@click.option("--workers", type=click.IntRange(1, 32), default=1, show_default=True,
-              help="Import this many patrols at a time (one ER connection each). "
-                   "Dry runs always use one.")
+@click.option(
+    "--allow-blocking",
+    is_flag=True,
+    help="Skip patrols with blocking preflight findings instead of stopping",
+)
+@click.option(
+    "--ledger",
+    "ledger_path",
+    type=click.Path(dir_okay=False),
+    default=None,
+    help="Import ledger (default: import-ledger.json beside the bundle)",
+)
+@click.option(
+    "--workers",
+    type=click.IntRange(1, 32),
+    default=1,
+    show_default=True,
+    help="Import this many patrols at a time (one ER connection each). "
+    "Dry runs always use one.",
+)
 @click.pass_context
-def import_patrols_cmd(ctx, config_file, bundle_dir, er_endpoint, er_token,
-                       er_username, er_password, er_id, smart_language, timezone,
-                       event_type_prefix, event_type_version, since, until,
-                       patrol_ids, limit, skip_events, skip_tracks, allow_blocking,
-                       ledger_path, workers):
+def import_patrols_cmd(
+    ctx,
+    config_file,
+    bundle_dir,
+    er_endpoint,
+    er_token,
+    er_username,
+    er_password,
+    er_id,
+    smart_language,
+    timezone,
+    event_type_prefix,
+    event_type_version,
+    since,
+    until,
+    patrol_ids,
+    limit,
+    skip_events,
+    skip_tracks,
+    allow_blocking,
+    ledger_path,
+    workers,
+):
     """Import a bundle's patrols, waypoint events and tracks into EarthRanger.
 
     Runs the patrol-preflight checks first. Exit status: 0 done, 1 some
@@ -1124,8 +1200,15 @@ def import_patrols_cmd(ctx, config_file, bundle_dir, er_endpoint, er_token,
     from .patrol_ids import namespace
 
     bundle_path, er, language, tz = _resolve_bundle_options(
-        config_file, bundle_dir, er_endpoint, er_token, er_username, er_password,
-        er_id, smart_language, timezone,
+        config_file,
+        bundle_dir,
+        er_endpoint,
+        er_token,
+        er_username,
+        er_password,
+        er_id,
+        smart_language,
+        timezone,
     )
     try:
         bundle = load_bundle(Path(bundle_path), language=language)
@@ -1140,18 +1223,24 @@ def import_patrols_cmd(ctx, config_file, bundle_dir, er_endpoint, er_token,
         er_client = DryRunERClient(er_client)
         click.echo("Dry run mode: no writes will be sent to ER.", err=True)
     if dry and workers > 1:
-        click.echo("Dry run: using one worker so the planned writes read in order.",
-                   err=True)
+        click.echo(
+            "Dry run: using one worker so the planned writes read in order.", err=True
+        )
         workers = 1
 
     def api_factory():
-        return ERPatrolAPI(_make_er_client(
-            endpoint=er.endpoint, token=er.token, username=er.login,
-            password=er.password,
-        ))
+        return ERPatrolAPI(
+            _make_er_client(
+                endpoint=er.endpoint,
+                token=er.token,
+                username=er.login,
+                password=er.password,
+            )
+        )
 
     ledger = ImportLedger(
-        Path(ledger_path) if ledger_path
+        Path(ledger_path)
+        if ledger_path
         else Path(bundle_path).resolve().parent / "import-ledger.json",
         f"{urlparse(er.endpoint).netloc}|{bundle.ca_uuid}",
         read_only=dry,
@@ -1171,15 +1260,21 @@ def import_patrols_cmd(ctx, config_file, bundle_dir, er_endpoint, er_token,
     )
     extra = {"api_factory": api_factory} if workers > 1 else {}
     result = patrol_import.run_import(
-        ERPatrolAPI(er_client), bundle, endpoint=er.endpoint, ledger=ledger, opts=opts,
+        ERPatrolAPI(er_client),
+        bundle,
+        endpoint=er.endpoint,
+        ledger=ledger,
+        opts=opts,
         ns=namespace(er.endpoint, bundle.ca_uuid, er.patrol_namespace),
         importer_version=pkg_version("er-smart-sync"),
         **extra,
     )
     if result.stopped:
         click.echo(render_text(result.report))
-        click.echo("Fix the blocking findings, or pass --allow-blocking to skip "
-                   "the affected patrols.")
+        click.echo(
+            "Fix the blocking findings, or pass --allow-blocking to skip "
+            "the affected patrols."
+        )
     else:
         click.echo(patrol_import.format_result(result, bundle))
     ctx.exit(result.exit_code)

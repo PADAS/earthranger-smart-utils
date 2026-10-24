@@ -31,7 +31,7 @@ er-smart-sync --dry-run import-patrols --config sync.yaml        # what it would
 | `--skip-tracks` | do not import track points |
 | `--allow-blocking` | skip the patrols that blocking preflight findings affect, instead of stopping |
 | `--ledger FILE` | the import ledger (default: `import-ledger.json` beside the bundle) |
-| `--workers N` | Import N patrols at a time, each on its own connection. Default 1. 4 is safe; on current das it gains little (see Speed). Watch for 429 or 5xx in the log and lower it if they appear. Dry runs always use one worker. |
+| `--workers N` | Import N patrols at a time, each on its own connection. Default 1. On current das more than one is slower, not faster: das creates a site's events one at a time (see Speed). Dry runs always use one worker. |
 
 Exit status:
 - **0:** every selected patrol was imported.
@@ -69,27 +69,37 @@ Exit status:
 
 ## Speed
 
-A patrol costs a handful of requests: the patrol, one list of its events
-(parents of multi-observation waypoints first, then the rest, 20 per
-request), its attachments, and its leader's track in batches of 1,000
-points. Re-run safety comes from deterministic ids and from reading the
-patrol (which lists the events already on it) before writing; a request
-das rejects is redone one event at a time for that patrol only.
+The import runs in two phases. The first creates every patrol with its
+events and photos; the second posts every patrol's tracks. A patrol whose
+events fail still gets its tracks in the second phase and is reported
+failed. A stop during the first phase (Ctrl-C, or a library caller's
+`stop=`) leaves the tracks for the next run, which skips the finished
+events from the ledger and goes straight to them.
 
-What limits the rate today is the server, not the client: das does per-record
-work on every event and every track point it receives (alert-rule
-evaluation, realtime publishing, subject-status maintenance), and it
-serialises much of it. Measured on a staging site in October 2026, a patrol
-with ten observations and a 286-point track took about 43 seconds, 25 of
-them in the one request that posted the track, and `--workers 4` ran at
-most 1.2× faster than one worker. Expect roughly two patrols a minute per
-site, more with short tracks and fewer observations; `--workers` is there
-for sites where das runs more API capacity. Run long imports from the
-site's cloud region, in the foreground or under `setsid` (a `nohup … &`
-job from a script ignores Ctrl-C), and use `--skip-tracks` first when the
-patrols and events should become visible early. The measurements and the
-das-side follow-ups are in
-`docs/superpowers/specs/2026-10-14-import-patrols-performance.md`.
+A patrol costs a handful of requests: the patrol, its events in lists of
+20 (parents of multi-observation waypoints first), its attachments, and,
+in the second phase, its leader's track in batches of 1,000 points posted
+before the source is assigned to the leader. Re-run safety comes from
+deterministic ids and from reading the patrol (which lists the events
+already on it) before writing; a list das rejects is redone one event at a
+time for that patrol only.
+
+What limits the rate is the server. das creates a site's events one at a
+time, holding a per-site lock for each list, and does full per-record work
+on each: about 0.7 to 0.9 seconds an event on the sites measured in October
+2026. Track points cost 0.005 to 0.1 seconds each depending on what else
+the site is doing. A load takes roughly
+
+    (events × 0.8 s + track points × 0.03 s) / 3600 hours
+
+so a region with 70,000 observations takes about a day. More workers do not
+help: their event lists queue on the same lock. Posting the points before
+the assignment spares das a lookup and a queued task per point, and keeping
+all tracks in the second phase keeps large point batches from slowing the
+event writes. The measurements, das's per-request work and the das-side
+options are in smart-able's `docs/load-performance.md`. Run long imports from
+the site's cloud region, in the foreground or under `setsid` (a `nohup … &`
+job from a script ignores Ctrl-C).
 
 A second Ctrl-C during shutdown skips the wait for running patrols and retires members immediately; those patrols may then fail on das's active-member check — re-run to finish them.
 
@@ -97,7 +107,7 @@ A second Ctrl-C during shutdown skips the wait for running patrols and retires m
 
 Every ER id is derived from the SMART uuid: a uuid5 in a namespace made of the ER host and the conservation area. A re-run, or a second operator, addresses the same rows. `earthranger.patrol_namespace` in `sync.yaml` overrides the namespace; set it only for a site seeded under another.
 
-Library callers can pass `progress=` (called per patrol with running totals) and `stop=` (a `threading.Event`; once set, no further patrol starts and `ImportResult.stopped_early` is true).
+Library callers can pass `progress=` and `stop=`. `progress` is called with `{phase, total, done, failed, already_imported, phase_skipped}`: once with `done` 0 when each phase (`events`, then `tracks`) starts, then per patrol. `done`, `failed` and `phase_skipped` count within the phase; in the tracks phase `failed` counts every patrol with a failure so far. `phase_skipped` is the patrols the phase found already done in the ledger, which take no time: a rate should leave them out. `already_imported` is the whole run's count of patrols with nothing left to do. `stop` is a `threading.Event`; once set, no further patrol starts, the tracks phase does not start, and `ImportResult.stopped_early` is true.
 
 The patrol is read before it is written, and that read lists the events already on its segments, so existing events are skipped. Events are created in lists, without a read per event. das answers a duplicate id with a 500, not a 409; the import recovers from it by reading that one event. Attachments are guarded by the ledger and, without it, by the event's own file list. das also discards a track point it already has.
 

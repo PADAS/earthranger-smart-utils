@@ -98,8 +98,14 @@ class DryRunERClient:
     """
 
     _WRITE_PREFIXES = (
-        "post_", "patch_", "delete_", "put_",
-        "_post", "_patch", "_delete", "_put",
+        "post_",
+        "patch_",
+        "delete_",
+        "put_",
+        "_post",
+        "_patch",
+        "_delete",
+        "_put",
     )
 
     def __init__(self, inner):

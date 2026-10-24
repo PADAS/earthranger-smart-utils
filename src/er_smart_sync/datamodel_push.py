@@ -63,20 +63,30 @@ def push_datamodel_files(
 
     from smartconnect import ConfigurableDataModel, SmartClient
 
-    sclient = SmartClient(api="https://tempuri.org/", username="", password="", use_language_code=language)
+    sclient = SmartClient(
+        api="https://tempuri.org/", username="", password="", use_language_code=language
+    )
     dm = sclient.load_datamodel(filename=datamodel_file)
     cm = None
     if cm_file:
-        cm = ConfigurableDataModel(use_language_code=language, cm_uuid=cm_uuid or DEFAULT_FILE_CM_UUID)
+        cm = ConfigurableDataModel(
+            use_language_code=language, cm_uuid=cm_uuid or DEFAULT_FILE_CM_UUID
+        )
         with open(cm_file) as f:
             cm.load(f.read())
 
     sync = synchronizer
     if sync is None:
         config = SyncConfig(
-            smart=SmartConnectConfig(endpoint="", login="", password="", use_language_code=language),
-            earthranger=EarthRangerConfig(id="library", endpoint=endpoint, token="unused",
-                                          event_type_version=event_type_version),
+            smart=SmartConnectConfig(
+                endpoint="", login="", password="", use_language_code=language
+            ),
+            earthranger=EarthRangerConfig(
+                id="library",
+                endpoint=endpoint,
+                token="unused",
+                event_type_version=event_type_version,
+            ),
         )
         sync = ERSmartSynchronizer(config=config, er_client=er_client)
     sync.sync_mode = mode
@@ -86,8 +96,13 @@ def push_datamodel_files(
     # the base model as its own category first, then the CM as a second one.
     # With a CM alone: push only the CM.
     if cm and include_base_datamodel:
-        sync.push_smart_ca_datamodel_to_earthranger(dm=dm, smart_ca_uuid=FILE_BASED_CA_UUID,
-                                                    ca_identifier=ca_identifier, cm=None)
-    sync.push_smart_ca_datamodel_to_earthranger(dm=dm, smart_ca_uuid=FILE_BASED_CA_UUID,
-                                                ca_identifier=ca_identifier, cm=cm)
+        sync.push_smart_ca_datamodel_to_earthranger(
+            dm=dm,
+            smart_ca_uuid=FILE_BASED_CA_UUID,
+            ca_identifier=ca_identifier,
+            cm=None,
+        )
+    sync.push_smart_ca_datamodel_to_earthranger(
+        dm=dm, smart_ca_uuid=FILE_BASED_CA_UUID, ca_identifier=ca_identifier, cm=cm
+    )
     return dict(sync.datamodel_stats)

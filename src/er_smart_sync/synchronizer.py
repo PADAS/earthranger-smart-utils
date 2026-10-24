@@ -1023,9 +1023,7 @@ class ERSmartSynchronizer:
                     )
                 except Exception:
                     other_records = []
-                if any(
-                    r.get("value") == event_type.value for r in other_records or []
-                ):
+                if any(r.get("value") == event_type.value for r in other_records or []):
                     logger.warning(
                         "Event type value %r exists in this tenant as v2; "
                         "skipping the v1 push to avoid cross-version "
