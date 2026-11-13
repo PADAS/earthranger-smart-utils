@@ -551,10 +551,31 @@ def test_a_fill_that_fails_part_way_finishes_on_the_next_run(tmp_path):
     r = _run(api, b, tmp_path)
     assert r.exit_code != 0 and api.calls["patch_event"] == 1
     assert not all("reporters" in st for st in _stages(tmp_path))
+    # the count is what the site confirms: the one patch that landed, not the ones planned
+    assert r.counts["events_reported_by_backfilled"] == 1 and r.counts["events_reported_by"] == 1
     api.fail_patch_after = None
     r = _run(api, b, tmp_path)
     assert r.exit_code == 0 and api.calls["patch_event"] == n   # the one already set is not patched again
     assert all(e.get("reported_by") for e in api.events.values()) and all("reporters" in st for st in _stages(tmp_path))
+    # the retry counts the one already set (read) with the ones it patched: every event on the site
+    assert r.counts["events_reported_by_backfilled"] == n - 1 and r.counts["events_reported_by"] == n
+
+
+def test_a_rejected_patch_in_duplicate_recovery_counts_no_reporter(tmp_path):
+    b = load_bundle(FIXTURE)
+    api = FakeAPI(b)
+    _run(api, b, tmp_path)
+    victim = next(iter(api.patrols))
+    orphans = [e for e in api.events.values() if any(s["id"] in e.get("patrol_segments", []) for s in api.patrols[victim]["patrol_segments"])]
+    for e in orphans:
+        e.pop("reported_by")
+    del api.patrols[victim]
+    (tmp_path / "ledger.json").unlink()
+    api.fail_patch_after = 0   # every patch raises
+    r = _run(api, b, tmp_path)
+    assert len(r.failed) == 1 and r.counts["events_reported_by_backfilled"] == 0   # the recreated patrol fails on the patch
+    # the recovered orphans have no reporter and are not counted as reported; the other patrols' events are
+    assert r.counts["events_reported_by"] == len(api.events) - len(orphans)
 
 
 def test_orphaned_events_after_a_deleted_patrol_are_recovered(tmp_path):

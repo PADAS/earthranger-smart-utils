@@ -160,23 +160,28 @@ def _import_patrol_stage(api, plan, patrol: dict) -> dict:
 
 
 def _backfill_reported_by(api, planned: list, known: dict, counts) -> None:
-    """Events from a run of an earlier version were written without
-    `reported_by`: give each one that is still empty the value this run
-    plans for it. Every candidate is checked, since a fill that failed part
-    way must finish on the next run; the patrol read does not say what an
-    event's `reported_by` is, so each is read before it is patched. The
-    ledger's `reporters` stage, set only once every candidate is done,
+    """Events already on the site: count the reporter each one has, and give
+    each one that has none the value this run plans for it. Every candidate
+    is checked, since a fill that failed part way must finish on the next
+    run; the patrol read does not say what an event's `reported_by` is, so
+    each is read first. A reporter counts only once the site confirms it,
+    read or patched, so a patch that fails leaves the count where it was.
+    The ledger's `reporters` stage, set only once every candidate is done,
     keeps a later run from paying those reads again."""
     for ev in planned:
         cur = known.get(ev["id"])
-        if cur is None or not ev.get("reported_by"):
+        if cur is None:
             continue
         if "reported_by" not in cur:
             cur = api.get_event(ev["id"]) or {}
         if cur.get("reported_by"):
+            counts["events_reported_by"] += 1
+            continue
+        if not ev.get("reported_by"):
             continue
         api.patch_event(ev["id"], {"reported_by": ev["reported_by"]})
         counts["events_reported_by_backfilled"] += 1
+        counts["events_reported_by"] += 1
 
 
 def _planned_events(bundle, patrol, plan, ns, resolver) -> list:
@@ -199,11 +204,7 @@ def _fill_reporters(api, bundle, patrol, plan, ns, resolver, counts, known: dict
     from a version that wrote none: one patrol read, then the fill."""
     if known is None:
         known = ERPatrolAPI.events_of(api.get_patrol(plan.patrol["id"]))
-    planned = _planned_events(bundle, patrol, plan, ns, resolver)
-    _backfill_reported_by(api, planned, known, counts)
-    for ev in planned:
-        if ev["id"] in known:
-            _landed(counts, ev)   # on the site with its reporter, written now or before
+    _backfill_reported_by(api, _planned_events(bundle, patrol, plan, ns, resolver), known, counts)
 
 
 def _landed(counts, ev: dict) -> None:
@@ -226,12 +227,12 @@ def _create_event_safely(api, ev: dict, counts) -> dict:
         if existing is None:
             raise
         counts["events_existing"] += 1
-        _landed(counts, ev)
         if ev.get("reported_by") and not existing.get("reported_by"):
             # an orphan from a version that wrote no reporter: this is its one visit
             api.patch_event(ev["id"], {"reported_by": ev["reported_by"]})
             counts["events_reported_by_backfilled"] += 1
             existing = {**existing, "reported_by": ev["reported_by"]}
+        _landed(counts, existing)   # the reporter the site has, read or just written
         return existing
 
 
@@ -298,11 +299,8 @@ def _import_events(
                 parents.append(wp.parent)
             children += [e for e in wp.events if e["id"] not in known]
     planned = [ev for _, wp in waypoints for ev in ([wp.parent] if wp.parent else []) + wp.events]
-    for ev in planned:
-        if ev["id"] in known:
-            counts["events_existing"] += 1
-            _landed(counts, ev)
-    _backfill_reported_by(api, planned, known, counts)
+    counts["events_existing"] += sum(1 for ev in planned if ev["id"] in known)
+    _backfill_reported_by(api, planned, known, counts)   # counts the reporters the site confirms
     # parents first: a child names its collection by id, so the parent must
     # exist before the child's list is written
     on_site, failed = _post_event_lists(api, parents, counts, patrol.get("id"))
