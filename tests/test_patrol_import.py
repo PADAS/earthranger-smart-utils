@@ -562,8 +562,12 @@ def test_orphaned_events_after_a_deleted_patrol_are_recovered(tmp_path):
     api = FakeAPI(b)
     _run(api, b, tmp_path)
     created = api.calls["create_event"]
-    # an admin deletes one patrol in ER; its events stay, with their ids
+    # an admin deletes one patrol in ER; its events stay, with their ids, and (written by an
+    # older version) without a reporter
     victim = next(iter(api.patrols))
+    orphans = [e for e in api.events.values() if any(s["id"] in e.get("patrol_segments", []) for s in api.patrols[victim]["patrol_segments"])]
+    for e in orphans:
+        e.pop("reported_by")
     del api.patrols[victim]
     (tmp_path / "ledger.json").unlink()
     r = _run(api, b, tmp_path)
@@ -571,8 +575,10 @@ def test_orphaned_events_after_a_deleted_patrol_are_recovered(tmp_path):
     assert len(api.patrols) == 5 and api.calls["create_event"] == created
     # the duplicate-id 500 was turned into a probe, once per orphaned event
     assert api.calls["get_event"] > 0
-    # the orphans were recovered as existing, not re-created
+    # the orphans were recovered as existing, not re-created, and given their reporter on that visit
     assert r.counts["events_existing"] > 0
+    assert all(api.events[e["id"]].get("reported_by") for e in orphans) and orphans
+    assert r.counts["events_reported_by_backfilled"] == len(orphans)
 
 
 def _all_event_ids(b, uuids=None):

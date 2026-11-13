@@ -215,6 +215,11 @@ def _create_event_safely(api, ev: dict, counts) -> dict:
         if existing is None:
             raise
         counts["events_existing"] += 1
+        if ev.get("reported_by") and not existing.get("reported_by"):
+            # an orphan from a version that wrote no reporter: this is its one visit
+            api.patch_event(ev["id"], {"reported_by": ev["reported_by"]})
+            counts["events_reported_by_backfilled"] += 1
+            existing = {**existing, "reported_by": ev["reported_by"]}
         return existing
 
 
