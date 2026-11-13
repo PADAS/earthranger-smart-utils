@@ -285,7 +285,6 @@ def _import_events(
             children += [e for e in wp.events if e["id"] not in known]
     planned = [ev for _, wp in waypoints for ev in ([wp.parent] if wp.parent else []) + wp.events]
     counts["events_existing"] += sum(1 for ev in planned if ev["id"] in known)
-    counts["events_reported_by"] += sum(1 for ev in planned if ev.get("reported_by"))
     _backfill_reported_by(api, planned, known, counts)
     # parents first: a child names its collection by id, so the parent must
     # exist before the child's list is written
@@ -293,6 +292,10 @@ def _import_events(
     more, more_failed = _post_event_lists(api, children, counts, patrol.get("id"))
     on_site.update(more)
     failed += more_failed
+    # reporters are counted among the events that are on the site, not the ones planned
+    counts["events_reported_by"] += sum(
+        1 for ev in planned if ev.get("reported_by") and (ev["id"] in on_site or ev["id"] in known)
+    )
     for w, wp in waypoints:
         if wp.events and wp.events[0]["id"] in failed:
             continue  # nothing to attach to; the patrol is reported failed below

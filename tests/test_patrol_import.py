@@ -957,3 +957,13 @@ def test_a_set_stop_event_starts_no_more_patrols(tmp_path):
     assert (
         len(r.imported) + len(r.failed) == 0
     )  # the one patrol started has its events, not yet its tracks
+
+
+def test_a_rejected_event_is_not_counted_as_reported(tmp_path):
+    """Every event in the fixture gets a reporter; the count covers the events
+    on the site, so one das rejected is not among them."""
+    b = load_bundle(FIXTURE)
+    api = FakeAPI(b)
+    api.reject_event = next(iter(_all_event_ids(b)))
+    r = _run(api, b, tmp_path)
+    assert r.counts["events_reported_by"] == r.counts["events_created"] + r.counts["events_existing"] == len(api.events)

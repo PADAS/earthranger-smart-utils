@@ -5,6 +5,12 @@ Notable changes by version. Every release is also published to
 [GitHub Releases](https://github.com/PADAS/earthranger-smart-utils/releases),
 which carry the full commit-level history.
 
+## 0.10.2 — unreleased
+
+### Fixed
+
+**`events_reported_by` counts the events on the site**, created or already there, not the ones planned: an event das rejected no longer counts as reported.
+
 ## 0.10.1 — 2026-11-13
 
 ### Added
