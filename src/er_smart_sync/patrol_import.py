@@ -160,23 +160,28 @@ def _import_patrol_stage(api, plan, patrol: dict) -> dict:
 
 
 def _backfill_reported_by(api, planned: list, known: dict, counts) -> None:
-    """Events from a run of an earlier version were written without
-    `reported_by`: give each one that is still empty the value this run
-    plans for it. Every candidate is checked, since a fill that failed part
-    way must finish on the next run; the patrol read does not say what an
-    event's `reported_by` is, so each is read before it is patched. The
-    ledger's `reporters` stage, set only once every candidate is done,
+    """Events already on the site: count the reporter each one has, and give
+    each one that has none the value this run plans for it. Every candidate
+    is checked, since a fill that failed part way must finish on the next
+    run; the patrol read does not say what an event's `reported_by` is, so
+    each is read first. A reporter counts only once the site confirms it,
+    read or patched, so a patch that fails leaves the count where it was.
+    The ledger's `reporters` stage, set only once every candidate is done,
     keeps a later run from paying those reads again."""
     for ev in planned:
         cur = known.get(ev["id"])
-        if cur is None or not ev.get("reported_by"):
+        if cur is None:
             continue
         if "reported_by" not in cur:
             cur = api.get_event(ev["id"]) or {}
         if cur.get("reported_by"):
+            counts["events_reported_by"] += 1
+            continue
+        if not ev.get("reported_by"):
             continue
         api.patch_event(ev["id"], {"reported_by": ev["reported_by"]})
         counts["events_reported_by_backfilled"] += 1
+        counts["events_reported_by"] += 1
 
 
 def _planned_events(bundle, patrol, plan, ns, resolver) -> list:
@@ -202,6 +207,12 @@ def _fill_reporters(api, bundle, patrol, plan, ns, resolver, counts, known: dict
     _backfill_reported_by(api, _planned_events(bundle, patrol, plan, ns, resolver), known, counts)
 
 
+def _landed(counts, ev: dict) -> None:
+    """An event is on the site: count its reporter with it."""
+    if ev.get("reported_by"):
+        counts["events_reported_by"] += 1
+
+
 def _create_event_safely(api, ev: dict, counts) -> dict:
     """POST one event. das answers a duplicate id with a 500; when that
     happens the event is on the site (for example after a patrol was deleted
@@ -209,6 +220,7 @@ def _create_event_safely(api, ev: dict, counts) -> dict:
     try:
         created = api.create_event(ev)
         counts["events_created"] += 1
+        _landed(counts, ev)
         return created
     except ERClientException:
         existing = api.get_event(ev["id"])
@@ -220,6 +232,7 @@ def _create_event_safely(api, ev: dict, counts) -> dict:
             api.patch_event(ev["id"], {"reported_by": ev["reported_by"]})
             counts["events_reported_by_backfilled"] += 1
             existing = {**existing, "reported_by": ev["reported_by"]}
+        _landed(counts, existing)   # the reporter the site has, read or just written
         return existing
 
 
@@ -243,6 +256,8 @@ def _post_event_lists(api, events: list, counts, patrol_id=None) -> tuple[dict, 
             for ev in api.create_events(chunk):
                 created[ev["id"]] = ev
             counts["events_created"] += len(chunk)
+            for ev in chunk:
+                _landed(counts, ev)
         except ERClientException:
             logger.info(
                 "patrol %s: event list rejected; posting %d events singly",
@@ -285,8 +300,7 @@ def _import_events(
             children += [e for e in wp.events if e["id"] not in known]
     planned = [ev for _, wp in waypoints for ev in ([wp.parent] if wp.parent else []) + wp.events]
     counts["events_existing"] += sum(1 for ev in planned if ev["id"] in known)
-    counts["events_reported_by"] += sum(1 for ev in planned if ev.get("reported_by"))
-    _backfill_reported_by(api, planned, known, counts)
+    _backfill_reported_by(api, planned, known, counts)   # counts the reporters the site confirms
     # parents first: a child names its collection by id, so the parent must
     # exist before the child's list is written
     on_site, failed = _post_event_lists(api, parents, counts, patrol.get("id"))
