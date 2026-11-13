@@ -171,6 +171,25 @@ class WaypointPlan:
     unmapped: list
 
 
+SUBJECT_CONTENT_TYPE = "observations.subject"
+
+
+def reported_by(subject_id: str | None) -> dict | None:
+    """The value ER's events API takes for `reported_by` when it is a subject."""
+    return {"id": subject_id, "content_type": SUBJECT_CONTENT_TYPE} if subject_id else None
+
+
+def leg_fallback_subject(leg: dict, resolver: Resolver) -> str | None:
+    """Who reported an observation whose observer has no subject: the leg's
+    leader, else its first member, whichever has a subject."""
+    members = sorted(leg.get("members") or [], key=lambda m: not m.get("leader"))
+    for m in members:
+        s = resolver.subjects.get(m.get("employee_uuid"))
+        if s:
+            return s
+    return None
+
+
 def build_waypoint(
     bundle: Bundle,
     w: dict,
@@ -178,7 +197,10 @@ def build_waypoint(
     ns,
     resolver: Resolver,
     fallback_time: str | None,
+    fallback_subject: str | None = None,
 ) -> WaypointPlan | None:
+    """fallback_subject reports an observation whose own observer has no
+    subject (see leg_fallback_subject)."""
     observations = [(g, o) for g in w["observation_groups"] for o in g["observations"]]
     if not observations:
         return None
@@ -220,9 +242,14 @@ def build_waypoint(
             "event_type": etype,
             "event_details": details,
         }
+        rb = reported_by(resolver.subjects.get(o.get("employee_uuid")) or fallback_subject)
+        if rb:
+            ev["reported_by"] = rb
         if parent:
             ev["collection"] = {"id": parent["id"]}
         events.append(ev)
+    if parent and events and events[0].get("reported_by"):
+        parent["reported_by"] = events[0]["reported_by"]   # the group reports as its first observation
     return WaypointPlan(
         w["uuid"], parent, events, list(w.get("attachments") or []), unmapped
     )

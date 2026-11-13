@@ -192,6 +192,39 @@ def check_language(ctx: PreflightContext) -> list:
     ]
 
 
+def check_observers(ctx: PreflightContext) -> list:
+    """An event's `reported_by` is the observer's subject on the site, else the
+    leg leader's or first member's: the importer's own rule, against the
+    subjects the site has. An observation with none of those stays unreported."""
+    with_subject = set(subjects_by_member(ctx))
+    bad, affected = [], set()
+    for p in ctx.bundle.patrols:
+        for leg in p["legs"]:
+            covered = any(m.get("employee_uuid") in with_subject for m in leg.get("members") or [])
+            if covered:
+                continue
+            for w in leg["waypoints"]:
+                for g in w["observation_groups"]:
+                    for o in g["observations"]:
+                        if o.get("employee_uuid") not in with_subject:
+                            bad.append(f"{p.get('id')}: observation {o['uuid']}")
+                            affected.add(p["uuid"])
+    if not bad:
+        return []
+    return [
+        Finding.of(
+            "observers",
+            WARNING,
+            f"{len(bad)} observation(s) have no observer with a subject and no patrol "
+            "member to stand in; their events will carry no reported-by",
+            "Nothing to do unless it matters: give the observer an employee record in "
+            "SMART and re-export, or accept events without a reporter.",
+            bad,
+            affected=affected,
+        )
+    ]
+
+
 def check_bundle_warnings(ctx: PreflightContext) -> list:
     warnings = list(ctx.bundle.manifest.warnings or [])
     if not warnings:
@@ -921,6 +954,7 @@ ALL_CHECKS = [
     check_time_coverage,
     check_timezone,
     check_language,
+    check_observers,
     check_bundle_warnings,
 ]
 

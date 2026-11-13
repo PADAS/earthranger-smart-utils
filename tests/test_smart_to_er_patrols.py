@@ -6,6 +6,7 @@ from er_smart_sync.patrol_ids import er_id, namespace
 from er_smart_sync.patrol_times import leg_times, tracks_by_day
 from er_smart_sync.smart_to_er_patrol_schema import build_patrol_types
 from er_smart_sync.smart_to_er_patrols import (
+    leg_fallback_subject,
     Resolver,
     build_patrol,
     build_track_batches,
@@ -142,6 +143,33 @@ def test_single_observation_waypoint():
     }
     assert ev["event_details"]["smart_"]["observation_uuid"] == obs["uuid"]
     assert "end_time" not in ev and "collection" not in ev
+
+
+def test_events_are_reported_by_the_observer_else_the_leg_fallback():
+    b = load_bundle(FIXTURE)
+    r = _ev_resolver(b)
+    p = b.patrols[0]
+    leg = p["legs"][0]
+    w = next(w for w in leg["waypoints"] if w["observation_groups"])
+    leader = next(m["employee_uuid"] for m in leg["members"] if m["leader"])
+    assert leg_fallback_subject(leg, r) == r.subjects[leader]
+    # the fixture's observations name no observer: the leg's leader reports them
+    plan = build_waypoint(b, w, "seg", NS, r, None, leg_fallback_subject(leg, r))
+    assert all(ev["reported_by"] == {"id": r.subjects[leader], "content_type": "observations.subject"} for ev in plan.events)
+    if plan.parent:
+        assert plan.parent["reported_by"] == plan.events[0]["reported_by"]
+    # an observer with a subject reports their own observation
+    other = next(m["employee_uuid"] for m in leg["members"] if not m["leader"])
+    w2 = {**w, "observation_groups": [{**g, "observations": [{**o, "employee_uuid": other} for o in g["observations"]]} for g in w["observation_groups"]]}
+    plan2 = build_waypoint(b, w2, "seg", NS, r, None, leg_fallback_subject(leg, r))
+    assert all(ev["reported_by"]["id"] == r.subjects[other] for ev in plan2.events)
+    # nobody to name: the field is left out
+    plan3 = build_waypoint(b, w, "seg", NS, r, None, None)
+    assert all("reported_by" not in ev for ev in plan3.events)
+    # a leg whose leader has no subject falls back to a member who has one
+    r2 = _ev_resolver(b)
+    r2.subjects = {k: v for k, v in r2.subjects.items() if k != leader}
+    assert leg_fallback_subject(leg, r2) == r2.subjects[next(m["employee_uuid"] for m in leg["members"] if m["employee_uuid"] in r2.subjects)]
 
 
 def test_multi_observation_waypoint_becomes_a_collection():

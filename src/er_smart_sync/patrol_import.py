@@ -30,11 +30,13 @@ from .import_ledger import ImportLedger
 from .patrol_times import tracks_by_day
 from .preflight import PreflightReport, run_preflight
 from .smart_to_er_patrol_schema import build_patrol_types, build_team_requirements
+from .er_patrol_api import ERPatrolAPI
 from .smart_to_er_patrols import (
     Resolver,
     build_patrol,
     build_track_batches,
     build_waypoint,
+    leg_fallback_subject,
 )
 
 logger = logging.getLogger(__name__)
@@ -136,14 +138,15 @@ def _retire(api, ledger: ImportLedger) -> None:
     ledger.set_reactivated([])
 
 
-def _import_patrol_stage(api, plan, patrol: dict) -> set:
-    """Create or refresh the patrol. Returns the ids of events already on
-    its segments, so the events stage need not probe them one by one."""
+def _import_patrol_stage(api, plan, patrol: dict) -> dict:
+    """Create or refresh the patrol. Returns the events already on its
+    segments (by id, as the patrol read lists them), so the events stage
+    need not probe them one by one."""
     body = plan.patrol
     existing = api.get_patrol(body["id"])
     if existing is None:
         api.create_patrol(body)
-        return set()
+        return {}
     have = {s.get("id") for s in existing.get("patrol_segments") or []}
     missing = [i for i in plan.segment_ids.values() if i not in have]
     if missing:
@@ -153,7 +156,50 @@ def _import_patrol_stage(api, plan, patrol: dict) -> set:
             f"patrol. Delete patrol {body['id']} in EarthRanger and run again."
         )
     api.patch_patrol(body["id"], {k: v for k, v in body.items() if k != "id"})
-    return api.event_ids_of(existing)
+    return ERPatrolAPI.events_of(existing)
+
+
+def _backfill_reported_by(api, planned: list, known: dict, counts) -> None:
+    """Events from a run of an earlier version were written without
+    `reported_by`: give each one that is still empty the value this run
+    plans for it. Every candidate is checked, since a fill that failed part
+    way must finish on the next run; the patrol read does not say what an
+    event's `reported_by` is, so each is read before it is patched. The
+    ledger's `reporters` stage, set only once every candidate is done,
+    keeps a later run from paying those reads again."""
+    for ev in planned:
+        cur = known.get(ev["id"])
+        if cur is None or not ev.get("reported_by"):
+            continue
+        if "reported_by" not in cur:
+            cur = api.get_event(ev["id"]) or {}
+        if cur.get("reported_by"):
+            continue
+        api.patch_event(ev["id"], {"reported_by": ev["reported_by"]})
+        counts["events_reported_by_backfilled"] += 1
+
+
+def _planned_events(bundle, patrol, plan, ns, resolver) -> list:
+    """The events this run would write for the patrol, with their reporters."""
+    out = []
+    for leg in patrol["legs"]:
+        seg_id = plan.segment_ids[leg["uuid"]]
+        lt = plan.leg_times[leg["uuid"]]
+        day_start = {d.leg_day_uuid: d.start.isoformat() for d in lt.days}
+        fallback = leg_fallback_subject(leg, resolver)
+        for w in leg["waypoints"]:
+            wp = build_waypoint(bundle, w, seg_id, ns, resolver, day_start.get(w["leg_day_uuid"]), fallback)
+            if wp is not None:
+                out += ([wp.parent] if wp.parent else []) + wp.events
+    return out
+
+
+def _fill_reporters(api, bundle, patrol, plan, ns, resolver, counts, known: dict | None) -> None:
+    """The reporters stage alone, for a patrol whose events are on the site
+    from a version that wrote none: one patrol read, then the fill."""
+    if known is None:
+        known = ERPatrolAPI.events_of(api.get_patrol(plan.patrol["id"]))
+    _backfill_reported_by(api, _planned_events(bundle, patrol, plan, ns, resolver), known, counts)
 
 
 def _create_event_safely(api, ev: dict, counts) -> dict:
@@ -169,6 +215,11 @@ def _create_event_safely(api, ev: dict, counts) -> dict:
         if existing is None:
             raise
         counts["events_existing"] += 1
+        if ev.get("reported_by") and not existing.get("reported_by"):
+            # an orphan from a version that wrote no reporter: this is its one visit
+            api.patch_event(ev["id"], {"reported_by": ev["reported_by"]})
+            counts["events_reported_by_backfilled"] += 1
+            existing = {**existing, "reported_by": ev["reported_by"]}
         return existing
 
 
@@ -210,19 +261,20 @@ def _post_event_lists(api, events: list, counts, patrol_id=None) -> tuple[dict, 
 
 
 def _import_events(
-    api, bundle, patrol, plan, ns, resolver, ledger, counts, known: set | None
+    api, bundle, patrol, plan, ns, resolver, ledger, counts, known: dict | None
 ) -> None:
     if known is None:  # patrol stage done in an earlier run: one read, not N
-        known = api.event_ids_of(api.get_patrol(plan.patrol["id"]))
+        known = ERPatrolAPI.events_of(api.get_patrol(plan.patrol["id"]))
     attached = set(ledger.ids(patrol["uuid"]).get("attached", []))
     parents, children, waypoints = [], [], []
     for leg in patrol["legs"]:
         seg_id = plan.segment_ids[leg["uuid"]]
         lt = plan.leg_times[leg["uuid"]]
         day_start = {d.leg_day_uuid: d.start.isoformat() for d in lt.days}
+        fallback = leg_fallback_subject(leg, resolver)
         for w in leg["waypoints"]:
             wp = build_waypoint(
-                bundle, w, seg_id, ns, resolver, day_start.get(w["leg_day_uuid"])
+                bundle, w, seg_id, ns, resolver, day_start.get(w["leg_day_uuid"]), fallback
             )
             if wp is None:
                 continue
@@ -231,12 +283,10 @@ def _import_events(
             if wp.parent and wp.parent["id"] not in known:
                 parents.append(wp.parent)
             children += [e for e in wp.events if e["id"] not in known]
-    counts["events_existing"] += sum(
-        1
-        for _, wp in waypoints
-        for ev in ([wp.parent] if wp.parent else []) + wp.events
-        if ev["id"] in known
-    )
+    planned = [ev for _, wp in waypoints for ev in ([wp.parent] if wp.parent else []) + wp.events]
+    counts["events_existing"] += sum(1 for ev in planned if ev["id"] in known)
+    counts["events_reported_by"] += sum(1 for ev in planned if ev.get("reported_by"))
+    _backfill_reported_by(api, planned, known, counts)
     # parents first: a child names its collection by id, so the parent must
     # exist before the child's list is written
     on_site, failed = _post_event_lists(api, parents, counts, patrol.get("id"))
@@ -367,6 +417,11 @@ def _import_one(
             _import_events(api, bundle, p, plan, ns, resolver, ledger, counts, known)
             ledger.done(p["uuid"], "events")
             ledger.drop_id(p["uuid"], "attached")
+            ledger.done(p["uuid"], "reporters")   # written with reported_by, or filled in
+        elif "reporters" in want and "reporters" not in done:
+            # events written by a version before reported_by: fill it, with no other replay
+            _fill_reporters(api, bundle, p, plan, ns, resolver, counts, known)
+            ledger.done(p["uuid"], "reporters")
         if "tracks" in want and "tracks" not in done:
             _import_tracks(
                 api, p, plan, by_day, subjects, counts, sources, sources_lock
@@ -412,7 +467,7 @@ def run_import(
     selected = []
     want = (
         {"patrol"}
-        | (set() if opts.skip_events else {"events"})
+        | (set() if opts.skip_events else {"events", "reporters"})
         | (set() if opts.skip_tracks else {"tracks"})
     )
     # --limit counts patrols still to do, so successive runs move on
