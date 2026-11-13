@@ -9,7 +9,7 @@ which carry the full commit-level history.
 
 ### Fixed
 
-**`events_reported_by` counts the events on the site**, created or already there, not the ones planned: an event das rejected no longer counts as reported.
+**`events_reported_by` counts the events on the site with a reporter**, wherever they land (created, already there, or filled in by the reporters stage), not the ones planned: an event das rejected no longer counts as reported, and a reporters-only run counts what it filled.
 
 ## 0.10.1 — 2026-11-13
 

@@ -140,9 +140,12 @@ A second run without `--patrol` added the other four patrols:
 Imported 5, skipped 0, failed 0 patrol(s).
   already_imported: 1
   events_created: 121
+  events_reported_by: 121
   observations_unmapped: 0
   track_points: 202
 ```
+
+`events_reported_by` counts the events on the site that name who reported them (the observer's subject, else the leg's leader or first member); a gap below `events_created` plus `events_existing` means observations nobody could be said to have reported, which preflight's `observers` warning lists. `events_reported_by_backfilled` counts events an earlier version wrote that this run gave a reporter.
 
 A third run reported `already_imported: 5` and wrote nothing. A run with an empty ledger found all 141 events and the photo already on the site, and wrote nothing either.
 

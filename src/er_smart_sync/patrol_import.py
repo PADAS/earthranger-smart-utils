@@ -199,7 +199,17 @@ def _fill_reporters(api, bundle, patrol, plan, ns, resolver, counts, known: dict
     from a version that wrote none: one patrol read, then the fill."""
     if known is None:
         known = ERPatrolAPI.events_of(api.get_patrol(plan.patrol["id"]))
-    _backfill_reported_by(api, _planned_events(bundle, patrol, plan, ns, resolver), known, counts)
+    planned = _planned_events(bundle, patrol, plan, ns, resolver)
+    _backfill_reported_by(api, planned, known, counts)
+    for ev in planned:
+        if ev["id"] in known:
+            _landed(counts, ev)   # on the site with its reporter, written now or before
+
+
+def _landed(counts, ev: dict) -> None:
+    """An event is on the site: count its reporter with it."""
+    if ev.get("reported_by"):
+        counts["events_reported_by"] += 1
 
 
 def _create_event_safely(api, ev: dict, counts) -> dict:
@@ -209,12 +219,14 @@ def _create_event_safely(api, ev: dict, counts) -> dict:
     try:
         created = api.create_event(ev)
         counts["events_created"] += 1
+        _landed(counts, ev)
         return created
     except ERClientException:
         existing = api.get_event(ev["id"])
         if existing is None:
             raise
         counts["events_existing"] += 1
+        _landed(counts, ev)
         if ev.get("reported_by") and not existing.get("reported_by"):
             # an orphan from a version that wrote no reporter: this is its one visit
             api.patch_event(ev["id"], {"reported_by": ev["reported_by"]})
@@ -243,6 +255,8 @@ def _post_event_lists(api, events: list, counts, patrol_id=None) -> tuple[dict, 
             for ev in api.create_events(chunk):
                 created[ev["id"]] = ev
             counts["events_created"] += len(chunk)
+            for ev in chunk:
+                _landed(counts, ev)
         except ERClientException:
             logger.info(
                 "patrol %s: event list rejected; posting %d events singly",
@@ -284,7 +298,10 @@ def _import_events(
                 parents.append(wp.parent)
             children += [e for e in wp.events if e["id"] not in known]
     planned = [ev for _, wp in waypoints for ev in ([wp.parent] if wp.parent else []) + wp.events]
-    counts["events_existing"] += sum(1 for ev in planned if ev["id"] in known)
+    for ev in planned:
+        if ev["id"] in known:
+            counts["events_existing"] += 1
+            _landed(counts, ev)
     _backfill_reported_by(api, planned, known, counts)
     # parents first: a child names its collection by id, so the parent must
     # exist before the child's list is written
@@ -292,10 +309,6 @@ def _import_events(
     more, more_failed = _post_event_lists(api, children, counts, patrol.get("id"))
     on_site.update(more)
     failed += more_failed
-    # reporters are counted among the events that are on the site, not the ones planned
-    counts["events_reported_by"] += sum(
-        1 for ev in planned if ev.get("reported_by") and (ev["id"] in on_site or ev["id"] in known)
-    )
     for w, wp in waypoints:
         if wp.events and wp.events[0]["id"] in failed:
             continue  # nothing to attach to; the patrol is reported failed below

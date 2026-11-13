@@ -960,10 +960,31 @@ def test_a_set_stop_event_starts_no_more_patrols(tmp_path):
 
 
 def test_a_rejected_event_is_not_counted_as_reported(tmp_path):
-    """Every event in the fixture gets a reporter; the count covers the events
-    on the site, so one das rejected is not among them."""
+    """Every event in the fixture gets a reporter (its leg has a leader), so the
+    count is every planned event but the one das rejected singly as well."""
     b = load_bundle(FIXTURE)
     api = FakeAPI(b)
     api.reject_event = next(iter(_all_event_ids(b)))
+    orig = api.create_event
+
+    def single(e):
+        if e["id"] == api.reject_event:
+            raise ERClientException("x\n\t 400 from ER. Message: invalid")
+        return orig(e)
+
+    api.create_event = single
     r = _run(api, b, tmp_path)
-    assert r.counts["events_reported_by"] == r.counts["events_created"] + r.counts["events_existing"] == len(api.events)
+    assert api.reject_event not in api.events
+    # 141 observation events and 18 collection parents are planned, each with a reporter; one was rejected
+    assert r.counts["events_reported_by"] == 141 + 18 - 1
+    assert r.counts["events_reported_by"] == r.counts["events_created"] + r.counts["events_existing"]
+
+
+def test_a_reporters_only_run_counts_what_it_filled_as_reported(tmp_path):
+    b = load_bundle(FIXTURE)
+    api = FakeAPI(b)
+    _run(api, b, tmp_path)
+    n = len(api.events)
+    _as_an_older_version_left_it(api, tmp_path)
+    r = _run(api, b, tmp_path)
+    assert r.counts["events_reported_by_backfilled"] == n and r.counts["events_reported_by"] == n
