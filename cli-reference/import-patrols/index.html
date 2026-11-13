@@ -1894,9 +1894,11 @@ job from a script ignores Ctrl-C).</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>Imported 5, skipped 0, failed 0 patrol(s).
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>  already_imported: 1
 <a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>  events_created: 121
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>  observations_unmapped: 0
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>  track_points: 202
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>  events_reported_by: 121
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>  observations_unmapped: 0
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>  track_points: 202
 </code></pre></div>
+<p><code>events_reported_by</code> counts the events on the site that name who reported them (the observer's subject, else the leg's leader or first member); a gap below <code>events_created</code> plus <code>events_existing</code> means observations nobody could be said to have reported, which preflight's <code>observers</code> warning lists. <code>events_reported_by_backfilled</code> counts events an earlier version wrote that this run gave a reporter.</p>
 <p>A third run reported <code>already_imported: 5</code> and wrote nothing. A run with an empty ledger found all 141 events and the photo already on the site, and wrote nothing either.</p>
 <p>gundi-dev has no <code>incident_collection</code> event type, so the 18 multi-observation waypoints imported ungrouped there.</p>
 <h2 id="undoing-an-import">Undoing an import<a class="headerlink" href="#undoing-an-import" title="Permanent link">&para;</a></h2>
