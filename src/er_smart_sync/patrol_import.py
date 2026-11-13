@@ -30,11 +30,13 @@ from .import_ledger import ImportLedger
 from .patrol_times import tracks_by_day
 from .preflight import PreflightReport, run_preflight
 from .smart_to_er_patrol_schema import build_patrol_types, build_team_requirements
+from .er_patrol_api import ERPatrolAPI
 from .smart_to_er_patrols import (
     Resolver,
     build_patrol,
     build_track_batches,
     build_waypoint,
+    leg_fallback_subject,
 )
 
 logger = logging.getLogger(__name__)
@@ -136,14 +138,15 @@ def _retire(api, ledger: ImportLedger) -> None:
     ledger.set_reactivated([])
 
 
-def _import_patrol_stage(api, plan, patrol: dict) -> set:
-    """Create or refresh the patrol. Returns the ids of events already on
-    its segments, so the events stage need not probe them one by one."""
+def _import_patrol_stage(api, plan, patrol: dict) -> dict:
+    """Create or refresh the patrol. Returns the events already on its
+    segments (by id, as the patrol read lists them), so the events stage
+    need not probe them one by one."""
     body = plan.patrol
     existing = api.get_patrol(body["id"])
     if existing is None:
         api.create_patrol(body)
-        return set()
+        return {}
     have = {s.get("id") for s in existing.get("patrol_segments") or []}
     missing = [i for i in plan.segment_ids.values() if i not in have]
     if missing:
@@ -153,7 +156,32 @@ def _import_patrol_stage(api, plan, patrol: dict) -> set:
             f"patrol. Delete patrol {body['id']} in EarthRanger and run again."
         )
     api.patch_patrol(body["id"], {k: v for k, v in body.items() if k != "id"})
-    return api.event_ids_of(existing)
+    return ERPatrolAPI.events_of(existing)
+
+
+def _backfill_reported_by(api, planned: list, known: dict, counts) -> None:
+    """Events from a run of an earlier version were written without
+    `reported_by`: give each one that is still empty the value this run
+    plans for it. The patrol read does not say what an event's `reported_by`
+    is, so the first of the patrol's existing events is read as a probe: a
+    patrol's events were written together, so one with it set means the rest
+    have it too, and the patrol costs one read. One without it has the
+    patrol's events read and patched one by one."""
+    existing = [ev for ev in planned if ev["id"] in known and ev.get("reported_by")]
+    if not existing:
+        return
+
+    def current(ev):
+        cur = known.get(ev["id"]) or {}
+        return cur if "reported_by" in cur else (api.get_event(ev["id"]) or {})
+
+    if current(existing[0]).get("reported_by"):
+        return
+    for ev in existing:
+        if current(ev).get("reported_by"):
+            continue
+        api.patch_event(ev["id"], {"reported_by": ev["reported_by"]})
+        counts["events_reported_by_backfilled"] += 1
 
 
 def _create_event_safely(api, ev: dict, counts) -> dict:
@@ -210,19 +238,20 @@ def _post_event_lists(api, events: list, counts, patrol_id=None) -> tuple[dict, 
 
 
 def _import_events(
-    api, bundle, patrol, plan, ns, resolver, ledger, counts, known: set | None
+    api, bundle, patrol, plan, ns, resolver, ledger, counts, known: dict | None
 ) -> None:
     if known is None:  # patrol stage done in an earlier run: one read, not N
-        known = api.event_ids_of(api.get_patrol(plan.patrol["id"]))
+        known = ERPatrolAPI.events_of(api.get_patrol(plan.patrol["id"]))
     attached = set(ledger.ids(patrol["uuid"]).get("attached", []))
     parents, children, waypoints = [], [], []
     for leg in patrol["legs"]:
         seg_id = plan.segment_ids[leg["uuid"]]
         lt = plan.leg_times[leg["uuid"]]
         day_start = {d.leg_day_uuid: d.start.isoformat() for d in lt.days}
+        fallback = leg_fallback_subject(leg, resolver)
         for w in leg["waypoints"]:
             wp = build_waypoint(
-                bundle, w, seg_id, ns, resolver, day_start.get(w["leg_day_uuid"])
+                bundle, w, seg_id, ns, resolver, day_start.get(w["leg_day_uuid"]), fallback
             )
             if wp is None:
                 continue
@@ -231,12 +260,10 @@ def _import_events(
             if wp.parent and wp.parent["id"] not in known:
                 parents.append(wp.parent)
             children += [e for e in wp.events if e["id"] not in known]
-    counts["events_existing"] += sum(
-        1
-        for _, wp in waypoints
-        for ev in ([wp.parent] if wp.parent else []) + wp.events
-        if ev["id"] in known
-    )
+    planned = [ev for _, wp in waypoints for ev in ([wp.parent] if wp.parent else []) + wp.events]
+    counts["events_existing"] += sum(1 for ev in planned if ev["id"] in known)
+    counts["events_reported_by"] += sum(1 for ev in planned if ev.get("reported_by"))
+    _backfill_reported_by(api, planned, known, counts)
     # parents first: a child names its collection by id, so the parent must
     # exist before the child's list is written
     on_site, failed = _post_event_lists(api, parents, counts, patrol.get("id"))

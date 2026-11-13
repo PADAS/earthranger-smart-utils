@@ -21,6 +21,7 @@ from er_smart_sync.preflight import (
     check_inactive_members,
     check_language,
     check_leg_span,
+    check_observers,
     check_patrol_types,
     check_permissions,
     check_segment_schema,
@@ -756,3 +757,21 @@ def test_collection_type_warning():
         ).findings
         == []
     )
+
+
+def test_observers_warns_only_when_nobody_can_be_said_to_have_reported(tmp_path):
+    """The fixture's observations name no observer, but every leg has members with
+    subjects, so each event is reported by the leg's leader: no finding. A leg with
+    no members leaves its observations unreported, and that is reported."""
+    b = load_bundle(FIXTURE)
+    assert run_preflight(MagicMock(), b, checks=[check_observers]).findings == []
+
+    def edit(name, doc):
+        if name == "patrols":
+            doc["patrols"][0]["legs"][0]["members"] = []
+
+    b2 = _edited(tmp_path, edit)
+    (f,) = run_preflight(MagicMock(), b2, checks=[check_observers]).findings
+    n = sum(len(g["observations"]) for w in b2.patrols[0]["legs"][0]["waypoints"] for g in w["observation_groups"])
+    assert f.code == "observers" and f.level == WARNING and f.count == n and n > 0
+    assert f.affected_patrols == [b2.patrols[0]["uuid"]]

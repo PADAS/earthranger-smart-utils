@@ -176,16 +176,22 @@ class ERPatrolAPI:
         return self._get_or_none(f"{PATROLS_PATH}/{patrol_id}")
 
     @staticmethod
-    def event_ids_of(patrol: dict | None) -> set:
-        """Ids of the events on a patrol's segments, from the patrol GET."""
+    def events_of(patrol: dict | None) -> dict:
+        """The events on a patrol's segments as the patrol GET lists them,
+        by id: whatever fields that listing carries."""
         if not patrol:
-            return set()
+            return {}
         return {
-            e["id"]
+            e["id"]: e
             for s in patrol.get("patrol_segments") or []
             for e in s.get("events") or []
             if e.get("id")
         }
+
+    @classmethod
+    def event_ids_of(cls, patrol: dict | None) -> set:
+        """Ids of the events on a patrol's segments, from the patrol GET."""
+        return set(cls.events_of(patrol))
 
     def get_event(self, event_id: str) -> dict | None:
         return self._get_or_none(f"activity/event/{event_id}")
@@ -280,6 +286,9 @@ class ERPatrolAPI:
         return self._write(
             self.er._patch, path=f"{PATROLS_PATH}/{patrol_id}", payload=payload
         )
+
+    def patch_event(self, event_id: str, payload: dict) -> dict:
+        return self._write(self.er._patch, path=f"activity/event/{event_id}", payload=payload)
 
     def create_event(self, payload: dict) -> dict:
         # never send end_time on a POST: das reads self.instance there and 500s

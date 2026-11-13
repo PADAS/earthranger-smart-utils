@@ -119,6 +119,11 @@ class FakeAPI:
         self.calls["get_event"] += 1
         return self.events.get(i)
 
+    def patch_event(self, i, p):
+        self.calls["patch_event"] += 1
+        self.events[i] = {**self.events[i], **p}
+        return self.events[i]
+
     def create_event(self, e):
         assert "end_time" not in e
         if e["id"] in self.events:  # das answers a duplicate id with a 500
@@ -485,9 +490,26 @@ def test_rerun_without_ledger_uses_the_patrol_event_list(tmp_path):
     r = _run(api, b, tmp_path)
     assert r.exit_code == 0 and api.calls["create_event"] == created
     assert r.counts["events_existing"] == 141 + 18
-    # the patrol GET carried the event ids; the only event reads are the lazy
-    # file-list reads in _attach, one per waypoint with photos
-    assert api.calls["get_event"] == 1
+    # the patrol GET carried the event ids; the event reads are the lazy file-list read in
+    # _attach, one per waypoint with photos, and one probe per patrol with events, which
+    # finds reported_by set and patches nothing
+    assert api.calls["get_event"] == 1 + sum(1 for p in api.patrols.values() if any(s["id"] in e.get("patrol_segments", []) for e in api.events.values() for s in p["patrol_segments"]))
+    assert api.calls["patch_event"] == 0 and r.counts["events_reported_by_backfilled"] == 0
+
+
+def test_a_rerun_fills_reported_by_on_events_an_earlier_version_left_empty(tmp_path):
+    b = load_bundle(FIXTURE)
+    api = FakeAPI(b)
+    _run(api, b, tmp_path)
+    n = len(api.events)
+    assert all(e.get("reported_by") for e in api.events.values())   # every event names a subject
+    for e in api.events.values():
+        e.pop("reported_by")   # as a run of 0.9 left them
+    (tmp_path / "ledger.json").unlink()
+    r = _run(api, b, tmp_path)
+    assert r.exit_code == 0 and api.calls["create_event"] == n
+    assert api.calls["patch_event"] == n and r.counts["events_reported_by_backfilled"] == n
+    assert all(e["reported_by"]["content_type"] == "observations.subject" for e in api.events.values())
 
 
 def test_orphaned_events_after_a_deleted_patrol_are_recovered(tmp_path):
