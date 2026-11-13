@@ -162,26 +162,44 @@ def _import_patrol_stage(api, plan, patrol: dict) -> dict:
 def _backfill_reported_by(api, planned: list, known: dict, counts) -> None:
     """Events from a run of an earlier version were written without
     `reported_by`: give each one that is still empty the value this run
-    plans for it. The patrol read does not say what an event's `reported_by`
-    is, so the first of the patrol's existing events is read as a probe: a
-    patrol's events were written together, so one with it set means the rest
-    have it too, and the patrol costs one read. One without it has the
-    patrol's events read and patched one by one."""
-    existing = [ev for ev in planned if ev["id"] in known and ev.get("reported_by")]
-    if not existing:
-        return
-
-    def current(ev):
-        cur = known.get(ev["id"]) or {}
-        return cur if "reported_by" in cur else (api.get_event(ev["id"]) or {})
-
-    if current(existing[0]).get("reported_by"):
-        return
-    for ev in existing:
-        if current(ev).get("reported_by"):
+    plans for it. Every candidate is checked, since a fill that failed part
+    way must finish on the next run; the patrol read does not say what an
+    event's `reported_by` is, so each is read before it is patched. The
+    ledger's `reporters` stage, set only once every candidate is done,
+    keeps a later run from paying those reads again."""
+    for ev in planned:
+        cur = known.get(ev["id"])
+        if cur is None or not ev.get("reported_by"):
+            continue
+        if "reported_by" not in cur:
+            cur = api.get_event(ev["id"]) or {}
+        if cur.get("reported_by"):
             continue
         api.patch_event(ev["id"], {"reported_by": ev["reported_by"]})
         counts["events_reported_by_backfilled"] += 1
+
+
+def _planned_events(bundle, patrol, plan, ns, resolver) -> list:
+    """The events this run would write for the patrol, with their reporters."""
+    out = []
+    for leg in patrol["legs"]:
+        seg_id = plan.segment_ids[leg["uuid"]]
+        lt = plan.leg_times[leg["uuid"]]
+        day_start = {d.leg_day_uuid: d.start.isoformat() for d in lt.days}
+        fallback = leg_fallback_subject(leg, resolver)
+        for w in leg["waypoints"]:
+            wp = build_waypoint(bundle, w, seg_id, ns, resolver, day_start.get(w["leg_day_uuid"]), fallback)
+            if wp is not None:
+                out += ([wp.parent] if wp.parent else []) + wp.events
+    return out
+
+
+def _fill_reporters(api, bundle, patrol, plan, ns, resolver, counts, known: dict | None) -> None:
+    """The reporters stage alone, for a patrol whose events are on the site
+    from a version that wrote none: one patrol read, then the fill."""
+    if known is None:
+        known = ERPatrolAPI.events_of(api.get_patrol(plan.patrol["id"]))
+    _backfill_reported_by(api, _planned_events(bundle, patrol, plan, ns, resolver), known, counts)
 
 
 def _create_event_safely(api, ev: dict, counts) -> dict:
@@ -394,6 +412,11 @@ def _import_one(
             _import_events(api, bundle, p, plan, ns, resolver, ledger, counts, known)
             ledger.done(p["uuid"], "events")
             ledger.drop_id(p["uuid"], "attached")
+            ledger.done(p["uuid"], "reporters")   # written with reported_by, or filled in
+        elif "reporters" in want and "reporters" not in done:
+            # events written by a version before reported_by: fill it, with no other replay
+            _fill_reporters(api, bundle, p, plan, ns, resolver, counts, known)
+            ledger.done(p["uuid"], "reporters")
         if "tracks" in want and "tracks" not in done:
             _import_tracks(
                 api, p, plan, by_day, subjects, counts, sources, sources_lock
@@ -439,7 +462,7 @@ def run_import(
     selected = []
     want = (
         {"patrol"}
-        | (set() if opts.skip_events else {"events"})
+        | (set() if opts.skip_events else {"events", "reporters"})
         | (set() if opts.skip_tracks else {"tracks"})
     )
     # --limit counts patrols still to do, so successive runs move on

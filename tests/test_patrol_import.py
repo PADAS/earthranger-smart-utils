@@ -1,4 +1,5 @@
 import shutil
+import json
 from collections import Counter
 from pathlib import Path
 
@@ -45,6 +46,7 @@ class FakeAPI:
         self.fail_patrol = None
         self.reject_event = None
         self.log = []  # the write calls, in order
+        self.fail_patch_after = None   # patch_event raises once this many have succeeded
         self.fail_assign_once = False
 
     # reads (the preflight in these tests runs check_event_types only)
@@ -120,6 +122,8 @@ class FakeAPI:
         return self.events.get(i)
 
     def patch_event(self, i, p):
+        if self.fail_patch_after is not None and self.calls["patch_event"] >= self.fail_patch_after:
+            raise RuntimeError("patch boom")
         self.calls["patch_event"] += 1
         self.events[i] = {**self.events[i], **p}
         return self.events[i]
@@ -491,25 +495,66 @@ def test_rerun_without_ledger_uses_the_patrol_event_list(tmp_path):
     assert r.exit_code == 0 and api.calls["create_event"] == created
     assert r.counts["events_existing"] == 141 + 18
     # the patrol GET carried the event ids; the event reads are the lazy file-list read in
-    # _attach, one per waypoint with photos, and one probe per patrol with events, which
-    # finds reported_by set and patches nothing
-    assert api.calls["get_event"] == 1 + sum(1 for p in api.patrols.values() if any(s["id"] in e.get("patrol_segments", []) for e in api.events.values() for s in p["patrol_segments"]))
+    # _attach, one per waypoint with photos, and, with no ledger to say the reporters are
+    # set, one per existing event to check them: all set, so nothing is patched
+    assert api.calls["get_event"] == 1 + len(api.events)
     assert api.calls["patch_event"] == 0 and r.counts["events_reported_by_backfilled"] == 0
 
 
-def test_a_rerun_fills_reported_by_on_events_an_earlier_version_left_empty(tmp_path):
+def _as_an_older_version_left_it(api, tmp_path):
+    """A completed import whose events have no reported_by and whose ledger
+    knows nothing of the reporters stage."""
+    for e in api.events.values():
+        e.pop("reported_by")
+    led = json.loads((tmp_path / "ledger.json").read_text())
+    for site in led.values():
+        for rec in site["patrols"].values():
+            rec["stages"] = [s for s in rec["stages"] if s != "reporters"]
+    (tmp_path / "ledger.json").write_text(json.dumps(led))
+
+
+def _stages(tmp_path):
+    led = json.loads((tmp_path / "ledger.json").read_text())
+    return [rec["stages"] for site in led.values() for rec in site["patrols"].values()]
+
+
+def test_a_rerun_with_the_old_ledger_fills_reported_by_without_replaying_anything(tmp_path):
     b = load_bundle(FIXTURE)
     api = FakeAPI(b)
     _run(api, b, tmp_path)
     n = len(api.events)
     assert all(e.get("reported_by") for e in api.events.values())   # every event names a subject
-    for e in api.events.values():
-        e.pop("reported_by")   # as a run of 0.9 left them
-    (tmp_path / "ledger.json").unlink()
+    _as_an_older_version_left_it(api, tmp_path)
+    before, posts = Counter(api.calls), api.log.count("post_observations")
     r = _run(api, b, tmp_path)
-    assert r.exit_code == 0 and api.calls["create_event"] == n
+    assert r.exit_code == 0
     assert api.calls["patch_event"] == n and r.counts["events_reported_by_backfilled"] == n
     assert all(e["reported_by"]["content_type"] == "observations.subject" for e in api.events.values())
+    # nothing else was written again: no event, patrol, track point or attachment
+    for k in ("create_event", "create_events", "create_patrol"):
+        assert api.calls[k] == before[k], k
+    assert api.log.count("post_observations") == posts and len(api.files) == before["post_file"] + 0
+    assert all("reporters" in st for st in _stages(tmp_path))
+    # a third run has nothing to do and reads no event for it
+    reads = api.calls["get_event"]
+    r = _run(api, b, tmp_path)
+    assert r.exit_code == 0 and api.calls["patch_event"] == n and api.calls["get_event"] == reads
+
+
+def test_a_fill_that_fails_part_way_finishes_on_the_next_run(tmp_path):
+    b = load_bundle(FIXTURE)
+    api = FakeAPI(b)
+    _run(api, b, tmp_path)
+    n = len(api.events)
+    _as_an_older_version_left_it(api, tmp_path)
+    api.fail_patch_after = 1   # the first patch lands, the second raises
+    r = _run(api, b, tmp_path)
+    assert r.exit_code != 0 and api.calls["patch_event"] == 1
+    assert not all("reporters" in st for st in _stages(tmp_path))
+    api.fail_patch_after = None
+    r = _run(api, b, tmp_path)
+    assert r.exit_code == 0 and api.calls["patch_event"] == n   # the one already set is not patched again
+    assert all(e.get("reported_by") for e in api.events.values()) and all("reporters" in st for st in _stages(tmp_path))
 
 
 def test_orphaned_events_after_a_deleted_patrol_are_recovered(tmp_path):

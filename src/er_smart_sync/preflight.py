@@ -193,11 +193,10 @@ def check_language(ctx: PreflightContext) -> list:
 
 
 def check_observers(ctx: PreflightContext) -> list:
-    """An event's `reported_by` is the observer's subject, else the leg leader's
-    or first member's. An observation with none of those stays unreported."""
-    from .smart_to_er_patrol_schema import build_subjects
-
-    with_subject = {s.smart_member_id for s in build_subjects(ctx.bundle)}
+    """An event's `reported_by` is the observer's subject on the site, else the
+    leg leader's or first member's: the importer's own rule, against the
+    subjects the site has. An observation with none of those stays unreported."""
+    with_subject = set(subjects_by_member(ctx))
     bad, affected = [], set()
     for p in ctx.bundle.patrols:
         for leg in p["legs"]:

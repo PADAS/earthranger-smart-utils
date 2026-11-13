@@ -9,7 +9,7 @@ which carry the full commit-level history.
 
 ### Added
 
-**Imported events carry `reported_by`**: the observer's subject, as SMART recorded it on the observation; an observation whose observer has no subject is reported by the leg's leader, else its first member. A waypoint's collection event reports as its first observation. A later run fills the field on events an earlier version left empty (one event read where the patrol listing does not say, then a patch). `import-patrols` counts `events_reported_by` and `events_reported_by_backfilled`; preflight warns (`observers`) about observations nobody can be said to have reported.
+**Imported events carry `reported_by`**: the observer's subject, as SMART recorded it on the observation; an observation whose observer has no subject is reported by the leg's leader, else its first member. A waypoint's collection event reports as its first observation. A later run fills the field on events an earlier version left empty, with the ledger kept: the new `reporters` stage runs for a patrol whose events are done, reads each event (the patrol listing does not say) and patches the empty ones, and is marked only once every one is done, so a fill that fails part way finishes next time and a finished one costs no reads. `import-patrols` counts `events_reported_by` and `events_reported_by_backfilled`; preflight warns (`observers`) about observations nobody can be said to have reported.
 
 ## 0.10.0 — 2026-10-23
 
