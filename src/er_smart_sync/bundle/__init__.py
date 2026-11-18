@@ -153,7 +153,8 @@ class TrackStore:
             if e["offset"] != at:
                 what = "overlaps the one before" if e["offset"] < at else "leaves a gap"
                 raise BundleError(
-                    f"tracks.index.json: patrol {uuid}: offset {e['offset']} {what} (expected {at})"
+                    f"tracks.index.json: patrol {uuid}: offset {e['offset']} "
+                    f"{what} (expected {at})"
                 )
             at += e["length"]
         if at != size:
