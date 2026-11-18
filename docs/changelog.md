@@ -5,6 +5,18 @@ Notable changes by version. Every release is also published to
 [GitHub Releases](https://github.com/PADAS/earthranger-smart-utils/releases),
 which carry the full commit-level history.
 
+## Unreleased
+
+### Changed
+
+**A bundle's tracks are read for one patrol at a time**, so the memory `import-patrols` and `patrol-preflight` need no longer grows with a conservation area's tracks. A bundle with an 800 MiB `tracks.json` needed about 3.5 GiB to load; the same tracks in a version 2 bundle need only the patrol being imported.
+
+**Bundles of version 2 are read**: `tracks.jsonl` holds one track per line with a patrol's lines together, and `tracks.index.json` gives each patrol's byte range and counts. Version 1 bundles (`tracks.json`) are read as before, with the memory they needed before; re-export one with a current smart-able to get version 2.
+
+**A track that cannot be read fails its patrol, not the bundle.** In a version 2 bundle a track is checked against the schema when its patrol is imported, so a bad one is that patrol's error and the rest are imported. The index is checked when the bundle is loaded.
+
+**`Bundle.tracks` is a `TrackStore`**, no longer a list: `for_patrol(uuid)`, `points(uuid)`, `count(uuid)` and `patrol_uuids()`. It can still be iterated and has a length.
+
 ## 0.10.2 — 2026-11-13
 
 ### Fixed
