@@ -278,3 +278,32 @@ def test_for_patrol_from_many_threads(tmp_path):
     with ThreadPoolExecutor(16) as pool:
         got = list(pool.map(lambda u: (u, b.tracks.for_patrol(u)), uuids * 50))
     assert all(tracks == want[u] for u, tracks in got)
+
+
+def test_v1_files_a_track_under_the_patrol_that_owns_its_leg_day(tmp_path):
+    """The import has always found a track by its leg day. A version 1 bundle whose track names
+    another patrol than its leg day's (no exporter writes one) still gives it to the owner."""
+    shutil.copytree(FIXTURE, tmp_path / "b")
+    doc = json.loads((tmp_path / "b" / "tracks.json").read_text())
+    good = load_bundle(FIXTURE)
+    t = doc["tracks"][0]
+    owner = t["patrol_uuid"]
+    other = next(p["uuid"] for p in good.patrols if p["uuid"] != owner)
+    t["patrol_uuid"] = other
+    (tmp_path / "b" / "tracks.json").write_text(json.dumps(doc))
+    b = load_bundle(tmp_path / "b")
+    assert [x["uuid"] for x in b.tracks.for_patrol(owner)] == [x["uuid"] for x in good.tracks.for_patrol(owner)]
+    assert t["uuid"] not in [x["uuid"] for x in b.tracks.for_patrol(other)]
+    assert b.tracks.points(owner) == good.tracks.points(owner) and len(b.tracks) == len(good.tracks)
+
+
+def test_a_tracks_file_that_goes_away_is_the_patrols_error(tmp_path):
+    d = to_v2(FIXTURE, tmp_path / "v2")
+    b = load_bundle(d)
+    u = sorted(b.tracks.patrol_uuids())[0]
+    (d / "tracks.jsonl").unlink()
+    with pytest.raises(BundleError, match=f"patrol {u}: cannot be read"):
+        b.tracks.for_patrol(u)
+    (d / "tracks.jsonl").write_bytes(b"x" * 10)
+    with pytest.raises(BundleError, match="does not match its index"):
+        b.tracks.for_patrol(u)

@@ -126,12 +126,22 @@ class TrackStore:
         self._validator = None
 
     @classmethod
-    def from_list(cls, tracks: list) -> TrackStore:
+    def from_list(cls, tracks: list, patrols: list | None = None) -> "TrackStore":
+        """Version 1: every track, already parsed. A track is filed under the
+        patrol that owns its leg day (as the import always found it, by leg
+        day), and under its own patrol_uuid only if no patrol has that day."""
+        owner = {
+            day["uuid"]: p["uuid"]
+            for p in patrols or []
+            for leg in p.get("legs") or []
+            for day in leg.get("days") or []
+        }
         store = cls()
         store._all = tracks
         store._by_patrol = {}
         for t in tracks:
-            store._by_patrol.setdefault(t["patrol_uuid"], []).append(t)
+            patrol = owner.get(t["leg_day_uuid"], t["patrol_uuid"])
+            store._by_patrol.setdefault(patrol, []).append(t)
         return store
 
     @classmethod
@@ -169,12 +179,20 @@ class TrackStore:
         e = self._index.get(patrol_uuid)
         if not e:
             return []
-        with open(self._path, "rb") as f:  # its own handle: safe from several threads
-            f.seek(e["offset"])
-            raw = f.read(e["length"])
         where = f"{TRACKS_JSONL}: patrol {patrol_uuid}"
+        try:
+            with open(
+                self._path, "rb"
+            ) as f:  # its own handle: safe from several threads
+                f.seek(e["offset"])
+                raw = f.read(e["length"])
+        except OSError as err:  # the file went away after the bundle was loaded
+            raise BundleError(f"{where}: cannot be read ({err})") from None
         if len(raw) != e["length"] or not raw.endswith(b"\n"):
-            raise BundleError(f"{where}: its lines are cut short")
+            raise BundleError(
+                f"{where}: the file does not match its index (the patrol's "
+                f"lines do not end where the index says)"
+            )
         lines = raw[:-1].split(b"\n")
         if len(lines) != e["tracks"]:
             raise BundleError(
@@ -342,7 +360,9 @@ def load_bundle(path: Path, *, language: str | None = None) -> Bundle:
             path / TRACKS_JSONL, docs["tracks.index"], schema
         )
     else:
-        tracks = TrackStore.from_list(docs["tracks"]["tracks"])
+        tracks = TrackStore.from_list(
+            docs["tracks"]["tracks"], docs["patrols"]["patrols"]
+        )
     m = docs["manifest"]
     manifest = Manifest(**{k: m[k] for k in Manifest.__dataclass_fields__})
     codes = [lang["code"] for lang in manifest.languages]

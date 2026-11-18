@@ -15,7 +15,8 @@ def write_tracks(tracks: list, dst: Path) -> dict:
     index: dict = {}
     at = 0
     with open(dst / "tracks.jsonl", "wb") as f:
-        for t in sorted(tracks, key=lambda t: (t["patrol_uuid"], t["leg_day_uuid"], t["uuid"])):
+        # a stable sort: the tracks of one leg day keep the order they came in
+        for t in sorted(tracks, key=lambda t: (t["patrol_uuid"], t["leg_day_uuid"])):
             raw = line(t)
             f.write(raw)
             e = index.setdefault(t["patrol_uuid"], {"offset": at, "length": 0, "tracks": 0, "points": 0})
