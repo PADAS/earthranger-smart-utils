@@ -2,9 +2,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/PADAS/er-smart-able/export/bundle.schema.json",
   "title": "smart-able migration bundle",
-  "description": "Four JSON files written by `smart-able export` under work/export/<ca_id>/bundle/. Validate each file against $defs/<file name without .json>. bundle_schema_version 1.",
+  "description": "The files written by `smart-able export` under work/export/<ca_id>/bundle/. manifest.json, reference.json and patrols.json: validate each against $defs/<file name without .json>. Tracks, bundle_schema_version 2: tracks.jsonl holds one track per line ($defs/track), a patrol's lines together, and tracks.index.json ($defs/tracks_index) gives each patrol's byte range in it. Tracks, bundle_schema_version 1: tracks.json ($defs/tracks).",
   "oneOf": [
-    {"$ref": "#/$defs/manifest"}, {"$ref": "#/$defs/reference"}, {"$ref": "#/$defs/patrols"}, {"$ref": "#/$defs/tracks"}
+    {"$ref": "#/$defs/manifest"}, {"$ref": "#/$defs/reference"}, {"$ref": "#/$defs/patrols"}, {"$ref": "#/$defs/tracks"}, {"$ref": "#/$defs/tracks_index"}
   ],
   "$defs": {
     "uuid": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},
@@ -22,7 +22,7 @@
     "manifest": {
       "type": "object",
       "properties": {
-        "bundle_schema_version": {"type": "integer", "const": 1},
+        "bundle_schema_version": {"type": "integer", "enum": [1, 2]},
         "generated_at": {"$ref": "#/$defs/timestamp"},
         "generator": {"type": "object", "properties": {"name": {"type": "string"}, "version": {"type": "string"}}, "required": ["name", "version"]},
         "source": {"type": "object", "properties": {"kind": {"enum": ["backup", "export", null]}, "file": {"type": ["string", "null"]}, "smart_version": {"type": ["string", "null"]}}, "required": ["kind", "file", "smart_version"]},
@@ -99,6 +99,28 @@
                      "parts": {"type": "array", "items": {"type": "object", "properties": {"coordinates": {"type": "array", "items": {"$ref": "#/$defs/lonlat"}}, "times": {"type": "array", "items": {"$ref": "#/$defs/timestamp"}}}, "required": ["coordinates"]}}},
       "required": ["uuid", "leg_day_uuid", "leg_uuid", "patrol_uuid", "distance_km", "start", "end", "parts"]
     },
-    "tracks": {"type": "object", "properties": {"tracks": {"type": "array", "items": {"$ref": "#/$defs/track"}}}, "required": ["tracks"]}
+    "tracks": {"type": "object", "properties": {"tracks": {"type": "array", "items": {"$ref": "#/$defs/track"}}}, "required": ["tracks"]},
+
+    "tracks_index": {
+      "type": "object",
+      "properties": {
+        "patrols": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "offset": {"type": "integer", "minimum": 0},
+              "length": {"type": "integer", "minimum": 1},
+              "tracks": {"type": "integer", "minimum": 1},
+              "points": {"type": "integer", "minimum": 0}
+            },
+            "required": ["offset", "length", "tracks", "points"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": ["patrols"],
+      "additionalProperties": false
+    }
   }
 }

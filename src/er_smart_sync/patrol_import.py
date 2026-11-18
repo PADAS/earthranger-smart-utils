@@ -409,7 +409,6 @@ def _import_one(
     resolver,
     subjects,
     tz,
-    by_day,
     importer_version,
     sources,
     sources_lock,
@@ -422,6 +421,9 @@ def _import_one(
         return p["uuid"], counts, None
     logger.info("patrol %s: starting", p.get("id"))
     try:
+        # this patrol's tracks only: a bundle's tracks are too many to hold at once,
+        # and a track that cannot be read is this patrol's failure, not the run's
+        by_day = tracks_by_day(bundle.tracks.for_patrol(p["uuid"]))
         plan = build_patrol(bundle, p, ns, resolver, tz, by_day, importer_version)
         known: set | None = None
         if "patrol" not in done:
@@ -498,7 +500,6 @@ def run_import(
     resolver, subjects = _resolver(api, bundle, report)
     resolver.collection_type = api.collection_event_type()
     tz = ZoneInfo(bundle.manifest.timezone["name"])
-    by_day = tracks_by_day(bundle.tracks)
     todo = [p for p in selected if not {"patrol"} <= ledger.stages(p["uuid"])]
     sources: dict = {}
     sources_lock = threading.Lock()
@@ -509,7 +510,6 @@ def run_import(
         resolver=resolver,
         subjects=subjects,
         tz=tz,
-        by_day=by_day,
         importer_version=importer_version,
         sources=sources,
         sources_lock=sources_lock,

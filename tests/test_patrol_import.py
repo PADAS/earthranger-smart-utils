@@ -1009,3 +1009,71 @@ def test_a_reporters_only_run_counts_what_it_filled_as_reported(tmp_path):
     _as_an_older_version_left_it(api, tmp_path)
     r = _run(api, b, tmp_path)
     assert r.counts["events_reported_by_backfilled"] == n and r.counts["events_reported_by"] == n
+
+
+# ---- bundle version 2: tracks are read for the patrol being imported
+def _state(site):
+    dump = lambda x: json.dumps(x, sort_keys=True, default=str)  # noqa: E731
+    base = site.base
+    return (
+        sorted(dump(p) for p in base.patrols.values()),
+        sorted(dump(e) for e in base.events.values()),
+        sorted(dump(o) for o in base.observations),
+        sorted(base.sources),
+    )
+
+
+@pytest.mark.parametrize("workers", [1, 4])
+def test_a_v2_bundle_imports_the_same_as_v1(tmp_path, workers):
+    from .bundle_v2 import to_v2
+
+    v1, v2 = load_bundle(FIXTURE), load_bundle(to_v2(FIXTURE, tmp_path / "v2"))
+    old, new = SharedSite(v1), SharedSite(v2)
+    (tmp_path / "a").mkdir(), (tmp_path / "b").mkdir()
+    r1 = _run_workers(old, v1, tmp_path / "a", workers=workers)
+    r2 = _run_workers(new, v2, tmp_path / "b", workers=workers)
+    assert r2.exit_code == 0 and not r2.failed and len(r2.imported) == 5
+    assert r2.counts == r1.counts and r2.counts["track_points"] > 0
+    assert _state(new) == _state(old) and len(new.base.observations) > 0
+
+
+def test_a_bad_track_line_fails_that_patrol_and_no_other(tmp_path):
+    from .bundle_v2 import to_v2
+
+    d = to_v2(FIXTURE, tmp_path / "v2")
+    index = json.loads((d / "tracks.index.json").read_text())["patrols"]
+    bad = min(index, key=lambda u: index[u]["offset"])
+    raw = bytearray((d / "tracks.jsonl").read_bytes())
+    raw[index[bad]["offset"]] = ord("[")
+    (d / "tracks.jsonl").write_bytes(bytes(raw))
+    b = load_bundle(d)
+    r = _run(FakeAPI(b), b, tmp_path)
+    assert list(r.failed) == [bad] and "BundleError" in r.failed[bad] and bad in r.failed[bad]
+    led = ImportLedger(tmp_path / "ledger.json", "site|ca")
+    for p in b.patrols:
+        if p["uuid"] != bad:
+            assert {"patrol", "events", "tracks"} <= led.stages(p["uuid"])
+    assert not led.stages(bad)
+
+
+def test_importing_does_not_hold_the_other_patrols_tracks(tmp_path):
+    import tracemalloc
+
+    from .bundle_v2 import to_v2
+    from .test_bundle import pad
+
+    def peak(d, work):
+        work.mkdir()
+        tracemalloc.start()
+        b = load_bundle(d)
+        r = _run(FakeAPI(b), b, work)
+        _, p = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+        assert r.exit_code == 0 and len(r.imported) == 5
+        return p
+
+    d = to_v2(FIXTURE, tmp_path / "v2")
+    small = peak(d, tmp_path / "w1")
+    size = pad(d, 32)
+    big = peak(d, tmp_path / "w2")
+    assert big - small < 12 * 1048576, f"{(big - small) / 1048576:.1f} MiB more for a {size / 1048576:.0f} MiB tracks.jsonl"
