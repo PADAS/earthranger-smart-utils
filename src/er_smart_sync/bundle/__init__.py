@@ -1,7 +1,14 @@
-"""The smart-able migration bundle: four JSON files produced by
-`smart-able export` (manifest, reference, patrols, tracks). This module
-loads them, validates them against the vendored schema, and resolves labels
-in the chosen language. It knows nothing about EarthRanger.
+"""The smart-able migration bundle: the files produced by `smart-able
+export` (manifest, reference, patrols, tracks). This module loads them,
+validates them against the vendored schema, and resolves labels in the
+chosen language. It knows nothing about EarthRanger.
+
+Tracks are the bulk of a bundle: hundreds of megabytes for a large
+conservation area. A version 2 bundle keeps them one per line in
+tracks.jsonl, a patrol's lines together, with each patrol's byte range in
+tracks.index.json, and they are read a patrol at a time (TrackStore), so
+memory does not grow with the area. A version 1 bundle has them all in
+tracks.json, which is read whole, as it always was.
 """
 
 from __future__ import annotations
@@ -13,9 +20,11 @@ from typing import Any
 
 import jsonschema
 
-SUPPORTED_SCHEMA_VERSION = 1
+SUPPORTED_SCHEMA_VERSIONS = (1, 2)
 SCHEMA_PATH = Path(__file__).with_name("schema.json")
-FILES = ("manifest", "reference", "patrols", "tracks")
+FILES = ("manifest", "reference", "patrols", "tracks")  # version 1
+FILES_V2 = ("manifest", "reference", "patrols", "tracks.index")
+TRACKS_JSONL = "tracks.jsonl"
 
 
 class BundleError(Exception):
@@ -96,13 +105,133 @@ def _labelled(d: dict, *extra_keys: str) -> Labelled:
     )
 
 
+def _points(track: dict) -> int:
+    return sum(len(part.get("coordinates") or []) for part in track.get("parts") or [])
+
+
+class TrackStore:
+    """A bundle's tracks, asked for a patrol at a time.
+
+    Version 2 holds only the index and reads a patrol's lines from
+    tracks.jsonl when asked; version 1 holds the list tracks.json parsed
+    to. Iterating gives every track (a patrol at a time for version 2, so
+    still without holding the file) and len() is the number of tracks.
+    """
+
+    def __init__(self):
+        self._by_patrol: dict | None = None  # version 1: patrol uuid -> tracks
+        self._all: list = []
+        self._path: Path | None = None  # version 2: tracks.jsonl
+        self._index: dict = {}
+        self._validator = None
+
+    @classmethod
+    def from_list(cls, tracks: list) -> TrackStore:
+        store = cls()
+        store._all = tracks
+        store._by_patrol = {}
+        for t in tracks:
+            store._by_patrol.setdefault(t["patrol_uuid"], []).append(t)
+        return store
+
+    @classmethod
+    def from_files(cls, jsonl: Path, index: dict, schema: dict) -> TrackStore:
+        """index is tracks.index.json, already checked against the schema.
+        Its ranges must cover tracks.jsonl exactly, in order, with no gap."""
+        store = cls()
+        store._path = Path(jsonl)
+        store._index = index["patrols"]
+        store._validator = jsonschema.Draft202012Validator(
+            {"$ref": "#/$defs/track", "$defs": schema["$defs"]}
+        )
+        if not store._path.is_file():
+            raise BundleError(
+                f"{store._path}: missing; a version 2 bundle has {TRACKS_JSONL}"
+            )
+        size, at = store._path.stat().st_size, 0
+        for uuid, e in sorted(store._index.items(), key=lambda kv: kv[1]["offset"]):
+            if e["offset"] != at:
+                what = "overlaps the one before" if e["offset"] < at else "leaves a gap"
+                raise BundleError(
+                    f"tracks.index.json: patrol {uuid}: offset {e['offset']} {what} (expected {at})"
+                )
+            at += e["length"]
+        if at != size:
+            raise BundleError(
+                f"tracks.index.json: covers {at} bytes but {TRACKS_JSONL} is {size}"
+            )
+        return store
+
+    def for_patrol(self, patrol_uuid: str) -> list:
+        if self._by_patrol is not None:
+            return self._by_patrol.get(patrol_uuid, [])
+        e = self._index.get(patrol_uuid)
+        if not e:
+            return []
+        with open(self._path, "rb") as f:  # its own handle: safe from several threads
+            f.seek(e["offset"])
+            raw = f.read(e["length"])
+        where = f"{TRACKS_JSONL}: patrol {patrol_uuid}"
+        if len(raw) != e["length"] or not raw.endswith(b"\n"):
+            raise BundleError(f"{where}: its lines are cut short")
+        lines = raw[:-1].split(b"\n")
+        if len(lines) != e["tracks"]:
+            raise BundleError(
+                f"{where}: {len(lines)} lines where the index says {e['tracks']}"
+            )
+        out = []
+        for n, line in enumerate(lines, 1):
+            try:
+                t = json.loads(line)
+            except ValueError as err:  # not JSON, or not UTF-8
+                raise BundleError(
+                    f"{where}: line {n}: not valid JSON ({err})"
+                ) from None
+            error = next(iter(self._validator.iter_errors(t)), None)
+            if error:
+                at = "/".join(str(p) for p in error.path) or "(root)"
+                raise BundleError(f"{where}: line {n}: {at}: {error.message}")
+            if t["patrol_uuid"] != patrol_uuid:
+                raise BundleError(
+                    f"{where}: line {n}: belongs to patrol {t['patrol_uuid']}"
+                )
+            out.append(t)
+        return out
+
+    def count(self, patrol_uuid: str) -> int:
+        if self._by_patrol is not None:
+            return len(self._by_patrol.get(patrol_uuid, []))
+        return self._index.get(patrol_uuid, {}).get("tracks", 0)
+
+    def points(self, patrol_uuid: str) -> int:
+        """Track points of a patrol; from the index, without reading its tracks."""
+        if self._by_patrol is not None:
+            return sum(_points(t) for t in self._by_patrol.get(patrol_uuid, []))
+        return self._index.get(patrol_uuid, {}).get("points", 0)
+
+    def patrol_uuids(self) -> set:
+        return set(self._index if self._by_patrol is None else self._by_patrol)
+
+    def __iter__(self):
+        if self._by_patrol is not None:
+            yield from self._all
+            return
+        for uuid, _ in sorted(self._index.items(), key=lambda kv: kv[1]["offset"]):
+            yield from self.for_patrol(uuid)
+
+    def __len__(self) -> int:
+        if self._by_patrol is not None:
+            return len(self._all)
+        return sum(e["tracks"] for e in self._index.values())
+
+
 @dataclass
 class Bundle:
     path: Path
     manifest: Manifest
     reference: Reference
     patrols: list
-    tracks: list
+    tracks: TrackStore
     language: str
 
     @property
@@ -163,17 +292,17 @@ class Bundle:
         }
 
 
-def _read(path: Path, name: str, schema: dict) -> Any:
+def _read(path: Path, name: str, schema: dict, files: tuple = FILES) -> Any:
     f = path / f"{name}.json"
     if not f.exists():
-        names = ", ".join(n + ".json" for n in FILES)
+        names = ", ".join(n + ".json" for n in files)
         raise BundleError(f"{f}: missing; a bundle has {names}")
     try:
         doc = json.loads(f.read_text(encoding="utf-8"))
     except json.JSONDecodeError as e:
         raise BundleError(f"{name}.json: not valid JSON ({e})") from None
     validator = jsonschema.Draft202012Validator(
-        {"$ref": f"#/$defs/{name}", "$defs": schema["$defs"]}
+        {"$ref": f"#/$defs/{name.replace('.', '_')}", "$defs": schema["$defs"]}
     )
     errors = sorted(validator.iter_errors(doc), key=lambda e: list(e.path))
     if errors:
@@ -196,17 +325,23 @@ def load_bundle(path: Path, *, language: str | None = None) -> Bundle:
         except json.JSONDecodeError:
             doc = None  # _read reports the parse error
         # a manifest that is not an object is left for _read's schema check
-        version = (
-            doc.get("bundle_schema_version")
-            if isinstance(doc, dict)
-            else SUPPORTED_SCHEMA_VERSION
-        )
-        if version != SUPPORTED_SCHEMA_VERSION:
+        version = doc.get("bundle_schema_version") if isinstance(doc, dict) else 1
+        if version not in SUPPORTED_SCHEMA_VERSIONS:
             raise BundleError(
                 f"manifest.json: bundle_schema_version {version!r} is not supported; "
-                f"this er-smart-sync reads version {SUPPORTED_SCHEMA_VERSION}"
+                f"this er-smart-sync reads versions "
+                f"{' and '.join(str(v) for v in SUPPORTED_SCHEMA_VERSIONS)}"
             )
-    docs = {name: _read(path, name, schema) for name in FILES}
+    else:
+        version = 1  # _read reports the missing manifest
+    names = FILES_V2 if version == 2 else FILES
+    docs = {name: _read(path, name, schema, names) for name in names}
+    if version == 2:  # the tracks stay on disk; only their index is read
+        tracks = TrackStore.from_files(
+            path / TRACKS_JSONL, docs["tracks.index"], schema
+        )
+    else:
+        tracks = TrackStore.from_list(docs["tracks"]["tracks"])
     m = docs["manifest"]
     manifest = Manifest(**{k: m[k] for k in Manifest.__dataclass_fields__})
     codes = [lang["code"] for lang in manifest.languages]
@@ -257,6 +392,6 @@ def load_bundle(path: Path, *, language: str | None = None) -> Bundle:
         manifest=manifest,
         reference=reference,
         patrols=docs["patrols"]["patrols"],
-        tracks=docs["tracks"]["tracks"],
+        tracks=tracks,
         language=lang,
     )
