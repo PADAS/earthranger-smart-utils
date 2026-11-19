@@ -34,6 +34,7 @@ def push_datamodel_files(
     event_type_version: str = "v2",
     mode: str = "both",
     skip_choices: bool = False,
+    additive: bool = False,
     synchronizer: ERSmartSynchronizer | None = None,
 ) -> dict:
     """Push the data model in `datamodel_file` (and the configurable model in
@@ -42,7 +43,12 @@ def push_datamodel_files(
 
     `synchronizer` lets a caller (the CLI) supply a ready-made synchronizer, in
     which case `er_client` and the config-derived arguments are not used to
-    build one."""
+    build one.
+
+    `additive` is for event types and choice lists that several conservation
+    areas share on one site: the push adds to them and takes nothing away. No
+    option or event type is deactivated, an existing event type keeps its
+    category, and new ones join the category the others are already in."""
     if cm_uuid and not cm_file:
         raise PushArgumentError("cm_uuid needs cm_file")
     if include_base_datamodel and not cm_file:
@@ -91,6 +97,7 @@ def push_datamodel_files(
         sync = ERSmartSynchronizer(config=config, er_client=er_client)
     sync.sync_mode = mode
     sync.skip_choices = skip_choices
+    sync.additive = additive
     sync.observed_categories = observed
     # Without a CM: push the base data model. With a CM and include_base_datamodel:
     # the base model as its own category first, then the CM as a second one.

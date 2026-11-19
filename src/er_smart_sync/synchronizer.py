@@ -189,6 +189,33 @@ def _is_message_too_large(exc: BaseException) -> bool:
     return any(cls.__name__ == "MessageTooLargeError" for cls in type(exc).__mro__)
 
 
+def _category_value(category) -> str | None:
+    """An event type's category as ER returns it: a value, or an object with one."""
+    if isinstance(category, dict):
+        return category.get("value")
+    return category or None
+
+
+_UUID_THEN_UNDERSCORE = re.compile(
+    r"[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}_"
+)
+
+
+def _set_prefix(ca_uuid: str, cm: dict | None) -> str:
+    """What every event type value of one (CA, CM) scope starts with; see
+    choices.event_type_value_for."""
+    if cm:
+        return f"{ca_uuid}_{cm['cm_uuid']}_".lower()
+    return f"{ca_uuid}_".lower()
+
+
+def _has_set_prefix(value, prefix: str | None) -> bool:
+    if not prefix or not isinstance(value, str) or not value.startswith(prefix):
+        return False
+    # "<ca>_" also begins every "<ca>_<cm uuid>_..." value: those are another set
+    return not _UUID_THEN_UNDERSCORE.match(value[len(prefix) :])
+
+
 class ERSmartSynchronizer:
     """Synchronizes data between SMART Connect and EarthRanger.
 
@@ -250,7 +277,13 @@ class ERSmartSynchronizer:
             "choices_unchanged": 0,
             "choices_deactivated": 0,
             "choices_errored": 0,
+            # the category value the last push put its event types in
+            "event_category": "",
         }
+        # An additive push only adds to what is on the site: for event types
+        # and choice lists several conservation areas share. Set by the caller,
+        # like sync_mode.
+        self.additive = False
 
         if er_client:
             self.er_client = er_client
@@ -409,6 +442,8 @@ class ERSmartSynchronizer:
             choices_stats = upsert_choices(
                 er_client=self.er_client,
                 choice_sets=choice_sets,
+                deactivate_orphans=not self.additive,
+                keep_active=self.additive,
             )
             self.datamodel_stats["choices_created"] += choices_stats.created
             self.datamodel_stats["choices_updated"] += choices_stats.updated
@@ -467,6 +502,18 @@ class ERSmartSynchronizer:
             ca_label=ca_identifier,
             cm_label=getattr(cm, "_name", None),
         )
+        existing_event_types = None
+        if self.additive:
+            existing_event_types = self._existing_event_types()
+            shared = self._category_of_existing(
+                event_types,
+                existing_event_types,
+                prefix=_set_prefix(smart_ca_uuid, cdm_dict),
+            )
+            if shared:
+                # the set is already on the site: its new types join it there
+                event_category_value = shared
+        self.datamodel_stats["event_category"] = event_category_value
 
         cm_name = getattr(cm, "_name", None) if cm else None
         event_category_display = (
@@ -545,7 +592,9 @@ class ERSmartSynchronizer:
             self.datamodel_stats["categories_existing"] += 1
 
         self.create_or_update_er_event_types(
-            event_category=event_category, event_types=event_types
+            event_category=event_category,
+            event_types=event_types,
+            existing_event_types=existing_event_types,
         )
         logger.info(
             f"Finished syncing {len(event_types)} event_types for event_category {event_category.get('display')}"
@@ -1099,13 +1148,48 @@ class ERSmartSynchronizer:
                 ),
             )
 
+    def _existing_event_types(self) -> list:
+        if self._er_event_types_cache is not None:
+            return self._er_event_types_cache
+        return self.er_client.get_event_types(
+            include_inactive=True,
+            include_schema=True,
+            version=self._event_type_version,
+        )
+
+    @staticmethod
+    def _category_of_existing(
+        event_types, existing_event_types, *, prefix: str | None = None
+    ) -> str | None:
+        """The category most of this set's event types are in on the site
+        (ties: the lowest value), or None when the site has none of them. A
+        type is the set's when this push plans it or its value has the set's
+        `prefix`: another area's push may have made types this one lacks."""
+        planned = {et.value for et in event_types or []}
+        counts: dict[str, int] = {}
+        for e in existing_event_types or []:
+            if not isinstance(e, dict):
+                continue
+            value = e.get("value")
+            if value not in planned and not _has_set_prefix(value, prefix):
+                continue
+            value = _category_value(e.get("category"))
+            if value:
+                counts[value] = counts.get(value, 0) + 1
+        if not counts:
+            return None
+        return min(counts, key=lambda c: (-counts[c], c))
+
     def create_or_update_er_event_types(
         self,
         *,
         event_category: dict | None = None,
         event_types: list[EREventType] | list[ERV2EventType] | None = None,
+        existing_event_types: list | None = None,
     ) -> None:
-        if self._er_event_types_cache is not None:
+        if existing_event_types is not None:
+            source = "given"
+        elif self._er_event_types_cache is not None:
             existing_event_types = self._er_event_types_cache
             source = "cache"
         else:
@@ -1194,6 +1278,18 @@ class ERSmartSynchronizer:
                     ),
                     None,
                 )
+
+                if existing_er_event_type and self.additive:
+                    if existing_er_event_type.get("is_active") and not (
+                        event_type.is_active
+                    ):
+                        # Another area keeps this type active; this one has it
+                        # retired. Leave it, schema included.
+                        self.datamodel_stats["event_types_unchanged"] += 1
+                        continue
+                    kept = _category_value(existing_er_event_type.get("category"))
+                    if kept:
+                        event_type.category = kept
 
                 if not existing_er_event_type:
                     if self.sync_mode == "update-only":

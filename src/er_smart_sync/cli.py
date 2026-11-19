@@ -418,6 +418,19 @@ def _validate_config(config: SyncConfig) -> None:
     ),
 )
 @click.option(
+    "--additive",
+    "additive",
+    is_flag=True,
+    default=False,
+    help=(
+        "With --from-file: only add to the event types and choices on the "
+        "site. No option or event type is deactivated, an existing event "
+        "type keeps its category, and new ones join the category the others "
+        "are in. For several conservation areas that share one data model "
+        "on one site."
+    ),
+)
+@click.option(
     "--no-migrate-legacy-v1",
     "no_migrate_legacy_v1",
     is_flag=True,
@@ -462,6 +475,7 @@ def datamodel(
     event_type_version,
     cm_variant_mode,
     skip_choices,
+    additive,
     no_migrate_legacy_v1,
     bundle_dir,
 ):
@@ -500,6 +514,8 @@ def datamodel(
 
     if cm_file and not datamodel_file:
         raise click.UsageError("--cm-from-file requires --from-file")
+    if additive and not datamodel_file:
+        raise click.UsageError("--additive requires --from-file")
     if cm_uuid and not cm_file:
         raise click.UsageError("--cm-uuid requires --cm-from-file")
     if include_base_datamodel and not cm_file:
@@ -537,6 +553,7 @@ def datamodel(
                 event_type_version=config.earthranger.event_type_version,
                 mode=mode,
                 skip_choices=skip_choices,
+                additive=additive,
             )
         except (
             PushArgumentError
