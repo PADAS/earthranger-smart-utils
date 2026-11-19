@@ -17,7 +17,7 @@ which carry the full commit-level history.
 
 Without `additive` a push writes what it wrote before: the last model pushed decides which options are active and which category the types are in.
 
-**The push's statistics carry `event_category`**, the category value its event types went to.
+**The push's statistics carry `event_category`**, the category value its event types went to, and for an additive push `event_types_on_site`, how many of the set's event types the site already had.
 
 ## 0.11.0 — 2026-11-18
 

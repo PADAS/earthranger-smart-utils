@@ -291,5 +291,6 @@ def test_a_second_area_with_no_event_type_in_common_still_joins_the_set(tmp_path
                                      "display": "X", "category": "aaa_cm_set", "schema": {}})
     site.post_event_type(event_type={"value": "smart-ca-import_0123456789abcdef0123456789abcdef_y",
                                      "display": "Y", "category": "aaa_cm_set", "schema": {}})
-    push(site, tmp_path, only_snaring, "smart-b", additive=True)
+    stats = push(site, tmp_path, only_snaring, "smart-b", additive=True)
     assert site.event_types()[SNARING]["category"] == home
+    assert stats["event_types_on_site"] == 1   # poaching: the set was there, though B plans none of its types

@@ -279,6 +279,8 @@ class ERSmartSynchronizer:
             "choices_errored": 0,
             # the category value the last push put its event types in
             "event_category": "",
+            # additive pushes: how many of the set's event types the site had
+            "event_types_on_site": 0,
         }
         # An additive push only adds to what is on the site: for event types
         # and choice lists several conservation areas share. Set by the caller,
@@ -505,11 +507,12 @@ class ERSmartSynchronizer:
         existing_event_types = None
         if self.additive:
             existing_event_types = self._existing_event_types()
-            shared = self._category_of_existing(
+            shared, on_site = self._category_of_existing(
                 event_types,
                 existing_event_types,
                 prefix=_set_prefix(smart_ca_uuid, cdm_dict),
             )
+            self.datamodel_stats["event_types_on_site"] = on_site
             if shared:
                 # the set is already on the site: its new types join it there
                 event_category_value = shared
@@ -1160,25 +1163,28 @@ class ERSmartSynchronizer:
     @staticmethod
     def _category_of_existing(
         event_types, existing_event_types, *, prefix: str | None = None
-    ) -> str | None:
-        """The category most of this set's event types are in on the site
-        (ties: the lowest value), or None when the site has none of them. A
+    ) -> tuple:
+        """(the category most of this set's event types are in on the site, how
+        many of them the site has). The category is None when the site has
+        none of them; ties go to the lowest value. A
         type is the set's when this push plans it or its value has the set's
         `prefix`: another area's push may have made types this one lacks."""
         planned = {et.value for et in event_types or []}
         counts: dict[str, int] = {}
+        on_site = 0
         for e in existing_event_types or []:
             if not isinstance(e, dict):
                 continue
             value = e.get("value")
             if value not in planned and not _has_set_prefix(value, prefix):
                 continue
+            on_site += 1
             value = _category_value(e.get("category"))
             if value:
                 counts[value] = counts.get(value, 0) + 1
         if not counts:
-            return None
-        return min(counts, key=lambda c: (-counts[c], c))
+            return None, on_site
+        return min(counts, key=lambda c: (-counts[c], c)), on_site
 
     def create_or_update_er_event_types(
         self,
