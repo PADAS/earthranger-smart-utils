@@ -55,6 +55,11 @@ def push_datamodel_files(
         raise PushArgumentError("cm_uuid needs cm_file")
     if include_base_datamodel and not cm_file:
         raise PushArgumentError("include_base_datamodel needs cm_file")
+    # A supplied synchronizer was built with its own version, and that is the
+    # one the builders and the writes use; the argument only builds a new one.
+    effective = getattr(synchronizer, "_event_type_version", None)
+    if isinstance(effective, str):
+        event_type_version = effective
     if additive and event_type_version != "v2":
         # A v1 event type carries its options inside its schema, so a push
         # that keeps the type but writes this model's schema drops the

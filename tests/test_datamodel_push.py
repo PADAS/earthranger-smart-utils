@@ -295,3 +295,43 @@ def test_a_second_area_with_no_event_type_in_common_still_joins_the_set(tmp_path
     stats = push(site, tmp_path, only_snaring, "smart-b", additive=True)
     assert site.event_types()[SNARING]["category"] == home
     assert stats["event_types_on_site"] == 1   # poaching: the set was there, though B plans none of its types
+
+
+def _synchronizer(site, version):
+    from er_smart_sync.config import EarthRangerConfig, SmartConnectConfig, SyncConfig
+    from er_smart_sync.synchronizer import ERSmartSynchronizer
+
+    return ERSmartSynchronizer(
+        config=SyncConfig(smart=SmartConnectConfig(endpoint="", login="", password=""),
+                          earthranger=EarthRangerConfig(id="t", endpoint="https://example.pamdas.org/api/v1.0",
+                                                        token="unused", event_type_version=version)),
+        er_client=site)
+
+
+@pytest.mark.parametrize("kwargs, message", [
+    ({"additive": True}, "additive needs v2"),
+    ({"bundle_dir": "bundle"}, "bundle_dir needs v2"),
+])
+def test_a_supplied_synchronizers_own_version_is_the_one_checked(tmp_path, kwargs, message):
+    """The version argument is left at its default, v2; the synchronizer writes v1."""
+    from er_smart_sync.datamodel_push import PushArgumentError, push_datamodel_files
+
+    xml = tmp_path / "dm.xml"
+    xml.write_text(DATAMODEL_XML)
+    client = DryRunERClient(_Reads())
+    with pytest.raises(PushArgumentError, match=message):
+        push_datamodel_files(None, synchronizer=_synchronizer(client, "v1"), endpoint="https://example.pamdas.org/api/v1.0",
+                             datamodel_file=str(xml), ca_identifier="area-b", **kwargs)
+    assert client.calls == []
+
+
+def test_a_supplied_v2_synchronizer_pushes_additively_whatever_the_argument_says(tmp_path):
+    from er_smart_sync.datamodel_push import push_datamodel_files
+    from tests.fake_site import FakeSite
+
+    site = FakeSite()
+    xml = tmp_path / "dm.xml"
+    xml.write_text(DATAMODEL_XML)
+    stats = push_datamodel_files(None, synchronizer=_synchronizer(site, "v2"), endpoint="https://example.pamdas.org/api/v1.0",
+                                 datamodel_file=str(xml), ca_identifier="area-a", additive=True, event_type_version="v1")
+    assert stats["event_types_created"] == 1 and POACHING in site.event_types()
