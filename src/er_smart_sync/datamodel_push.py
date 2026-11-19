@@ -34,6 +34,7 @@ def push_datamodel_files(
     event_type_version: str = "v2",
     mode: str = "both",
     skip_choices: bool = False,
+    additive: bool = False,
     synchronizer: ERSmartSynchronizer | None = None,
 ) -> dict:
     """Push the data model in `datamodel_file` (and the configurable model in
@@ -42,11 +43,28 @@ def push_datamodel_files(
 
     `synchronizer` lets a caller (the CLI) supply a ready-made synchronizer, in
     which case `er_client` and the config-derived arguments are not used to
-    build one."""
+    build one.
+
+    `additive` is for event types and choice lists that several conservation
+    areas share on one site: the push adds to them and takes nothing away. No
+    option or event type is deactivated, an existing event type keeps its
+    category, and new ones join the category the others are already in. It
+    needs v2 event types: v1 keeps a type's options in its schema, which a
+    push replaces whole."""
     if cm_uuid and not cm_file:
         raise PushArgumentError("cm_uuid needs cm_file")
     if include_base_datamodel and not cm_file:
         raise PushArgumentError("include_base_datamodel needs cm_file")
+    # A supplied synchronizer was built with its own version, and that is the
+    # one the builders and the writes use; the argument only builds a new one.
+    effective = getattr(synchronizer, "_event_type_version", None)
+    if isinstance(effective, str):
+        event_type_version = effective
+    if additive and event_type_version != "v2":
+        # A v1 event type carries its options inside its schema, so a push
+        # that keeps the type but writes this model's schema drops the
+        # options another area added. Only v2's separate choices are kept.
+        raise PushArgumentError("additive needs v2 event types")
     if cm_file:
         try:
             _uuid.UUID(cm_uuid or DEFAULT_FILE_CM_UUID)
@@ -91,6 +109,7 @@ def push_datamodel_files(
         sync = ERSmartSynchronizer(config=config, er_client=er_client)
     sync.sync_mode = mode
     sync.skip_choices = skip_choices
+    sync.additive = additive
     sync.observed_categories = observed
     # Without a CM: push the base data model. With a CM and include_base_datamodel:
     # the base model as its own category first, then the CM as a second one.

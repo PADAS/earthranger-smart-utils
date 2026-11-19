@@ -1674,3 +1674,88 @@ def test_upsert_choices_keeps_orphans_when_told_to():
     )
     assert (stats.created, stats.deactivated, stats.kept) == (1, 0, 1)
     assert not client._patch.called
+
+
+def _one_existing(**over):
+    rec = {
+        "id": "uuid-1",
+        "model": "activity.event",
+        "field": "etxxx_color",
+        "value": "red",
+        "display": "Red",
+        "ordernum": 0,
+        "is_active": True,
+    }
+    rec.update(over)
+    return rec
+
+
+def _upsert_red(client, *, display="Red", is_active=True, **kw):
+    from er_smart_sync.choices import ChoiceOption, ChoiceSet, upsert_choices
+
+    return upsert_choices(
+        er_client=client,
+        choice_sets=[
+            ChoiceSet(
+                field="etxxx_color",
+                options=(ChoiceOption(value="red", display=display, is_active=is_active),),
+            )
+        ],
+        **kw,
+    )
+
+
+def test_keep_active_does_not_deactivate_an_option_the_plan_has_inactive():
+    client = _mock_er_client_for_choices(
+        existing_results={"count": 1, "next": None, "results": [_one_existing()]}
+    )
+    stats = _upsert_red(client, is_active=False, keep_active=True)
+    assert not client._patch.called
+    assert (stats.unchanged, stats.deactivated, stats.updated) == (1, 0, 0)
+
+
+def test_keep_active_still_writes_the_display_of_an_option_it_will_not_deactivate():
+    client = _mock_er_client_for_choices(
+        existing_results={"count": 1, "next": None, "results": [_one_existing()]}
+    )
+    stats = _upsert_red(client, display="Crimson", is_active=False, keep_active=True)
+    assert client._patch.call_args.kwargs["payload"] == {"display": "Crimson"}
+    assert (stats.updated, stats.deactivated) == (1, 0)
+
+
+def test_keep_active_activates_an_inactive_option_the_plan_has_active():
+    client = _mock_er_client_for_choices(
+        existing_results={
+            "count": 1,
+            "next": None,
+            "results": [_one_existing(is_active=False)],
+        }
+    )
+    stats = _upsert_red(client, keep_active=True)
+    assert client._patch.call_args.kwargs["payload"] == {"is_active": True}
+    assert stats.updated == 1
+
+
+def test_orphans_are_kept_and_active_options_stay_with_both_flags():
+    client = _mock_er_client_for_choices(
+        existing_results={
+            "count": 2,
+            "next": None,
+            "results": [
+                _one_existing(),
+                _one_existing(id="uuid-2", value="legacy", display="Legacy", ordernum=1),
+            ],
+        }
+    )
+    stats = _upsert_red(client, deactivate_orphans=False, keep_active=True)
+    assert not client._patch.called
+    assert (stats.unchanged, stats.kept, stats.deactivated) == (1, 1, 0)
+
+
+def test_without_keep_active_an_inactive_plan_still_deactivates():
+    client = _mock_er_client_for_choices(
+        existing_results={"count": 1, "next": None, "results": [_one_existing()]}
+    )
+    stats = _upsert_red(client, is_active=False)
+    assert stats.deactivated == 1
+    assert client._patch.call_args.kwargs["payload"] == {"is_active": False}

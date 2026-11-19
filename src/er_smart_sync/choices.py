@@ -493,12 +493,17 @@ def upsert_choices(
     er_client,
     choice_sets: list[ChoiceSet],
     deactivate_orphans: bool = True,
+    keep_active: bool = False,
 ) -> ChoicesStats:
     """Upsert each ChoiceSet against ER's Choices API.
 
     With ``deactivate_orphans`` False, active records the plan does not name
     are left as they are and counted in ``kept``: for fields shared with other
     sources (a second conservation area, an admin) that this run does not own.
+
+    With ``keep_active`` True, an option that is active on the site stays
+    active even where the plan has it inactive (its other fields are still
+    written): for a list several conservation areas add to.
 
     Returns a ChoicesStats counter dataclass. Per-option HTTP failures are
     logged and counted (no raise) — per-set processing is independent, an
@@ -546,6 +551,7 @@ def upsert_choices(
                 cs=cs,
                 stats=stats,
                 deactivate_orphans=deactivate_orphans,
+                keep_active=keep_active,
             )
         except Exception:
             # Unexpected error escaping _upsert_one_set (per-option HTTP errors
@@ -576,6 +582,7 @@ def _upsert_one_set(
     cs: ChoiceSet,
     stats: ChoicesStats,
     deactivate_orphans: bool = True,
+    keep_active: bool = False,
 ) -> None:
     existing = _fetch_existing(er_client=er_client, field=cs.field)
     existing_by_value: dict[str, dict] = {r["value"]: r for r in existing}
@@ -599,6 +606,7 @@ def _upsert_one_set(
                 planned=planned,
                 ordernum=ordernum,
                 stats=stats,
+                keep_active=keep_active,
             )
 
     # Orphan handling: active records not in the plan get soft-deactivated.
@@ -749,13 +757,16 @@ def _maybe_patch_choice(
     planned: ChoiceOption,
     ordernum: int,
     stats: ChoicesStats,
+    keep_active: bool = False,
 ) -> None:
     changes: dict = {}
     if existing.get("display") != planned.display:
         changes["display"] = planned.display
     if existing.get("ordernum") != ordernum:
         changes["ordernum"] = ordernum
-    if existing.get("is_active") != planned.is_active:
+    if existing.get("is_active") != planned.is_active and not (
+        keep_active and existing.get("is_active")
+    ):
         changes["is_active"] = planned.is_active
 
     if not changes:

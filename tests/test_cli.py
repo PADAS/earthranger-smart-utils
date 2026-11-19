@@ -1210,6 +1210,107 @@ def test_datamodel_skip_choices_flag(tmp_path, monkeypatch):
     assert captured["sync"].skip_choices is True
 
 
+def test_datamodel_additive_flag(tmp_path, monkeypatch):
+    """--additive reaches the synchronizer on a push from a file."""
+    from click.testing import CliRunner
+
+    from er_smart_sync.cli import main
+
+    captured = {}
+
+    def fake_make_sync(config, ctx=None):
+        from er_smart_sync.synchronizer import ERSmartSynchronizer
+
+        sync = ERSmartSynchronizer.__new__(ERSmartSynchronizer)
+        sync._event_type_version = config.earthranger.event_type_version
+        sync.sync_mode = "both"
+        sync.skip_choices = False
+        sync.additive = False
+        sync.datamodel_stats = {
+            "categories_created": 0,
+            "categories_existing": 0,
+            "event_types_created": 0,
+            "event_types_updated": 0,
+            "event_types_unchanged": 0,
+            "event_types_skipped_by_mode": 0,
+            "event_types_skipped_by_conflict": 0,
+            "event_types_errored": 0,
+            "choices_created": 0,
+            "choices_updated": 0,
+            "choices_unchanged": 0,
+            "choices_deactivated": 0,
+            "choices_errored": 0,
+        }
+        sync.push_smart_ca_datamodel_to_earthranger = lambda **kwargs: None
+        sync.synchronize_datamodel = lambda: None
+        captured["sync"] = sync
+        return sync
+
+    monkeypatch.setattr("er_smart_sync.cli._make_synchronizer", fake_make_sync)
+    monkeypatch.setattr(
+        "smartconnect.SmartClient.load_datamodel",
+        lambda self, filename: MagicMock(),
+    )
+
+    dm_file = tmp_path / "dm.xml"
+    dm_file.write_text("<datamodel/>")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "datamodel",
+            "--from-file",
+            str(dm_file),
+            "--er-endpoint",
+            "https://x/api/v1.0",
+            "--er-token",
+            "t",
+            "--er-id",
+            "i",
+            "--ca-identifier",
+            "TEST",
+            "--event-type-version",
+            "v2",
+            "--additive",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["sync"].additive is True
+
+
+def test_datamodel_additive_is_refused_for_v1_before_any_write(tmp_path, monkeypatch):
+    from click.testing import CliRunner
+
+    from er_smart_sync.cli import main
+
+    made = []
+    monkeypatch.setattr("er_smart_sync.cli._make_synchronizer", lambda config, ctx=None: made.append(1) or MagicMock())
+    dm_file = tmp_path / "dm.xml"
+    dm_file.write_text("<datamodel/>")
+    result = CliRunner().invoke(
+        main,
+        ["datamodel", "--from-file", str(dm_file), "--er-endpoint", "https://x/api/v1.0", "--er-token", "t",
+         "--er-id", "i", "--ca-identifier", "TEST", "--event-type-version", "v1", "--additive"],
+    )
+    assert result.exit_code != 0 and "additive needs v2 event types" in result.output
+
+
+def test_datamodel_additive_needs_a_file():
+    from click.testing import CliRunner
+
+    from er_smart_sync.cli import main
+
+    result = CliRunner().invoke(
+        main,
+        ["datamodel", "--er-endpoint", "https://x/api/v1.0", "--er-token", "t",
+         "--smart-api", "https://smart.example/server", "--smart-username", "u",
+         "--smart-password", "p", "--additive"],
+    )
+    assert result.exit_code != 0
+    assert "--additive requires --from-file" in result.output
+
+
 def test_inspect_datamodel_v2_prints_choice_sets(tmp_path, monkeypatch):
     """`inspect-datamodel --event-type-version v2` includes a choices section."""
     from click.testing import CliRunner
