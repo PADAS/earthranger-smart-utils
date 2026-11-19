@@ -7,6 +7,20 @@ which carry the full commit-level history.
 
 ## Unreleased
 
+### Added
+
+**An additive push, for conservation areas that share event types on one site.** `push_datamodel_files(additive=True)` and `datamodel --from-file --additive` only add to what the site has:
+
+- No choice option is deactivated. An option the pushed model lacks is left as it is, and an active option stays active even where the model has it inactive.
+- No event type is deactivated, and one the site has active is left untouched by a model that has it retired.
+- An existing event type keeps its event category, and new ones join the category the set's other types are in. A type belongs to the set when its value has the set's prefix, so a model with no category in common still joins.
+
+Without `additive` a push writes what it wrote before: the last model pushed decides which options are active and which category the types are in.
+
+**The push's statistics carry `event_category`**, the category value its event types went to.
+
+## 0.11.0 — 2026-11-18
+
 ### Changed
 
 **A bundle's tracks are read for one patrol at a time**, so the memory `import-patrols` and `patrol-preflight` need no longer grows with a conservation area's tracks. A bundle with an 800 MiB `tracks.json` needed about 3.5 GiB to load; the same tracks in a version 2 bundle need only the patrol being imported.

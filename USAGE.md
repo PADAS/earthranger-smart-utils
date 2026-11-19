@@ -189,6 +189,20 @@ er-smart-sync datamodel \
 
 That creates two ER event categories — one for the base data model and one for the configurable model — which mirrors what the API-based sync (`datamodel` without `--from-file`) does automatically when a CA has both.
 
+### Several conservation areas on one site: `--additive`
+
+A push from a file writes event types under the same prefix whichever conservation area the file came from, so areas with one data model share one set of event types and choice lists. By default the last push decides what that set holds: it deactivates the options its own model lacks and moves every event type into its own category.
+
+```bash
+er-smart-sync datamodel \
+  --from-file area-b/datamodel.xml \
+  --ca-identifier smart-area-b \
+  --additive \
+  --er-endpoint $ER --er-token $TOKEN
+```
+
+With `--additive` the push only adds. No option or event type is deactivated, existing event types stay in their category, and new ones join it. An option removed from SMART therefore stays active on the site until an administrator turns it off.
+
 ### Choosing what gets written: `--mode`
 
 ```
