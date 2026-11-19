@@ -81,6 +81,7 @@ def test_push_from_file_makes_the_same_writes_as_the_cli(tmp_path):
     ({"include_base_datamodel": True, "cm_file": None}, "include_base_datamodel needs cm_file"),
     ({"cm_uuid": "not-a-uuid", "cm_file": "cm.xml"}, "is not a UUID"),
     ({"bundle_dir": "bundle", "event_type_version": "v1"}, "bundle_dir needs v2"),
+    ({"additive": True, "event_type_version": "v1"}, "additive needs v2"),
 ])
 def test_arguments_that_do_not_go_together_are_refused_before_any_write(kwargs, message):
     from er_smart_sync.datamodel_push import PushArgumentError, push_datamodel_files

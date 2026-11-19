@@ -15,6 +15,8 @@ which carry the full commit-level history.
 - No event type is deactivated, and one the site has active is left untouched by a model that has it retired.
 - An existing event type keeps its event category, and new ones join the category the set's other types are in. A type belongs to the set when its value has the set's prefix, so a model with no category in common still joins.
 
+An additive push needs v2 event types and is refused, before any write, for v1: a v1 event type keeps its options inside its schema, which a push replaces whole.
+
 Without `additive` a push writes what it wrote before: the last model pushed decides which options are active and which category the types are in.
 
 **The push's statistics carry `event_category`**, the category value its event types went to, and for an additive push `event_types_on_site`, how many of the set's event types the site already had.

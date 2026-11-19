@@ -1279,6 +1279,23 @@ def test_datamodel_additive_flag(tmp_path, monkeypatch):
     assert captured["sync"].additive is True
 
 
+def test_datamodel_additive_is_refused_for_v1_before_any_write(tmp_path, monkeypatch):
+    from click.testing import CliRunner
+
+    from er_smart_sync.cli import main
+
+    made = []
+    monkeypatch.setattr("er_smart_sync.cli._make_synchronizer", lambda config, ctx=None: made.append(1) or MagicMock())
+    dm_file = tmp_path / "dm.xml"
+    dm_file.write_text("<datamodel/>")
+    result = CliRunner().invoke(
+        main,
+        ["datamodel", "--from-file", str(dm_file), "--er-endpoint", "https://x/api/v1.0", "--er-token", "t",
+         "--er-id", "i", "--ca-identifier", "TEST", "--event-type-version", "v1", "--additive"],
+    )
+    assert result.exit_code != 0 and "additive needs v2 event types" in result.output
+
+
 def test_datamodel_additive_needs_a_file():
     from click.testing import CliRunner
 

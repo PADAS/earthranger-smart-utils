@@ -48,11 +48,18 @@ def push_datamodel_files(
     `additive` is for event types and choice lists that several conservation
     areas share on one site: the push adds to them and takes nothing away. No
     option or event type is deactivated, an existing event type keeps its
-    category, and new ones join the category the others are already in."""
+    category, and new ones join the category the others are already in. It
+    needs v2 event types: v1 keeps a type's options in its schema, which a
+    push replaces whole."""
     if cm_uuid and not cm_file:
         raise PushArgumentError("cm_uuid needs cm_file")
     if include_base_datamodel and not cm_file:
         raise PushArgumentError("include_base_datamodel needs cm_file")
+    if additive and event_type_version != "v2":
+        # A v1 event type carries its options inside its schema, so a push
+        # that keeps the type but writes this model's schema drops the
+        # options another area added. Only v2's separate choices are kept.
+        raise PushArgumentError("additive needs v2 event types")
     if cm_file:
         try:
             _uuid.UUID(cm_uuid or DEFAULT_FILE_CM_UUID)

@@ -201,7 +201,7 @@ er-smart-sync datamodel \
   --er-endpoint $ER --er-token $TOKEN
 ```
 
-With `--additive` the push only adds. No option or event type is deactivated, existing event types stay in their category, and new ones join it. An option removed from SMART therefore stays active on the site until an administrator turns it off.
+`--additive` needs v2 event types (the default) and is refused with `--event-type-version v1`. With it the push only adds. No option or event type is deactivated, existing event types stay in their category, and new ones join it. An option removed from SMART therefore stays active on the site until an administrator turns it off.
 
 ### Choosing what gets written: `--mode`
 
