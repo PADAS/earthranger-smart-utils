@@ -23,7 +23,7 @@
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.1">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.2">
     
     
       
@@ -1780,6 +1780,11 @@
 <td><code>--skip-choices</code></td>
 <td>off</td>
 <td>Skip the choices upsert phase (v2 only). Use if <code>er-smart-sync choices</code> was run separately.</td>
+</tr>
+<tr>
+<td><code>--additive</code></td>
+<td>off</td>
+<td>With <code>--from-file</code>: only add to the event types and choices on the site. No option or event type is deactivated, an existing event type keeps its event category, and new event types join the category the others with the same prefix are in. Use it when several conservation areas with one data model are pushed to one site, so that one area's push does not undo another's. v2 event types only; refused with <code>--event-type-version v1</code>.</td>
 </tr>
 <tr>
 <td><code>--bundle DIR</code></td>
