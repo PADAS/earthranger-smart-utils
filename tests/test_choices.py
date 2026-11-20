@@ -1759,3 +1759,43 @@ def test_without_keep_active_an_inactive_plan_still_deactivates():
     stats = _upsert_red(client, is_active=False)
     assert stats.deactivated == 1
     assert client._patch.call_args.kwargs["payload"] == {"is_active": False}
+
+
+def test_create_only_writes_nothing_to_an_existing_option():
+    from er_smart_sync.choices import ChoiceOption, ChoiceSet, upsert_choices
+
+    client = _mock_er_client_for_choices(
+        existing_results={
+            "count": 2,
+            "next": None,
+            "results": [
+                _one_existing(display="Site red", ordernum=5, is_active=False),
+                _one_existing(id="uuid-2", value="zebra", display="Zebra"),
+            ],
+        }
+    )
+    stats = upsert_choices(
+        er_client=client,
+        choice_sets=[
+            ChoiceSet(
+                field="etxxx_color",
+                options=(
+                    ChoiceOption(value="red", display="Red", is_active=True),
+                    ChoiceOption(value="blue", display="Blue", is_active=True),
+                ),
+            )
+        ],
+        create_only=True,
+    )
+    assert not client._patch.called
+    assert (stats.created, stats.skipped_by_mode) == (1, 1)
+    assert (stats.updated, stats.deactivated, stats.unchanged) == (0, 0, 0)
+
+
+def test_create_only_counts_an_equal_option_as_unchanged():
+    client = _mock_er_client_for_choices(
+        existing_results={"count": 1, "next": None, "results": [_one_existing()]}
+    )
+    stats = _upsert_red(client, create_only=True)
+    assert not client._patch.called
+    assert (stats.unchanged, stats.skipped_by_mode) == (1, 0)

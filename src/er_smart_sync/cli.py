@@ -319,7 +319,8 @@ def _print_datamodel_summary(sync: ERSmartSynchronizer) -> None:
     click.echo("")
     click.echo("Datamodel sync summary:")
     for k, v in stats.items():
-        click.echo(f"  {k.replace('_', ' ')}: {v}")
+        # a list (event_type_differences) is summarised by its length
+        click.echo(f"  {k.replace('_', ' ')}: {len(v) if isinstance(v, list) else v}")
 
 
 def _validate_config(config: SyncConfig) -> None:

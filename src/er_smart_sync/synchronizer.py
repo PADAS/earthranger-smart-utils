@@ -140,6 +140,65 @@ def _summarize_list_diff(new: list, existing: list) -> str:
     return "(equal but != returned True?)"
 
 
+def _parsed_schema(raw) -> dict:
+    """A v2 schema as a dict: ER returns it as a JSON string on GET."""
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return {}
+    return raw if isinstance(raw, dict) else {}
+
+
+def _fields_and_rest(schema: dict) -> tuple:
+    """A v2 schema's fields (``json.properties``, None when it has none) and
+    the schema without them."""
+    json_part = schema.get("json")
+    props = json_part.get("properties") if isinstance(json_part, dict) else None
+    if not isinstance(props, dict):
+        return None, schema
+    rest = {**schema, "json": {k: v for k, v in json_part.items() if k != "properties"}}
+    return props, rest
+
+
+def event_type_difference(event_type, existing: dict) -> dict:
+    """How a version 2 event type on the site differs from the planned one.
+
+    For a caller that must say what an update would replace, or what leaving
+    the site's event type alone leaves out. Field keys are the keys of the
+    schema's ``json.properties``. ``other`` is true for a difference outside
+    the name, the active state and the fields (read-only flag, category,
+    layout), and when either schema has no fields to compare.
+    """
+    site_only: list = []
+    smart_only: list = []
+    changed: list = []
+    other = bool(getattr(event_type, "readonly", False)) != bool(
+        existing.get("readonly", False)
+    ) or event_type.category != existing.get("category")
+    # as _event_type_needs_update: a planned inactive type's schema is not written
+    if event_type.is_active and event_type.event_schema:
+        new, new_rest = _fields_and_rest(_parsed_schema(event_type.event_schema))
+        old, old_rest = _fields_and_rest(_parsed_schema(existing.get("schema")))
+        if new is None or old is None:
+            other = True
+        else:
+            site_only = sorted(set(old) - set(new))
+            smart_only = sorted(set(new) - set(old))
+            changed = sorted(k for k in set(new) & set(old) if new[k] != old[k])
+            other = other or new_rest != old_rest
+    return {
+        "value": event_type.value,
+        "display": existing.get("display"),
+        "name": event_type.display != existing.get("display"),
+        "active": event_type.is_active != existing.get("is_active"),
+        "site_only": site_only,
+        "smart_only": smart_only,
+        "changed": changed,
+        "other": other,
+    }
+
+
 def _summarize_schema_diff(new: dict, existing: dict) -> str:
     """Compact human-readable diff of two schema dicts for debugging."""
     if not isinstance(new, dict) or not isinstance(existing, dict):
@@ -276,6 +335,10 @@ class ERSmartSynchronizer:
             "choices_updated": 0,
             "choices_unchanged": 0,
             "choices_deactivated": 0,
+            "choices_skipped_by_mode": 0,
+            # v2 event types on the site that differ from the plan, whether
+            # this run updates them or leaves them: see event_type_difference
+            "event_type_differences": [],
             "choices_errored": 0,
             # the category value the last push put its event types in
             "event_category": "",
@@ -376,7 +439,10 @@ class ERSmartSynchronizer:
             self._er_v1_event_types_cache = None
             logger.info(
                 "Datamodel sync summary: %s",
-                ", ".join(f"{k}={v}" for k, v in self.datamodel_stats.items()),
+                ", ".join(
+                    f"{k}={len(v) if isinstance(v, list) else v}"
+                    for k, v in self.datamodel_stats.items()
+                ),
             )
 
     def push_smart_datamodel_to_earthranger(
@@ -446,11 +512,15 @@ class ERSmartSynchronizer:
                 choice_sets=choice_sets,
                 deactivate_orphans=not self.additive,
                 keep_active=self.additive,
+                create_only=self.sync_mode == "create-only",
             )
             self.datamodel_stats["choices_created"] += choices_stats.created
             self.datamodel_stats["choices_updated"] += choices_stats.updated
             self.datamodel_stats["choices_unchanged"] += choices_stats.unchanged
             self.datamodel_stats["choices_deactivated"] += choices_stats.deactivated
+            self.datamodel_stats["choices_skipped_by_mode"] += (
+                choices_stats.skipped_by_mode
+            )
             self.datamodel_stats["choices_errored"] += choices_stats.errored
 
             if choices_stats.errored > 0:
@@ -1312,6 +1382,10 @@ class ERSmartSynchronizer:
                     else:
                         self.datamodel_stats["event_types_errored"] += 1
                 elif self._event_type_needs_update(event_type, existing_er_event_type):
+                    if self._event_type_version == "v2":
+                        self.datamodel_stats["event_type_differences"].append(
+                            event_type_difference(event_type, existing_er_event_type)
+                        )
                     if self.sync_mode == "create-only":
                         self.datamodel_stats["event_types_skipped_by_mode"] += 1
                         continue

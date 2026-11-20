@@ -248,6 +248,8 @@ class ChoicesStats:
     errored: int = 0
     # active records absent from the plan, left alone (deactivate_orphans=False)
     kept: int = 0
+    # existing records that differ from the plan, left alone (create_only=True)
+    skipped_by_mode: int = 0
     # every write made: {"action", "field", "value", "id", "before"}, so a run
     # can be undone exactly (patrol-datamodel writes these to its run record)
     changes: list = field(default_factory=list)
@@ -494,6 +496,7 @@ def upsert_choices(
     choice_sets: list[ChoiceSet],
     deactivate_orphans: bool = True,
     keep_active: bool = False,
+    create_only: bool = False,
 ) -> ChoicesStats:
     """Upsert each ChoiceSet against ER's Choices API.
 
@@ -504,6 +507,10 @@ def upsert_choices(
     With ``keep_active`` True, an option that is active on the site stays
     active even where the plan has it inactive (its other fields are still
     written): for a list several conservation areas add to.
+
+    With ``create_only`` True, an option the site already has gets no write
+    at all (one that differs from the plan is counted in ``skipped_by_mode``)
+    and no orphan is deactivated: only missing options are created.
 
     Returns a ChoicesStats counter dataclass. Per-option HTTP failures are
     logged and counted (no raise) — per-set processing is independent, an
@@ -552,6 +559,7 @@ def upsert_choices(
                 stats=stats,
                 deactivate_orphans=deactivate_orphans,
                 keep_active=keep_active,
+                create_only=create_only,
             )
         except Exception:
             # Unexpected error escaping _upsert_one_set (per-option HTTP errors
@@ -583,6 +591,7 @@ def _upsert_one_set(
     stats: ChoicesStats,
     deactivate_orphans: bool = True,
     keep_active: bool = False,
+    create_only: bool = False,
 ) -> None:
     existing = _fetch_existing(er_client=er_client, field=cs.field)
     existing_by_value: dict[str, dict] = {r["value"]: r for r in existing}
@@ -599,6 +608,11 @@ def _upsert_one_set(
                 ordernum=ordernum,
                 stats=stats,
             )
+        elif create_only:
+            if _choice_changes(existing_record, planned, ordernum, keep_active):
+                stats.skipped_by_mode += 1
+            else:
+                stats.unchanged += 1
         else:
             _maybe_patch_choice(
                 er_client=er_client,
@@ -608,6 +622,9 @@ def _upsert_one_set(
                 stats=stats,
                 keep_active=keep_active,
             )
+
+    if create_only:
+        return
 
     # Orphan handling: active records not in the plan get soft-deactivated.
     for record in existing:
@@ -750,15 +767,10 @@ def _create_choice(
         stats.errored += 1
 
 
-def _maybe_patch_choice(
-    *,
-    er_client,
-    existing: dict,
-    planned: ChoiceOption,
-    ordernum: int,
-    stats: ChoicesStats,
-    keep_active: bool = False,
-) -> None:
+def _choice_changes(
+    existing: dict, planned: ChoiceOption, ordernum: int, keep_active: bool
+) -> dict:
+    """The fields of an existing record that the plan would write."""
     changes: dict = {}
     if existing.get("display") != planned.display:
         changes["display"] = planned.display
@@ -768,6 +780,19 @@ def _maybe_patch_choice(
         keep_active and existing.get("is_active")
     ):
         changes["is_active"] = planned.is_active
+    return changes
+
+
+def _maybe_patch_choice(
+    *,
+    er_client,
+    existing: dict,
+    planned: ChoiceOption,
+    ordernum: int,
+    stats: ChoicesStats,
+    keep_active: bool = False,
+) -> None:
+    changes = _choice_changes(existing, planned, ordernum, keep_active)
 
     if not changes:
         stats.unchanged += 1
