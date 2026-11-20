@@ -343,14 +343,11 @@ def test_a_create_only_push_leaves_the_sites_options(tmp_path):
     site = FakeSite()
     push(site, tmp_path, DATAMODEL_XML, "smart-a", additive=True)
     field = next(f for f in site.choice_fields() if f.endswith("species"))
-    renamed, off = sorted(site.choices(field))[:2]
+    value = sorted(site.choices(field))[0]
     for rec in site._choices.values():
-        if rec["field"] == field and rec["value"] == renamed:
-            rec["display"] = "Renamed on the site"
-        if rec["field"] == field and rec["value"] == off:
-            rec["is_active"] = False
+        if rec["field"] == field and rec["value"] == value:
+            rec.update(display="Renamed on the site", is_active=False, ordernum=7)
     stats = push(site, tmp_path, DATAMODEL_XML, "smart-a", additive=True, mode="create-only")
-    after = site.choices(field)
-    assert after[renamed]["display"] == "Renamed on the site"
-    assert after[off]["is_active"] is False
-    assert (stats["choices_skipped_by_mode"], stats["choices_updated"]) == (2, 0)
+    after = site.choices(field)[value]
+    assert (after["display"], after["is_active"], after["ordernum"]) == ("Renamed on the site", False, 7)
+    assert (stats["choices_skipped_by_mode"], stats["choices_updated"]) == (1, 0)
