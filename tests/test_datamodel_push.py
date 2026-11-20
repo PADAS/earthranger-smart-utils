@@ -335,3 +335,22 @@ def test_a_supplied_v2_synchronizer_pushes_additively_whatever_the_argument_says
     stats = push_datamodel_files(None, synchronizer=_synchronizer(site, "v2"), endpoint="https://example.pamdas.org/api/v1.0",
                                  datamodel_file=str(xml), ca_identifier="area-a", additive=True, event_type_version="v1")
     assert stats["event_types_created"] == 1 and POACHING in site.event_types()
+
+
+def test_a_create_only_push_leaves_the_sites_options(tmp_path):
+    from tests.fake_site import FakeSite
+
+    site = FakeSite()
+    push(site, tmp_path, DATAMODEL_XML, "smart-a", additive=True)
+    field = next(f for f in site.choice_fields() if f.endswith("species"))
+    renamed, off = sorted(site.choices(field))[:2]
+    for rec in site._choices.values():
+        if rec["field"] == field and rec["value"] == renamed:
+            rec["display"] = "Renamed on the site"
+        if rec["field"] == field and rec["value"] == off:
+            rec["is_active"] = False
+    stats = push(site, tmp_path, DATAMODEL_XML, "smart-a", additive=True, mode="create-only")
+    after = site.choices(field)
+    assert after[renamed]["display"] == "Renamed on the site"
+    assert after[off]["is_active"] is False
+    assert (stats["choices_skipped_by_mode"], stats["choices_updated"]) == (2, 0)

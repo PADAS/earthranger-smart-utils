@@ -276,6 +276,7 @@ class ERSmartSynchronizer:
             "choices_updated": 0,
             "choices_unchanged": 0,
             "choices_deactivated": 0,
+            "choices_skipped_by_mode": 0,
             "choices_errored": 0,
             # the category value the last push put its event types in
             "event_category": "",
@@ -446,11 +447,15 @@ class ERSmartSynchronizer:
                 choice_sets=choice_sets,
                 deactivate_orphans=not self.additive,
                 keep_active=self.additive,
+                create_only=self.sync_mode == "create-only",
             )
             self.datamodel_stats["choices_created"] += choices_stats.created
             self.datamodel_stats["choices_updated"] += choices_stats.updated
             self.datamodel_stats["choices_unchanged"] += choices_stats.unchanged
             self.datamodel_stats["choices_deactivated"] += choices_stats.deactivated
+            self.datamodel_stats["choices_skipped_by_mode"] += (
+                choices_stats.skipped_by_mode
+            )
             self.datamodel_stats["choices_errored"] += choices_stats.errored
 
             if choices_stats.errored > 0:
