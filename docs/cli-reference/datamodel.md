@@ -23,7 +23,7 @@ er-smart-sync datamodel [OPTIONS]
 | `--cm-uuid UUID` | zero UUID | Configurable-model UUID. Required when loading multiple configurable models for the same CA, to avoid event-type value collisions. |
 | `--include-base-datamodel` | off | With `--cm-from-file`, also push the base data model as its own ER category. |
 | `--ca-identifier ID` | required for `--from-file` | Short alphanumeric code (2–30 chars; letters, digits, hyphens, underscores) used as the ER event-category identifier. Ignored for API-based runs (extracted from the CA label instead). |
-| `--mode {both,create-only,update-only}` | `both` | Restrict to creating only new event types, updating only existing ones, or both. |
+| `--mode {both,create-only,update-only}` | `both` | Restrict to creating only new event types, updating only existing ones, or both. With `create-only` the dropdown options a site already has are left alone too: missing options are created and no other is written or deactivated. |
 | `--event-type-version {v1,v2}` | from config or v2 | Which ER event-type API version to target. |
 | `--skip-choices` | off | Skip the choices upsert phase (v2 only). Use if `er-smart-sync choices` was run separately. |
 | `--additive` | off | With `--from-file`: only add to the event types and choices on the site. No option or event type is deactivated, an existing event type keeps its event category, and new event types join the category the others with the same prefix are in. Use it when several conservation areas with one data model are pushed to one site, so that one area's push does not undo another's. v2 event types only; refused with `--event-type-version v1`. |

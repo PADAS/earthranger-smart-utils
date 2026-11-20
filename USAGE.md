@@ -207,7 +207,7 @@ er-smart-sync datamodel \
 
 ```
 --mode both         (default) create new event types AND update changed ones
---mode create-only  create new event types; leave existing ones untouched
+--mode create-only  create new event types and dropdown options; leave existing ones untouched
 --mode update-only  update changed event types; do not create anything new
 ```
 

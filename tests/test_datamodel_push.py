@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from er_smart_sync.defaults import DryRunERClient
@@ -351,3 +353,94 @@ def test_a_create_only_push_leaves_the_sites_options(tmp_path):
     after = site.choices(field)[value]
     assert (after["display"], after["is_active"], after["ordernum"]) == ("Renamed on the site", False, 7)
     assert (stats["choices_skipped_by_mode"], stats["choices_updated"]) == (1, 0)
+
+
+def _schema(site, value):
+    schema = site._types[value]["schema"]
+    return json.loads(schema) if isinstance(schema, str) else schema
+
+
+def _site_with_one_push(tmp_path):
+    from tests.fake_site import FakeSite
+
+    site = FakeSite()
+    push(site, tmp_path, DATAMODEL_XML, "smart-a", additive=True)
+    return site
+
+
+def _two_fields(site):
+    json_schema = _schema(site, POACHING)["json"]
+    free = sorted(set(json_schema["properties"]) - set(json_schema["required"]))
+    assert len(free) >= 2, "the test needs two fields besides the discriminator"
+    return free[0], free[1]
+
+
+def _change_on_the_site(site):
+    removed, retitled = _two_fields(site)
+    props = site._types[POACHING]["schema"]["json"]["properties"]
+    props["site_note"] = {"type": "string", "title": "Site note"}
+    del props[removed]
+    props[retitled] = {**props[retitled], "title": "Retitled on the site"}
+    site._types[POACHING]["display"] = "Renamed"
+    return removed, retitled
+
+
+def test_differences_name_the_fields_on_each_side(tmp_path):
+    site = _site_with_one_push(tmp_path)
+    removed, retitled = _change_on_the_site(site)
+    before = site.event_types()
+    stats = push(site, tmp_path, DATAMODEL_XML, "smart-a", additive=True, mode="create-only")
+    assert stats["event_type_differences"] == [{
+        "value": POACHING, "display": "Renamed", "name": True, "active": False,
+        "site_only": ["site_note"], "smart_only": [removed], "changed": [retitled], "other": False,
+    }]
+    assert site.event_types() == before
+
+
+def test_the_differences_are_the_same_when_the_push_updates(tmp_path):
+    site = _site_with_one_push(tmp_path)
+    _change_on_the_site(site)
+    other = site.clone()
+    kept = push(site, tmp_path, DATAMODEL_XML, "smart-a", additive=True, mode="create-only")
+    updated = push(other, tmp_path, DATAMODEL_XML, "smart-a", additive=True)
+    assert updated["event_type_differences"] == kept["event_type_differences"]
+    assert "site_note" not in _schema(other, POACHING)["json"]["properties"]
+    assert other.event_types()[POACHING]["display"] != "Renamed"
+
+
+@pytest.mark.parametrize("schema", [{}, "{}"])
+def test_a_schema_without_properties_is_a_difference_not_an_error(tmp_path, schema):
+    site = _site_with_one_push(tmp_path)
+    site._types[POACHING]["schema"] = schema
+    stats = push(site, tmp_path, DATAMODEL_XML, "smart-a", additive=True, mode="create-only")
+    assert stats["event_types_errored"] == 0
+    assert stats["event_type_differences"] == [{
+        "value": POACHING, "display": site.event_types()[POACHING]["display"], "name": False, "active": False,
+        "site_only": [], "smart_only": [], "changed": [], "other": True,
+    }]
+
+
+def test_a_type_the_additive_rule_skips_has_no_entry(tmp_path):
+    site = _site_with_one_push(tmp_path)
+    _, stats = push_observed(site, tmp_path, MODEL_B_XML, "elsewhere", {"poaching"})
+    assert [d["value"] for d in stats["event_type_differences"]] == []
+
+
+def test_a_reactivation_is_a_difference(tmp_path):
+    site = _site_with_one_push(tmp_path)
+    site._types[POACHING]["is_active"] = False
+    stats = push(site, tmp_path, DATAMODEL_XML, "smart-a", additive=True, mode="create-only")
+    (d,) = stats["event_type_differences"]
+    assert (d["value"], d["active"], d["name"], d["other"]) == (POACHING, True, False, False)
+    assert site.event_types()[POACHING]["is_active"] is False
+
+
+def test_the_cli_summary_counts_the_differences(tmp_path, capsys):
+    from types import SimpleNamespace
+
+    from er_smart_sync.cli import _print_datamodel_summary
+
+    _print_datamodel_summary(SimpleNamespace(datamodel_stats={
+        "event_types_created": 2, "event_type_differences": [{"value": "x", "site_only": ["secret_field"]}]}))
+    out = capsys.readouterr().out
+    assert "event type differences: 1" in out and "secret_field" not in out

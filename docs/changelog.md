@@ -7,6 +7,16 @@ which carry the full commit-level history.
 
 ## Unreleased
 
+### Changed
+
+**`--mode create-only` leaves the dropdown options a site already has.** Before, the mode left existing event types alone and still rewrote the display text, order and active state of existing options, and deactivated options the model lacks. Now a create-only push (`datamodel --mode create-only`, `push_datamodel_files(mode="create-only")`) creates missing options and writes nothing to the rest. The statistics count options that differ and were left in `choices_skipped_by_mode`.
+
+### Added
+
+**The push reports how the site's event types differ from the model.** The statistics carry `event_type_differences`: one entry for each v2 event type the site has that the push would update, whether the mode updates it or leaves it. An entry names the event type and says what differs: its name, its active state, the fields only the site has (`site_only`), the fields only the model has (`smart_only`), the fields both have with different definitions (`changed`), and anything else (`other`). The CLI's summary prints the number of entries.
+
+## 0.12.0 — 2026-11-19
+
 ### Added
 
 **An additive push, for conservation areas that share event types on one site.** `push_datamodel_files(additive=True)` and `datamodel --from-file --additive` only add to what the site has:
