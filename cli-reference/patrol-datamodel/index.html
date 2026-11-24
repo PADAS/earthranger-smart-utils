@@ -1723,8 +1723,8 @@ can be imported:</p>
 </tr>
 <tr>
 <td>Subjects</td>
-<td>one <code>ranger</code> subject per employee with a leg membership or an active employment, <code>additional.smart_member_id</code> = SMART employee UUID; SMART logins that never went on a patrol (such as the <code>smart</code> admin every install creates) are left out</td>
-<td>matched on <code>smart_member_id</code>, then, for a subject without one that records this conservation area, on <code>smart_employee_id</code> when that id is unique; patched when name, active flag or identity metadata differ; a subject an earlier run made for this conservation area that is no longer planned is deactivated, never deleted</td>
+<td>one <code>ranger</code> subject per employee with a leg membership or an active employment, <code>additional.smart_member_id</code> = SMART employee UUID, <code>additional.sex</code> = the sex SMART records, as EarthRanger's <code>male</code> or <code>female</code>, when the bundle has one, and <code>additional.rgb</code> = a random colour, as the admin action "Assign random color" draws it; SMART logins that never went on a patrol (such as the <code>smart</code> admin every install creates) are left out</td>
+<td>matched on <code>smart_member_id</code>, then, for a subject without one that records this conservation area, on <code>smart_employee_id</code> when that id is unique; patched when name, active flag, identity metadata or the sex SMART records differ (a bundle without a sex never clears the site's), or when the subject has no colour (a colour the site has is never replaced); a subject an earlier run made for this conservation area that is no longer planned is deactivated, never deleted</td>
 </tr>
 <tr>
 <td>Roster</td>
