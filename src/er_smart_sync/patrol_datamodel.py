@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import random
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -231,6 +232,12 @@ def _sync_segment_schema(
         stats.schema_skipped = f"rejected: {e}"
 
 
+def random_rgb() -> str:
+    """A colour as das keeps it in a subject's `additional.rgb`, "R,G,B"; the
+    same draw as its admin action "Assign random color"."""
+    return ",".join(str(random.randint(0, 255)) for _ in range(3))
+
+
 def _subject_payload(plan) -> dict:
     additional = {
         "smart_member_id": plan.smart_member_id,
@@ -374,6 +381,7 @@ def _sync_subjects(
         payload = _subject_payload(plan)
         try:
             if match is None:
+                payload["additional"]["rgb"] = random_rgb()
                 created = api.create_subject(payload)
                 stats.subjects_created += 1
                 stats.changes.append(
@@ -397,6 +405,11 @@ def _sync_subjects(
                 current_additional.get(k) != v for k, v in payload["additional"].items()
             ):
                 current_additional.update(payload["additional"])
+                patch["additional"] = current_additional
+            # a subject with no colour gets one, as das's admin action does; a
+            # colour the site has is never replaced
+            if not current_additional.get("rgb"):
+                current_additional["rgb"] = random_rgb()
                 patch["additional"] = current_additional
             if patch:
                 api.patch_subject(match["id"], patch)

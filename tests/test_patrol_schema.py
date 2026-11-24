@@ -183,9 +183,12 @@ def test_subject_carries_the_sex_smart_recorded(tmp_path):
             d["employees"][0]["sex"] = "F"
             d["employees"][1]["sex"] = "  "
             d["employees"][2]["sex"] = None
+            d["employees"][3]["sex"] = "m"
+            d["employees"][4]["sex"] = "X"
 
     subjects = build_subjects(_bundle_with(tmp_path, edit))
-    assert [s.sex for s in subjects[:3]] == ["F", None, None]
+    # das's own values, which its admin form and subject icons read
+    assert [s.sex for s in subjects[:5]] == ["female", None, None, "male", None]
     # a bundle written before the field existed
     assert all(s.sex is None for s in build_subjects(load_bundle(FIXTURE)))
 
