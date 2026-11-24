@@ -31,7 +31,6 @@ from .smart_to_er_patrol_schema import (
 logger = logging.getLogger(__name__)
 
 SUBJECT_SUBTYPE = "ranger"
-IDENTITY_KEYS = ("smart_member_id", "smart_employee_id", "smart_ca_uuid")
 CHECKLIST_ORDER = (
     "enable_patrol_schemas",
     "permission_patrol_types",
@@ -233,15 +232,19 @@ def _sync_segment_schema(
 
 
 def _subject_payload(plan) -> dict:
+    additional = {
+        "smart_member_id": plan.smart_member_id,
+        "smart_employee_id": plan.smart_employee_id,
+        "smart_ca_uuid": plan.smart_ca_uuid,
+    }
+    # only what SMART recorded: a bundle without it never clears a site's value
+    if plan.sex:
+        additional["sex"] = plan.sex
     return {
         "name": plan.name,
         "subject_subtype": SUBJECT_SUBTYPE,
         "is_active": plan.is_active,
-        "additional": {
-            "smart_member_id": plan.smart_member_id,
-            "smart_employee_id": plan.smart_employee_id,
-            "smart_ca_uuid": plan.smart_ca_uuid,
-        },
+        "additional": additional,
     }
 
 
@@ -391,8 +394,7 @@ def _sync_subjects(
                 patch["is_active"] = plan.is_active
             current_additional = dict(additional(match))
             if any(
-                current_additional.get(k) != payload["additional"][k]
-                for k in IDENTITY_KEYS
+                current_additional.get(k) != v for k, v in payload["additional"].items()
             ):
                 current_additional.update(payload["additional"])
                 patch["additional"] = current_additional

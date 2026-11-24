@@ -287,6 +287,43 @@ def test_updates_and_legacy_subject_match(no_choice_writes):
     ]
 
 
+def test_sex_is_written_to_new_and_existing_subjects(no_choice_writes):
+    b = load_bundle(FIXTURE)
+    e0, e1, e2 = b.reference.employees[:3]
+    e0.sex, e1.sex = "F", "M"
+
+    def on_site(e, **more):
+        return {
+            "name": " ".join(p for p in (e.given_name, e.family_name) if p),
+            "is_active": True,
+            "additional": {
+                "smart_member_id": e.uuid,
+                "smart_employee_id": e.id,
+                "smart_ca_uuid": b.ca_uuid,
+                **more,
+            },
+        }
+
+    api = FakeAPI(
+        flag=True,
+        schema=EMPTY_SCHEMA,
+        config=NO_TEAM_MEMBERS,
+        subjects=[
+            {"id": "had-none", **on_site(e0, note="kept")},
+            {"id": "had-it", **on_site(e1, sex="M")},
+            # SMART has no value for this one; the site's own is left alone
+            {"id": "site-only", **on_site(e2, sex="F")},
+        ],
+    )
+    run_patrol_datamodel(api, MagicMock(), b)
+    patched = {c[1]: c[2] for c in api.calls if c[0] == "patch_subject"}
+    assert patched["had-none"]["additional"]["sex"] == "F"
+    assert patched["had-none"]["additional"]["note"] == "kept"
+    assert "had-it" not in patched and "site-only" not in patched
+    created = [c[1]["additional"] for c in api.calls if c[0] == "create_subject"]
+    assert created and all("sex" not in a for a in created)
+
+
 def test_flag_off_skips_schema_with_checklist(no_choice_writes):
     b = load_bundle(FIXTURE)
     api = FakeAPI(flag=False)

@@ -41,6 +41,8 @@ class SubjectPlan:
     smart_employee_id: str | None
     smart_ca_uuid: str
     is_active: bool
+    # SMART's value as recorded; None when the bundle has none
+    sex: str | None = None
 
 
 @dataclass(frozen=True)
@@ -212,6 +214,7 @@ def build_subjects(bundle: Bundle) -> list:
                 smart_employee_id=e.id,
                 smart_ca_uuid=bundle.ca_uuid,
                 is_active=e.active,
+                sex=e.sex,
             )
         )
     for uuid in sorted(members - known):

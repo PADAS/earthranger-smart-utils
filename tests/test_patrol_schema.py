@@ -177,6 +177,19 @@ def test_subject_names_and_duplicates(tmp_path):
     assert subjects[0].smart_employee_id == b.reference.employees[0].id
 
 
+def test_subject_carries_the_sex_smart_recorded(tmp_path):
+    def edit(n, d):
+        if n == "reference":
+            d["employees"][0]["sex"] = "F"
+            d["employees"][1]["sex"] = "  "
+            d["employees"][2]["sex"] = None
+
+    subjects = build_subjects(_bundle_with(tmp_path, edit))
+    assert [s.sex for s in subjects[:3]] == ["F", None, None]
+    # a bundle written before the field existed
+    assert all(s.sex is None for s in build_subjects(load_bundle(FIXTURE)))
+
+
 def test_subjects_include_members_without_employment(tmp_path):
     """A leg member missing from the employee list gets a subject named by uuid."""
     ghost = "99999999-9999-9999-9999-999999999999"
