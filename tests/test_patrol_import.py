@@ -541,6 +541,41 @@ def test_a_rerun_with_the_old_ledger_fills_reported_by_without_replaying_anythin
     assert r.exit_code == 0 and api.calls["patch_event"] == n and api.calls["get_event"] == reads
 
 
+def test_a_rerun_with_an_old_ledger_gives_the_legs_their_locations_once(tmp_path):
+    b = load_bundle(FIXTURE)
+    api = FakeAPI(b)
+    r = _run(api, b, tmp_path)
+    located = [
+        s for p in api.patrols.values() for s in p["patrol_segments"] if s.get("start_location")
+    ]
+    assert located and r.counts["legs_located"] == len(located)
+    assert r.counts["legs_located_backfilled"] == 0 and not api.patches
+    assert all("locations" in st for st in _stages(tmp_path))
+    # as a version before leg locations left it: no locations stage in the ledger
+    led = json.loads((tmp_path / "ledger.json").read_text())
+    for site in led.values():
+        for rec in site["patrols"].values():
+            rec["stages"] = [s for s in rec["stages"] if s != "locations"]
+    (tmp_path / "ledger.json").write_text(json.dumps(led))
+    before, posts = Counter(api.calls), api.log.count("post_observations")
+    r = _run(api, b, tmp_path)
+    assert r.exit_code == 0 and r.counts["legs_located_backfilled"] == len(located)
+    # one patch a patrol that has a located leg, of those legs' two points and nothing else
+    sent = [s for p in api.patches for s in p["patrol_segments"]]
+    assert all(set(p) == {"patrol_segments"} for p in api.patches)
+    assert sorted(s["id"] for s in sent) == sorted(s["id"] for s in located)
+    assert all(set(s) == {"id", "start_location", "end_location"} for s in sent)
+    for k in ("create_event", "create_events", "create_patrol", "patch_event"):
+        assert api.calls[k] == before[k], k
+    assert api.log.count("post_observations") == posts
+    assert all("locations" in st for st in _stages(tmp_path))
+    # a third run has nothing to do
+    n = api.calls["patch_patrol"]
+    r = _run(api, b, tmp_path)
+    assert r.exit_code == 0 and api.calls["patch_patrol"] == n
+    assert r.counts["already_imported"] == len(b.patrols)
+
+
 def test_a_fill_that_fails_part_way_finishes_on_the_next_run(tmp_path):
     b = load_bundle(FIXTURE)
     api = FakeAPI(b)

@@ -11,7 +11,7 @@ import tempfile
 import threading
 from pathlib import Path
 
-STAGES = ("patrol", "events", "reporters", "tracks")
+STAGES = ("patrol", "locations", "events", "reporters", "tracks")
 
 
 class ImportLedger:
