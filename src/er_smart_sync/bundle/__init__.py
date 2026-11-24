@@ -79,6 +79,9 @@ class Employee:
     active: bool
     # also a SMART Desktop login; False in bundles written before the field existed
     has_smart_login: bool = False
+    # SMART's employee.gender as recorded (M or F); None in bundles written
+    # before the field existed and where SMART has none
+    sex: str | None = None
 
 
 @dataclass
@@ -401,9 +404,10 @@ def load_bundle(path: Path, *, language: str | None = None) -> Bundle:
                 **{
                     k: e.get(k)
                     for k in Employee.__dataclass_fields__
-                    if k != "has_smart_login"
+                    if k not in ("has_smart_login", "sex")
                 },
                 has_smart_login=bool(e.get("has_smart_login", False)),
+                sex=(e.get("sex") or "").strip() or None,
             )
             for e in r["employees"]
         ],

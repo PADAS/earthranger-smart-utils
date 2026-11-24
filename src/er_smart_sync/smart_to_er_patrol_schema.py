@@ -41,6 +41,8 @@ class SubjectPlan:
     smart_employee_id: str | None
     smart_ca_uuid: str
     is_active: bool
+    # EarthRanger's value (er_sex); None when SMART has none we can read
+    sex: str | None = None
 
 
 @dataclass(frozen=True)
@@ -180,6 +182,16 @@ def _employee_name(e) -> str:
     )
 
 
+_ER_SEX = {"m": "male", "male": "male", "f": "female", "female": "female"}
+
+
+def er_sex(smart_value: str | None) -> str | None:
+    """SMART's employee.gender (`M`, `F`) as the value das keeps in a subject's
+    `additional.sex`: `male` or `female`, which its admin form and its subject
+    icons read. Anything else gives None, and the subject gets no value."""
+    return _ER_SEX.get((smart_value or "").strip().lower())
+
+
 def login_only_employees(bundle: Bundle) -> list:
     """Employees that are SMART Desktop logins and never went on a patrol, such
     as the `smart` admin every SMART install creates. They are accounts, not
@@ -212,6 +224,7 @@ def build_subjects(bundle: Bundle) -> list:
                 smart_employee_id=e.id,
                 smart_ca_uuid=bundle.ca_uuid,
                 is_active=e.active,
+                sex=er_sex(e.sex),
             )
         )
     for uuid in sorted(members - known):
