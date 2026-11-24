@@ -12,6 +12,7 @@ from er_smart_sync.smart_to_er_patrols import (
     build_track_batches,
     build_waypoint,
     event_value,
+    leg_locations,
     track_member,
 )
 
@@ -325,3 +326,96 @@ def test_untimed_tracks_on_one_day_get_distinct_times():
     times = [o["recorded_at"] for b in batches for o in b.observations]
     assert len(times) == 6 and len(set(times)) == 6
     assert all(b.interpolated for b in batches)
+
+
+def _one_day_leg(tracks):
+    day = {
+        "uuid": "d1",
+        "date": "2020-01-01",
+        "start_time": None,
+        "end_time": None,
+        "rest_minutes": None,
+        "start": "2020-01-01T08:00:00+01:00",
+        "end": "2020-01-01T10:00:00+01:00",
+        "has_track": True,
+    }
+    leg = {
+        "uuid": "L",
+        "id": "1",
+        "placeholder_dates": False,
+        "start_date": "2020-01-01",
+        "end_date": "2020-01-01",
+        "days": [day],
+        "waypoints": [],
+        "members": [],  # a leg's place does not depend on whose track it is
+    }
+    by_day = tracks_by_day([{"leg_day_uuid": "d1", **t} for t in tracks])
+    return leg_times(leg, by_day, TZ), by_day
+
+
+def test_leg_locations_are_the_earliest_and_latest_track_points():
+    # the later track is listed first: the order is by time, not by position
+    lt, by_day = _one_day_leg(
+        [
+            {
+                "uuid": "late",
+                "parts": [
+                    {
+                        "coordinates": [[11.5, -0.5], [11.6, -0.6]],
+                        "times": ["2020-01-01T09:00:00+01:00", "2020-01-01T09:30:00+01:00"],
+                    }
+                ],
+            },
+            {
+                "uuid": "early",
+                "parts": [
+                    {
+                        "coordinates": [[11.1, -0.1], [11.2, -0.2]],
+                        "times": ["2020-01-01T08:05:00+01:00", "2020-01-01T08:20:00+01:00"],
+                    }
+                ],
+            },
+        ]
+    )
+    assert leg_locations(lt, by_day) == (
+        {"latitude": -0.1, "longitude": 11.1},
+        {"latitude": -0.6, "longitude": 11.6},
+    )
+
+
+def test_leg_locations_of_an_untimed_track_follow_its_points():
+    lt, by_day = _one_day_leg(
+        [{"uuid": "t", "parts": [{"coordinates": [[11.1, -0.1], [11.2, -0.2], [11.3, -0.3]]}]}]
+    )
+    assert leg_locations(lt, by_day) == (
+        {"latitude": -0.1, "longitude": 11.1},
+        {"latitude": -0.3, "longitude": 11.3},
+    )
+
+
+def test_leg_locations_skip_points_off_the_earth_and_legs_without_a_track():
+    lt, by_day = _one_day_leg(
+        [{"uuid": "t", "parts": [{"coordinates": [[999, 0], [11.2, -0.2], [0, -95]]}]}]
+    )
+    only = {"latitude": -0.2, "longitude": 11.2}
+    assert leg_locations(lt, by_day) == (only, only)
+    lt, by_day = _one_day_leg([])
+    assert leg_locations(lt, by_day) == (None, None)
+    lt, by_day = _one_day_leg([{"uuid": "t", "parts": [{"coordinates": []}]}])
+    assert leg_locations(lt, by_day) == (None, None)
+
+
+def test_patrol_legs_carry_the_ends_of_their_track():
+    b = load_bundle(FIXTURE)
+    for patrol in b.patrols:
+        by_day = tracks_by_day(b.tracks.for_patrol(patrol["uuid"]))
+        plan = build_patrol(b, patrol, NS, _resolver(b), TZ, by_day, "t")
+        for leg, seg in zip(patrol["legs"], plan.patrol["patrol_segments"], strict=True):
+            start, end = leg_locations(plan.leg_times[leg["uuid"]], by_day)
+            assert seg.get("start_location") == start and seg.get("end_location") == end
+    # the demo's first leg: three days of track, its first point and its last
+    patrol = b.patrols[0]
+    by_day = tracks_by_day(b.tracks.for_patrol(patrol["uuid"]))
+    seg = build_patrol(b, patrol, NS, _resolver(b), TZ, by_day, "t").patrol["patrol_segments"][0]
+    assert seg["start_location"] == {"latitude": -0.1806, "longitude": 11.2626}
+    assert seg["end_location"] == {"latitude": -0.2283, "longitude": 11.2774}

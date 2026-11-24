@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 from .bundle import Bundle
 from .choices import sanitize_choice_value, shorten_choice_value
 from .patrol_ids import er_id
-from .patrol_times import DayTimes, LegTimes, fully_timed, leg_times
+from .patrol_times import DayTimes, LegTimes, fully_timed, leg_times, parse_ts
 from .smart_to_er_patrol_schema import CUSTOM_FIELD_PREFIX, choice_value
 
 
@@ -125,6 +125,10 @@ def build_patrol(
         ]
         if patrol.get("team_uuid") in resolver.teams:
             seg["team"] = resolver.teams[patrol["team_uuid"]]
+        start_location, end_location = leg_locations(lt, by_day)
+        if start_location:
+            seg["start_location"] = start_location
+            seg["end_location"] = end_location
         seg["segment_details"] = segment_details(
             bundle, patrol, leg, lt, importer_version
         )
@@ -280,11 +284,10 @@ def _spread(day: DayTimes, n: int) -> list:
     return [(day.start + step * i).isoformat() for i in range(n)]
 
 
-def build_track_batches(leg: dict, lt: LegTimes, by_day: dict) -> list:
-    member = track_member(leg)
-    if member is None:
-        return []
-    out = []
+def _timed_tracks(lt: LegTimes, by_day: dict):
+    """Each track of the leg that has points, a day at a time, as (day, track,
+    coordinates, times, recorded). A track SMART recorded no times for takes
+    times spread over its day."""
     for day in lt.days:
         tracks = by_day.get(day.leg_day_uuid, []) if day.leg_day_uuid else []
         coords_of = {
@@ -305,25 +308,62 @@ def build_track_batches(leg: dict, lt: LegTimes, by_day: dict) -> list:
                 if recorded
                 else [next(spread) for _ in coords]
             )
-            obs = [
-                {
-                    "recorded_at": ts,
-                    "location": {"latitude": c[1], "longitude": c[0]},
-                    "additional": {
-                        "smart_leg_day_uuid": day.leg_day_uuid,
-                        "smart_track_uuid": t.get("uuid"),
-                    },
-                }
-                for c, ts in zip(coords, times, strict=True)
-            ]
-            out.append(
-                TrackBatch(
-                    member,
-                    day.leg_day_uuid,
-                    day.start.isoformat(),
-                    day.end.isoformat(),
-                    obs,
-                    not recorded,
-                )
+            yield day, t, coords, times, recorded
+
+
+def build_track_batches(leg: dict, lt: LegTimes, by_day: dict) -> list:
+    member = track_member(leg)
+    if member is None:
+        return []
+    out = []
+    for day, t, coords, times, recorded in _timed_tracks(lt, by_day):
+        obs = [
+            {
+                "recorded_at": ts,
+                "location": {"latitude": c[1], "longitude": c[0]},
+                "additional": {
+                    "smart_leg_day_uuid": day.leg_day_uuid,
+                    "smart_track_uuid": t.get("uuid"),
+                },
+            }
+            for c, ts in zip(coords, times, strict=True)
+        ]
+        out.append(
+            TrackBatch(
+                member,
+                day.leg_day_uuid,
+                day.start.isoformat(),
+                day.end.isoformat(),
+                obs,
+                not recorded,
             )
+        )
     return out
+
+
+def _on_earth(c) -> bool:
+    try:
+        return -180 <= c[0] <= 180 and -90 <= c[1] <= 90
+    except (TypeError, IndexError):
+        return False
+
+
+def leg_locations(lt: LegTimes, by_day: dict) -> tuple:
+    """Where the leg started and ended: the earliest and the latest point of
+    its track, by the times the track import gives them, each as das takes a
+    point. (None, None) for a leg with no track, which SMART gives no place."""
+    points = [
+        (parse_ts(ts), c)
+        for _day, _t, coords, times, _recorded in _timed_tracks(lt, by_day)
+        for c, ts in zip(coords, times, strict=True)
+        if _on_earth(c)
+    ]
+    if not points:
+        return None, None
+    first = min(points, key=lambda p: p[0])[1]
+    last = max(points, key=lambda p: p[0])[1]
+
+    def point(c):
+        return {"latitude": c[1], "longitude": c[0]}
+
+    return point(first), point(last)

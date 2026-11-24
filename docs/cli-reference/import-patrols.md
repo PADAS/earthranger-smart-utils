@@ -47,6 +47,7 @@ Exit status:
   - the team, matched by name;
   - the leader and the members, matched by `smart_member_id`;
   - its time range;
+  - its start and end locations: the earliest and the latest point of its track, by the times the track import gives the points. A leg with no track has neither;
   - the universal patrol fields `patrol-datamodel` set up.
 - `segment_details.smart_` records where the segment came from: the patrol and leg uuids and ids, the conservation area, the bundle's date, the importer version, and `time_source`.
 - `time_source` maps each leg day to where its times came from: `track`, `leg_day_times`, `waypoints`, `date_only` or `placeholder` (see smart-able's `quirks.html#patrol-times`).
@@ -112,12 +113,12 @@ Library callers can pass `progress=` and `stop=`. `progress` is called with `{ph
 The patrol is read before it is written, and that read lists the events already on its segments, so existing events are skipped. Events are created in lists, without a read per event. das answers a duplicate id with a 500, not a 409; the import recovers from it by reading that one event. Attachments are guarded by the ledger and, without it, by the event's own file list. das also discards a track point it already has.
 
 The ledger records, per site and conservation area:
-- the stages each patrol finished (patrol, events, tracks);
+- the stages each patrol finished (patrol, locations, events, reporters, tracks);
 - the patrol id;
 - the waypoints whose attachments were posted;
 - the rangers reactivated for the run.
 
-A re-run skips finished stages. A dry run neither writes to ER nor writes the ledger.
+A re-run skips finished stages. A patrol written by a version before leg locations has no `locations` stage: the next run patches its legs with their two points, once, and sends nothing else of the patrol again. A dry run neither writes to ER nor writes the ledger.
 
 Without the ledger, a re-run still writes no duplicates. Every patrol and event is looked up by id, and an attachment is skipped when its event already holds a file of that name.
 

@@ -159,6 +159,25 @@ def _import_patrol_stage(api, plan, patrol: dict) -> dict:
     return ERPatrolAPI.events_of(existing)
 
 
+def _located(plan) -> list:
+    """The planned segments that have a place to start and end, as a patch."""
+    return [
+        {k: seg[k] for k in ("id", "start_location", "end_location")}
+        for seg in plan.patrol["patrol_segments"]
+        if seg.get("start_location")
+    ]
+
+
+def _fill_locations(api, plan, counts) -> None:
+    """The locations stage alone, for a patrol a version before leg locations
+    put on the site: one patch of the legs that have a track, and nothing
+    else of the patrol is sent again."""
+    located = _located(plan)
+    if located:
+        api.patch_patrol(plan.patrol["id"], {"patrol_segments": located})
+        counts["legs_located_backfilled"] += len(located)
+
+
 def _backfill_reported_by(api, planned: list, known: dict, counts) -> None:
     """Events already on the site: count the reporter each one has, and give
     each one that has none the value this run plans for it. Every candidate
@@ -429,6 +448,11 @@ def _import_one(
         if "patrol" not in done:
             known = _import_patrol_stage(api, plan, p)
             ledger.done(p["uuid"], "patrol", patrol_id=plan.patrol["id"])
+            ledger.done(p["uuid"], "locations")  # the patrol body carries them
+            counts["legs_located"] += len(_located(plan))
+        elif "locations" in want and "locations" not in done:
+            _fill_locations(api, plan, counts)
+            ledger.done(p["uuid"], "locations")
         if "events" in want and "events" not in done:
             _import_events(api, bundle, p, plan, ns, resolver, ledger, counts, known)
             ledger.done(p["uuid"], "events")
@@ -482,7 +506,7 @@ def run_import(
             reasons.setdefault(p, []).append(f.code)
     selected = []
     want = (
-        {"patrol"}
+        {"patrol", "locations"}
         | (set() if opts.skip_events else {"events", "reporters"})
         | (set() if opts.skip_tracks else {"tracks"})
     )
